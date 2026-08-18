@@ -1,56 +1,164 @@
+<%
+    const normalizedState = String(data.state || "").toLowerCase();
+    const isMerged = data.merged === true || Boolean(data.dates?.merged_at);
+    const status = isMerged
+        ? { label: "MERGED", icon: "bi-check-circle-fill", className: "pr-status-merged" }
+        : normalizedState === "closed"
+            ? { label: "CLOSED", icon: "bi-x-circle-fill", className: "pr-status-closed" }
+            : normalizedState === "open"
+                ? { label: "OPEN", icon: "bi-record-circle-fill", className: "pr-status-open" }
+                : { label: "STATUS UNAVAILABLE", icon: "bi-question-circle-fill", className: "pr-status-unknown" };
+    const metricLabels = {
+        commits: "Commits",
+        reviews: "Reviews",
+        comments: "Comments",
+        changes_requested: "Changes requested",
+    };
+    const metrics = Object.entries(data.summary || {})
+        .filter(([name, value]) => metricLabels[name] && value !== null && value !== undefined && value !== "")
+        .map(([name, value]) => ({ label: metricLabels[name], value }));
+    const evidenceCandidates = [
+        [ "selected", "Selected evidence", data.evidence?.selected ],
+        [ "pull_request_comments", "Pull request comments", data.evidence?.pull_request_comments ],
+        [ "review_comments", "Review comments", data.evidence?.review_comments ],
+        [ "timeline", "Timeline", data.evidence?.timeline ],
+        [ "changes_requested", "Requested changes", data.evidence?.changes_requested ],
+        [ "diff_hunk", "Diff context", data.evidence?.diff_hunk ],
+    ];
+    const evidenceSections = evidenceCandidates
+        .filter(([, , value]) => value !== null && value !== undefined && value !== "")
+        .map(([key, label, value]) => ({ key, label, value }));
+    if (evidenceSections.length === 0 && data.evidence?.all_text) {
+        evidenceSections.push({ key: "all_text", label: "All available evidence", value: data.evidence.all_text });
+    }
+%>
 <% if (data && data.source_type && data.title) { %>
-    <article class="card shadow-sm" aria-labelledby="pr-card-title">
-        <div class="card-body">
-            <div class="d-flex justify-content-between align-items-start gap-3">
-                <div>
-                    <p class="text-muted mb-1">
-                        <%= data.repository || "Repository unavailable" %> #<%= data.pr_number || "?" %>
-                    </p>
-                    <h2 class="card-title h3" id="pr-card-title"><%= data.title %></h2>
+    <article class="pr-card card border-0 shadow-sm overflow-hidden" aria-labelledby="pr-card-title">
+        <header class="pr-card-header p-4 p-lg-5">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+                <div class="min-w-0">
+                    <div class="pr-card-kicker mb-2">
+                        <span><i class="bi bi-git-pull-request me-1" aria-hidden="true"></i>Pull request</span>
+                        <span class="text-muted">/</span>
+                        <span class="text-break"><%= data.repository || "Repository unavailable" %></span>
+                        <span class="text-muted">#<%= data.pr_number || "?" %></span>
+                    </div>
+                    <h2 class="pr-card-title mb-0" id="pr-card-title"><%= data.title %></h2>
                 </div>
                 <% if (data.html_url) { %>
-                    <a class="btn btn-outline-secondary" href="<%= data.html_url %>" target="_blank"
-                       rel="noopener noreferrer">Reference on GitHub</a>
+                    <a class="btn btn-dark rounded-pill px-3 flex-shrink-0" href="<%= data.html_url %>" target="_blank"
+                       rel="noopener noreferrer">
+                        <i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>Open on GitHub
+                    </a>
                 <% } %>
             </div>
-            <dl class="row mb-3">
-                <dt class="col-sm-3">Language (CSV)</dt>
-                <dd class="col-sm-9"><%= data.language || "Not available" %></dd>
-                <dt class="col-sm-3">State</dt>
-                <dd class="col-sm-9"><%= data.state || "Not available" %></dd>
-                <dt class="col-sm-3">Author</dt>
-                <dd class="col-sm-9"><%= data.author || "Not available" %></dd>
-                <dt class="col-sm-3">Dates</dt>
-                <dd class="col-sm-9">
-                    Created: <%= data.dates?.created_at || "—" %> ·
-                    Merged: <%= data.dates?.merged_at || "—" %>
-                </dd>
-            </dl>
+            <div class="d-flex flex-wrap gap-2 mt-4" aria-label="Pull request status and source">
+                <span class="pr-status badge rounded-pill <%= status.className %>">
+                    <i class="bi <%= status.icon %> me-1" aria-hidden="true"></i><%= status.label %>
+                </span>
+                <% if (isMerged && normalizedState === "closed") { %>
+                    <span class="badge rounded-pill text-bg-light border">GitHub state: CLOSED</span>
+                <% } %>
+                <span class="badge rounded-pill text-bg-light border">
+                    <i class="bi bi-database me-1" aria-hidden="true"></i>Source: <%= data.source_type %>
+                </span>
+                <% if (data.language) { %>
+                    <span class="badge rounded-pill pr-language-badge">
+                        <i class="bi bi-code-slash me-1" aria-hidden="true"></i><%= data.language %> language
+                    </span>
+                <% } %>
+            </div>
+        </header>
+
+        <div class="card-body p-4 p-lg-5">
+            <div class="pr-meta-grid mb-4">
+                <div class="pr-meta-item">
+                    <span class="pr-meta-label"><i class="bi bi-person me-1" aria-hidden="true"></i>Author</span>
+                    <strong class="text-break"><%= data.author || "Not available" %></strong>
+                </div>
+                <div class="pr-meta-item">
+                    <span class="pr-meta-label"><i class="bi bi-calendar3 me-1" aria-hidden="true"></i>Created</span>
+                    <strong><%= data.dates?.created_at || "Not available" %></strong>
+                </div>
+                <div class="pr-meta-item">
+                    <span class="pr-meta-label"><i class="bi bi-calendar-x me-1" aria-hidden="true"></i>Closed</span>
+                    <strong><%= data.dates?.closed_at || "Not available" %></strong>
+                </div>
+                <div class="pr-meta-item">
+                    <span class="pr-meta-label"><i class="bi bi-check2-circle me-1" aria-hidden="true"></i>Merged</span>
+                    <strong><%= data.dates?.merged_at || "Not available" %></strong>
+                </div>
+            </div>
+
             <% if (data.body) { %>
-                <h3 class="h5">Description</h3>
-                <pre class="border rounded p-3 text-wrap"><%= data.body %></pre>
-            <% } %>
-            <% if (data.summary) { %>
-                <h3 class="h5">Available metrics</h3>
-                <div class="row row-cols-2 row-cols-md-4 g-2 mb-3">
-                    <% Object.entries(data.summary).forEach(([name, value]) => { %>
-                        <% if (value !== null && value !== undefined && value !== "") { %>
-                            <div class="col"><div class="border rounded p-2"><small class="text-muted d-block"><%= name %></small><%= value %></div></div>
-                        <% } %>
-                    <% }); %>
+                <section class="pr-section" aria-labelledby="pr-description-title">
+                    <div class="pr-section-heading">
+                        <div>
+                            <span class="pr-section-eyebrow">01 / Context</span>
+                            <h3 class="h4 mb-0" id="pr-description-title">Description</h3>
+                        </div>
+                        <span class="badge rounded-pill text-bg-light border">Markdown</span>
+                    </div>
+                    <div class="pr-markdown"><%- renderSafeMarkdown(data.body) %></div>
+                </section>
+            <% } else { %>
+                <div class="alert alert-light border d-flex align-items-center gap-2 mb-4" role="status">
+                    <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    <span>Description not available in the dataset.</span>
                 </div>
             <% } %>
-            <% if (data.evidence?.selected || data.evidence?.all_text) { %>
-                <details>
-                    <summary>Evidence available in CSV</summary>
-                    <div class="mt-3">
-                        <pre class="border rounded p-3 text-wrap"><%= data.evidence.selected || data.evidence.all_text %></pre>
+
+            <% if (metrics.length > 0) { %>
+                <section class="pr-section" aria-labelledby="pr-metrics-title">
+                    <div class="pr-section-heading">
+                        <div>
+                            <span class="pr-section-eyebrow">02 / Signal</span>
+                            <h3 class="h4 mb-0" id="pr-metrics-title">Available metrics</h3>
+                        </div>
+                        <span class="text-muted small"><%= metrics.length %> values</span>
                     </div>
-                </details>
+                    <div class="pr-metrics-grid">
+                        <% metrics.forEach(metric => { %>
+                            <div class="pr-metric">
+                                <span class="pr-metric-label"><%= metric.label %></span>
+                                <strong class="pr-metric-value"><%= metric.value %></strong>
+                            </div>
+                        <% }); %>
+                    </div>
+                </section>
             <% } %>
-            <details class="mt-3">
-                <summary>Original JSON data</summary>
-                <pre class="border rounded p-3 mt-2 overflow-auto"><code><%= JSON.stringify(data.raw_payload, null, 2) %></code></pre>
+
+            <section class="pr-section" aria-labelledby="pr-evidence-title">
+                <div class="pr-section-heading">
+                    <div>
+                        <span class="pr-section-eyebrow">03 / Evidence</span>
+                        <h3 class="h4 mb-0" id="pr-evidence-title">Review history and evidence</h3>
+                    </div>
+                    <span class="badge rounded-pill text-bg-light border"><%= evidenceSections.length %> sections</span>
+                </div>
+                <% if (evidenceSections.length > 0) { %>
+                    <div class="pr-evidence-list">
+                        <% evidenceSections.forEach((section, index) => { %>
+                            <details class="pr-evidence-item" <%= index === 0 ? "open" : "" %>>
+                                <summary>
+                                    <span><i class="bi bi-chat-square-text me-2" aria-hidden="true"></i><%= section.label %></span>
+                                    <span class="text-muted small">Inspect</span>
+                                </summary>
+                                <div class="pr-markdown mt-3"><%- renderSafeMarkdown(section.value) %></div>
+                            </details>
+                        <% }); %>
+                    </div>
+                <% } else { %>
+                    <div class="pr-empty-state">
+                        <i class="bi bi-inbox" aria-hidden="true"></i>
+                        <span>No textual evidence is available for this card.</span>
+                    </div>
+                <% } %>
+            </section>
+
+            <details class="pr-raw-data">
+                <summary><i class="bi bi-braces me-2" aria-hidden="true"></i>Inspect original CSV JSON</summary>
+                <pre class="mt-3 mb-0"><code><%= JSON.stringify(data.raw_payload, null, 2) %></code></pre>
             </details>
         </div>
     </article>

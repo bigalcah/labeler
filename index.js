@@ -16,6 +16,7 @@ import {parse as parseUserAgent} from "useragent";
 import {createStream as createRotatingFileStream} from "rotating-file-stream";
 import {Server as IO} from "socket.io";
 import HTTPStatus from "./util/http-status.js";
+import {renderSafeMarkdown} from "./util/safe-markdown.js";
 
 config();
 
@@ -67,6 +68,7 @@ app.use((req, res, next) => {
     res.locals.path = req.baseUrl + req.path;
     const user_agent = req.headers["user-agent"];
     res.locals.os = parseUserAgent(user_agent).os.family;
+    res.locals.renderSafeMarkdown = renderSafeMarkdown;
     next();
 });
 app.use(

@@ -34,6 +34,13 @@ export const get = async (req, res) => {
             [ participant.id ],
         )
         : { rows: [] };
+    if (card) {
+        card.dates = {
+            created_at: card.created_at_source,
+            closed_at: card.closed_at_source,
+            merged_at: card.merged_at_source,
+        };
+    }
     res.render("review", {
         participant,
         categories,

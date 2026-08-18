@@ -28,7 +28,7 @@
 - [x] 4.3 Mostrar evidencia seleccionada, comentarios y JSON original bajo demanda sin ejecutar HTML no confiable.
 - [x] 4.4 Mostrar enlace externo a GitHub como referencia opcional, sin iframe ni consulta desde el navegador.
 - [x] 4.5 Añadir estados vacíos para campos ausentes y tarjetas con evidencia incompleta.
-- [ ] 4.6 Verificar visualmente una muestra con cuerpos multilínea, Markdown, JSON incrustado y campos vacíos.
+- [x] 4.6 Verificar visualmente una muestra con cuerpos multilínea, Markdown, JSON incrustado y campos vacíos.
 
 ## 5. Clasificador local
 
