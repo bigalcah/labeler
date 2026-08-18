@@ -12,6 +12,7 @@
     "lint:md": "markdownlint *.md",
     "minify": "npm-run-all --parallel minify:*",
     "minify:css": "cleancss --batch --batch-suffix '' public/css/*.css",
+    "import:csv": "node scripts/import-pr-csv.js",
     "start": "NODE_ENV=production node index.js",
     "dev": "nodemon index.js"
   },
@@ -43,6 +44,7 @@
   "dependencies": {
     "body-parser": "^2.2.1",
     "compression": "^1.8.1",
+    "csv-parse": "^6.2.1",
     "dotenv": "^16.6.0",
     "ejs": "^3.1.10",
     "express": "^4.21.2",

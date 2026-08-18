@@ -12,6 +12,9 @@ services:
       dockerfile: deployment/database/Dockerfile
     volumes:
       - data:/var/lib/postgresql/data
+      - ../test-data/label.txt:/docker-entrypoint-initdb.d/label.txt:ro
+      - ../test-data/reviewer.txt:/docker-entrypoint-initdb.d/reviewer.txt:ro
+      - ../test-data/instance.tsv:/docker-entrypoint-initdb.d/instance.tsv:ro
     networks: [ default ]
     environment:
       POSTGRES_DB: ${DATABASE_NAME}
@@ -27,6 +30,8 @@ services:
       context: ../
       dockerfile: deployment/server/Dockerfile
     networks: [ default ]
+    volumes:
+      - ../plans/merged_after_rework_cards_seed_20260510.csv:/labeling/plans/prs.csv:ro
     environment:
       DATABASE_HOST: labeling-database
       DATABASE_PORT: 5432

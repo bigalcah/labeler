@@ -256,3 +256,9 @@ instance.*
 label.txt
 reviewer.txt
 docker-compose.*.yml
+
+# Test fixtures for local development
+!test-data/
+!test-data/label.txt
+!test-data/reviewer.txt
+!test-data/instance.tsv

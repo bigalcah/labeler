@@ -1,347 +1,106 @@
 <!DOCTYPE html>
 <html lang="en">
     <head>
-        <title>Labeling - Queue</title>
+        <title>Labeler - PR classification</title>
         <%- include('./partials/head/meta'); %>
         <%- include('./partials/head/link'); %>
         <%- include('./partials/head/noscript'); %>
     </head>
     <body class="min-vh-100 mw-100 d-flex flex-column justify-content-between">
-        <%- include('./partials/header', { reviewer: reviewer }); %>
+        <%- include('./partials/header'); %>
         <main>
             <div class="container">
-                <% if (!!reviewer && !!instance) { %>
-                    <div class="row">
-                        <div class="col d-flex justify-content-center">
-                            <h1 class="font-monospace mb-3">
-                                <%- instance.category %>
-                            </h1>
-                        </div>
+                <% if (participant && card) { %>
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h1 class="h3 mb-0">PR classification</h1>
+                        <span class="text-muted">
+                            <%= progress.completed %>/<%= total %> classified by <%= participant.name %>
+                        </span>
                     </div>
-                    <div class="row">
-                        <div class="col overflow-hidden">
-                            <%- include('./partials/instance/data', { data: instance.data }); %>
-                        </div>
-                    </div>
-                    <div class="row gap-2 gap-md-0">
-                        <div class="col-12 col-md-6 d-grid d-md-block text-md-end">
-                            <button type="button"
-                                    class="btn btn-primary"
-                                    data-bs-toggle="offcanvas"
-                                    data-bs-target="#label-offcanvas"
-                                    aria-controls="label-offcanvas"
-                                    autofocus
-                            >
-                                Label
-                            </button>
-                        </div>
-                        <div class="col-12 col-md-6 d-grid d-md-block text-md-start">
-                            <button type="button"
-                                    class="btn btn-danger"
-                                    data-bs-toggle="offcanvas"
-                                    data-bs-target="#discard-offcanvas"
-                                    aria-controls="discard-offcanvas"
-                            >
-                                Discard
-                            </button>
-                        </div>
-                    </div>
-                    <div id="label-offcanvas"
-                         class="offcanvas offcanvas-start"
-                         aria-labelledby="label-offcanvas-title"
-                         tabindex="-1"
-                    >
-                        <div class="offcanvas-header">
-                            <h5 class="offcanvas-title" id="label-offcanvas-title">Assign Labels</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close">
-                            </button>
-                        </div>
-                        <div class="offcanvas-body">
-                            <form id="label-add" class="mb-2">
-                                <div class="input-group">
-                                    <input type="text"
-                                           id="label-add-input"
-                                           class="form-control"
-                                           placeholder="Define a new label..."
-                                           aria-describedby="label-add-button"
-                                           aria-label="New Label"
-                                           required
-                                    />
-                                    <button type="submit" id="label-add-button" class="btn btn-dark">
-                                        Add!
+
+                    <%- include('./partials/instance/data', { data: card }); %>
+
+                    <section class="card mt-3" aria-labelledby="classification-title">
+                        <div class="card-body">
+                            <h2 class="h5" id="classification-title">Main cause of rework or extra effort</h2>
+                            <form action="/<%= encodeURIComponent(participant.name) %>/queue/<%= card.id %>/classify"
+                                  method="post">
+                                <label class="form-label" for="category-id">Personal category</label>
+                                <div class="input-group mb-3">
+                                    <select id="category-id" name="category_id" class="form-select" required>
+                                        <option value="" selected disabled>Select or create a category...</option>
+                                        <% categories.forEach(category => { %>
+                                            <option value="<%= category.id %>"><%= category.raw_name %></option>
+                                        <% }); %>
+                                    </select>
+                                    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal"
+                                            data-bs-target="#new-category-modal">
+                                        New category
                                     </button>
                                 </div>
+                                <label class="form-label" for="remarks">Observation (optional)</label>
+                                <textarea id="remarks" name="remarks" class="form-control mb-3" rows="4"
+                                          placeholder="Why does this category describe the main cause?"></textarea>
+                                <button class="btn btn-primary" type="submit">Save classification and continue</button>
                             </form>
-                            <input type="text"
-                                   id="label-filter"
-                                   class="form-control mb-2"
-                                   placeholder="Filter existing labels..."
-                                   aria-label="Filter Labels"
-                            />
-                            <form id="label-instance">
-                                <select id="label-instance-select"
-                                        class="form-select mb-2"
-                                        aria-label="Assign Labels"
-                                        size="10"
-                                        multiple
-                                        required
-                                >
-                                    <% labels.forEach(label => { %>
-                                        <option value="<%- label.id %>"><%- label.name %></option>
-                                    <% }) %>
-                                </select>
-                                <%
-                                    switch (locals.os) {
-                                    case "Mac OS X":
-                                %>
-                                    <p class="text-center text-muted user-select-none border rounded mb-2">
-                                        Hold <i class="bi bi-command"></i> to select multiple labels
-                                    </p>
-                                <%
-                                    break;
-                                    case "Windows":
-                                %>
-                                    <p class="text-center text-muted user-select-none border rounded mb-2">
-                                        Hold Ctrl to select multiple labels
-                                    </p>
-                                <%
-                                    break;
-                                    default:
-                                    break;
-                                    }
-                                %>
-                                <div class="form-check mb-2">
-                                    <input id="label-instance-interesting"
-                                           class="form-check-input"
-                                           type="checkbox"
-                                           value=""
-                                    />
-                                    <label for="label-instance-interesting" class="form-check-label">
-                                        This instance is interesting
-                                    </label>
-                                </div>
-                                <div class="form-group mb-2">
-                                    <label for="label-instance-remarks">Remarks:</label>
-                                    <textarea id="label-instance-remarks"
-                                              class="form-control"
-                                              style="resize: none"
-                                              rows="10"
-                                    ></textarea>
-                                </div>
-                                <div class="d-grid">
-                                    <button type="submit" class="btn btn-primary btn-lg">
-                                        Label Instance!
-                                    </button>
-                                </div>
-                            </form>
-                            <%-
-                                include(
-                                    './partials/toast',
-                                    {
-                                        id: "label-add-toast",
-                                        body: "Label already exists!",
-                                        variant: "danger"
-                                    }
-                                )
-                            %>
                         </div>
-                    </div>
-                    <div id="discard-offcanvas"
-                         class="offcanvas offcanvas-end"
-                         aria-labelledby="discard-offcanvas-title"
-                    >
-                        <div class="offcanvas-header">
-                            <h5 class="offcanvas-title" id="discard-offcanvas-title">Provide Additional Information</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close">
-                            </button>
-                        </div>
-                        <div class="offcanvas-body">
-                            <form id="discard-instance">
-                                <div class="form-group">
-                                    <label class="form-check-label" for="discard-instance-remarks">
-                                        Remarks:
-                                    </label>
-                                    <div class="position-relative mb-2">
-                                        <input id="discard-instance-remarks"
-                                               class="form-control autocomplete"
-                                               placeholder="Type to reveal suggestions..."
-                                               data-server="/discards/remarks"
-                                               data-query-param="name"
-                                        />
-                                        <div id="discard-instance-remarks-spinner"
-                                             class="position-absolute top-50 end-0 translate-middle-y p-2 opacity-75 z-10 d-none"
-                                        >
-                                            <div class="spinner-border spinner-border-sm text-secondary" role="status">
-                                                <span class="visually-hidden">Loading...</span>
-                                            </div>
+                    </section>
+
+                    <div class="modal fade" id="new-category-modal" tabindex="-1" aria-labelledby="new-category-title">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h2 class="modal-title h5" id="new-category-title">New personal category</h2>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <form id="new-category-form">
+                                    <div class="modal-body">
+                                        <label class="form-label" for="category-name">Name</label>
+                                        <input id="category-name" class="form-control" required maxlength="160">
+                                        <div id="category-error" class="text-danger mt-2 d-none" role="alert">
+                                            This category already exists or could not be created.
                                         </div>
                                     </div>
-                                </div>
-                                <div class="d-grid">
-                                    <button type="submit" class="btn btn-danger btn-lg">
-                                        Discard Instance!
-                                    </button>
-                                </div>
-                            </form>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                        <button type="submit" class="btn btn-primary">Create category</button>
+                                    </div>
+                                </form>
+                            </div>
                         </div>
                     </div>
-                    <%-
-                        include(
-                            './partials/toast',
-                            {
-                                id: "socket-disconnect-toast",
-                                body: "Server connection lost!",
-                                variant: "danger"
-                            }
-                        )
-                    %>
-                    <%-
-                        include(
-                            './partials/toast',
-                            {
-                                id: "socket-reconnect-toast",
-                                body: "Server connection restored!",
-                                variant: "success"
-                            }
-                        )
-                    %>
-                <% } else if (!!reviewer && !instance) { %>
-                    <h1 class="text-center mb-3">
-                        <i class="bi bi-emoji-smile-fill"></i>
-                        Review Queue Cleared!
-                    </h1>
+                <% } else if (participant) { %>
+                    <h1 class="text-center mb-3">Classification queue complete</h1>
+                    <p class="text-center">You classified all available PR cards.</p>
                 <% } else { %>
-                    <h1 class="text-center mb-3">
-                        <i class="bi bi-emoji-dizzy-fill"></i>
-                        You Must Log In First!
-                    </h1>
+                    <h1 class="text-center mb-3">Select a participant from the login page</h1>
                     <%- include('./partials/home-button'); %>
                 <% } %>
             </div>
         </main>
         <%- include('./partials/footer'); %>
         <%- include('./partials/scripts/bootstrap'); %>
-        <%- include('./partials/scripts/normalize') %>
-        <%- include('./partials/scripts/hljs'); %>
-        <%- include('./partials/scripts/autocomplete'); %>
-        <% if (!!reviewer && !!instance) { %>
-            <script type="module">
-                import axios from "https://cdn.jsdelivr.net/npm/axios@1.7.2/+esm";
-                import {io} from "https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/+esm";
-
-                const socket = io();
-                const reviewer_id = Number(`<%- reviewer.id %>`);
-                const instance_id = Number(`<%- instance.id %>`);
-                const labelFilter = document.getElementById("label-filter");
-                const labelAddForm = document.getElementById("label-add");
-                const labelAddInput = document.getElementById("label-add-input");
-                const labelAddToast = document.getElementById("label-add-toast");
-                const labelInstance = document.getElementById("label-instance");
-                const labelInstanceSelect = document.getElementById("label-instance-select");
-                const labelInstanceInteresting = document.getElementById("label-instance-interesting");
-                const labelInstanceRemarks = document.getElementById("label-instance-remarks");
-                const discardInstance = document.getElementById("discard-instance");
-                const discardInstanceRemarks = document.getElementById("discard-instance-remarks");
-                const socketDisconnectToast = document.getElementById("socket-disconnect-toast");
-                const socketReconnectToast = document.getElementById("socket-reconnect-toast");
-
-                const refresh = () => history.go();
-                const toast = (element) => new bootstrap.Toast(element).show();
-
-                const addOption = (label) => {
-                    const search = normalize(labelFilter.value) ?? "";
-                    const options = labelInstanceSelect.options;
-                    const option = new Option(label.name, label.id);
-                    if (!label.name.includes(search)) {
-                        option.classList.add("d-none");
-                    }
-
-                    if (options.length === 0) {
-                        labelInstanceSelect.appendChild(option);
+        <% if (participant && card) { %>
+            <script>
+                const categoryForm = document.getElementById("new-category-form");
+                categoryForm.addEventListener("submit", async event => {
+                    event.preventDefault();
+                    const error = document.getElementById("category-error");
+                    error.classList.add("d-none");
+                    const response = await fetch("/<%= encodeURIComponent(participant.name) %>/categories", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ name: document.getElementById("category-name").value }),
+                    });
+                    if (!response.ok) {
+                        error.classList.remove("d-none");
                         return;
                     }
-
-                    let lower = 0;
-                    let upper = options.length - 1;
-                    let index = -1;
-                    while (lower <= upper) {
-                        const median = Math.floor((lower + upper) / 2);
-                        const current = options.item(median);
-                        if (current.innerHTML < option.innerHTML) {
-                            lower = median + 1;
-                        } else {
-                            upper = median - 1;
-                            index = median;
-                        }
-                    }
-
-                    if (index === -1) {
-                        labelInstanceSelect.appendChild(option);
-                    } else {
-                        labelInstanceSelect.insertBefore(option, options.item(index));
-                    }
-                };
-
-                const removeOption = (label) => {
-                    const selector = `option[value='${label.id}']`;
-                    const target = labelInstanceSelect.querySelector(selector);
-                    target.remove();
-                };
-
-                labelFilter.addEventListener("input", () => {
-                    const search = normalize(labelFilter.value) ?? "";
-                    const existing_options = labelInstanceSelect.options;
-                    for (let idx = 0; idx < existing_options.length; idx++) {
-                        const current_option = existing_options.item(idx);
-                        const current_option_classes = current_option.classList;
-                        const label = current_option.innerHTML;
-                        if (label.includes(search)) {
-                            current_option_classes.remove("d-none");
-                        } else {
-                            current_option_classes.add("d-none");
-                        }
-                    }
+                    const category = await response.json();
+                    document.getElementById("category-id").add(new Option(category.raw_name, category.id, true, true));
+                    bootstrap.Modal.getInstance(document.getElementById("new-category-modal")).hide();
+                    categoryForm.reset();
                 });
-
-                labelAddForm.addEventListener("submit", (event) => {
-                    event.preventDefault();
-                    const name = normalize(labelAddInput.value);
-                    labelAddInput.value = null;
-                    axios.post("/labels", { name: name })
-                        .then(({ data: label }) => {
-                            addOption(label);
-                            socket.emit("label_added", label);
-                        })
-                        .catch(() => toast(labelAddToast));
-                });
-
-                labelInstance.addEventListener("submit", (event) => {
-                    event.preventDefault();
-                    const selected = [ ...labelInstanceSelect.selectedOptions ].map(({ value }) => Number(value));
-                    const payload = {
-                        reviewer_id: reviewer_id,
-                        label_ids: selected,
-                        is_interesting: labelInstanceInteresting.checked,
-                        remarks: normalize(labelInstanceRemarks.value),
-                    };
-                    axios.post(`/instances/${instance_id}/review`, payload).then(refresh);
-                });
-
-                discardInstance.addEventListener("submit", (event) => {
-                    event.preventDefault();
-                    const remarks = normalize(discardInstanceRemarks.value);
-                    const payload = { reviewer_id: reviewer_id, remarks: remarks };
-                    axios.post(`/instances/${instance_id}/discard`, payload).then(refresh);
-                });
-
-                socket.on("label_append", (label) => addOption(label));
-                socket.on("label_detach", (label) => removeOption(label));
-                socket.on("label_replace", ({ id, old_name, new_name }) => {
-                    removeOption({ id: id, name: old_name });
-                    addOption({ id: id, name: new_name });
-                });
-                socket.on("disconnect", () => toast(socketDisconnectToast));
-                socket.io.on("reconnect", () => toast(socketReconnectToast));
             </script>
         <% } %>
     </body>

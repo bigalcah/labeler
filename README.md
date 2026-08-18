@@ -1,5 +1,28 @@
 # Labeler
 
+## PR card demo import
+
+The current PR card prototype reads the research CSV locally and does not call GitHub. From the repository root, run:
+
+```bash
+npm ci
+npm run import:csv -- plans/merged_after_rework_cards_seed_20260510.csv /tmp/pr-cards.json
+```
+
+The importer supports the CSV header, multiline quoted fields, embedded JSON and reports logical records imported or
+rejected. GitHub enrichment is reserved for a later provider using the same card contract.
+
+For the Docker demo, start the stack and persist the cards in the database container:
+
+```bash
+docker compose --env-file deployment/.env -f deployment/docker-compose.yml up --build -d
+docker compose --env-file deployment/.env -f deployment/docker-compose.yml exec labeling-server \
+  npm run import:csv -- /labeling/plans/prs.csv /tmp/pr-cards.json --persist
+```
+
+Then open `http://localhost:7755/login`. The current demo selector is intentionally temporary; the three local
+participants classify the same 300 cards and keep separate personal categories.
+
 ## Usage
 
 To get started with the labeler, you'll need to define the following environment variables in a `.env` file:

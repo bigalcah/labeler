@@ -4,6 +4,7 @@ WORKDIR /build
 
 COPY public public/
 COPY routes routes/
+COPY scripts scripts/
 COPY util util/
 COPY views views/
 COPY index.js          \

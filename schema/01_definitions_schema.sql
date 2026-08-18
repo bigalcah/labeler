@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TYPE "conflict" AS ENUM (
   '1', -- Tags
   '2'  -- Discard
@@ -49,6 +51,60 @@ CREATE TABLE "instance_review_conflict_resolution" (
   "resolved_at" TIMESTAMP DEFAULT (NOW()),
   PRIMARY KEY ("instance_id", "conflict")
 );
+
+CREATE TABLE "pr_cards" (
+  "id" UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  "source_card_id" TEXT UNIQUE NOT NULL,
+  "source_pr_id" TEXT,
+  "repository" TEXT,
+  "pr_number" INTEGER,
+  "title" TEXT NOT NULL,
+  "body" TEXT,
+  "author" TEXT,
+  "language" TEXT,
+  "state" TEXT,
+  "merged" BOOLEAN,
+  "html_url" TEXT,
+  "created_at_source" TEXT,
+  "closed_at_source" TEXT,
+  "merged_at_source" TEXT,
+  "summary" JSONB NOT NULL DEFAULT '{}'::JSONB,
+  "evidence" JSONB NOT NULL DEFAULT '{}'::JSONB,
+  "raw_payload" JSONB NOT NULL,
+  "source_type" TEXT NOT NULL DEFAULT 'CSV',
+  "source_checksum" TEXT,
+  "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE "participant_category" (
+  "id" UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  "participant_id" INTEGER NOT NULL,
+  "raw_name" TEXT NOT NULL,
+  "normalized_name" TEXT NOT NULL,
+  "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE ("participant_id", "normalized_name"),
+  UNIQUE ("id", "participant_id")
+);
+
+CREATE TABLE "pr_classification" (
+  "id" UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  "pr_card_id" UUID NOT NULL,
+  "participant_id" INTEGER NOT NULL,
+  "category_id" UUID NOT NULL,
+  "remarks" TEXT,
+  "classified_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE ("pr_card_id", "participant_id"),
+  FOREIGN KEY ("pr_card_id") REFERENCES "pr_cards" ("id"),
+  FOREIGN KEY ("participant_id") REFERENCES "reviewer" ("id"),
+  FOREIGN KEY ("category_id", "participant_id")
+    REFERENCES "participant_category" ("id", "participant_id")
+);
+
+CREATE INDEX ON "pr_cards" ("repository", "pr_number");
+CREATE INDEX ON "pr_classification" ("participant_id", "updated_at");
 
 CREATE UNIQUE INDEX ON "instance_review" ("instance_id", "reviewer_id");
 

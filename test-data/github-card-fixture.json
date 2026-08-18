@@ -1,0 +1,28 @@
+{
+  "source_type": "GITHUB_API",
+  "source_card_id": "github-demo-1",
+  "repository": "demo/labeler",
+  "pr_number": 999,
+  "title": "Future API provider fixture",
+  "body": "This fixture verifies that the card view is not tied to CSV-only data.",
+  "author": "demo-user",
+  "language": "JavaScript",
+  "state": "closed",
+  "merged": true,
+  "html_url": "https://github.com/demo/labeler/pull/999",
+  "dates": {
+    "created_at": "2026-01-01T00:00:00Z",
+    "closed_at": "2026-01-02T00:00:00Z",
+    "merged_at": "2026-01-02T00:00:00Z"
+  },
+  "summary": {
+    "commits": 2,
+    "reviews": 1
+  },
+  "evidence": {
+    "selected": "A future API provider can supply this same card contract."
+  },
+  "raw_payload": {
+    "number": 999
+  }
+}
