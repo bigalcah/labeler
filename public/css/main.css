@@ -82,12 +82,12 @@ a[target="_blank"] {
 }
 
 .pr-card-header {
-    background: linear-gradient(135deg, #f8f9ff 0%, #eef4ff 100%);
-    border-bottom: 1px solid #dfe7f5;
+    background: linear-gradient(135deg, #f3f6ff 0%, #e7efff 100%);
+    border-bottom: 1px solid #c8d5eb;
 }
 
 .pr-card-kicker {
-    color: #52627a;
+    color: #40516a;
     display: flex;
     flex-wrap: wrap;
     gap: .5rem;
@@ -97,8 +97,12 @@ a[target="_blank"] {
     letter-spacing: .02em;
 }
 
+.pr-card-kicker .text-muted {
+    color: #40516a!important;
+}
+
 .pr-card-title {
-    color: #172033;
+    color: #111827;
     font-size: clamp(1.5rem, 2.7vw, 2.35rem);
     font-weight: 700;
     letter-spacing: -.025em;
@@ -108,28 +112,28 @@ a[target="_blank"] {
 }
 
 .pr-status-merged {
-    background: #d8f3e5;
-    color: #12633a;
+    background: #c7f0d9;
+    color: #064e2f!important;
 }
 
 .pr-status-closed {
-    background: #ffe0e4;
-    color: #9d1c2e;
+    background: #ffd6dc;
+    color: #861528!important;
 }
 
 .pr-status-open {
-    background: #dcecff;
-    color: #14539a;
+    background: #cfe2ff;
+    color: #0b3d91!important;
 }
 
 .pr-status-unknown {
-    background: #e9ecef;
-    color: #495057;
+    background: #e1e7ef;
+    color: #334155!important;
 }
 
 .pr-language-badge {
-    background: #e8e2ff;
-    color: #5736a2;
+    background: #ded6ff;
+    color: #45208a!important;
 }
 
 .pr-meta-grid {
