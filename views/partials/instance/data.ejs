@@ -18,10 +18,7 @@
         .filter(([name, value]) => metricLabels[name] && value !== null && value !== undefined && value !== "")
         .map(([name, value]) => ({ label: metricLabels[name], value }));
     const evidenceCandidates = [
-        [ "selected", "Selected evidence", data.evidence?.selected ],
-        [ "pull_request_comments", "Pull request comments", data.evidence?.pull_request_comments ],
-        [ "review_comments", "Review comments", data.evidence?.review_comments ],
-        [ "timeline", "Timeline", data.evidence?.timeline ],
+        [ "selected", "AI review / selected evidence", data.evidence?.raw_text || data.evidence?.selected ],
         [ "changes_requested", "Requested changes", data.evidence?.changes_requested ],
         [ "diff_hunk", "Diff context", data.evidence?.diff_hunk ],
     ];
@@ -31,6 +28,26 @@
     if (evidenceSections.length === 0 && data.evidence?.all_text) {
         evidenceSections.push({ key: "all_text", label: "All available evidence", value: data.evidence.all_text });
     }
+    const reviewItems = Array.isArray(data.evidence?.reviews) ? data.evidence.reviews : [];
+    const reviewCommentItems = Array.isArray(data.evidence?.review_comments_json)
+        ? data.evidence.review_comments_json
+        : [];
+    const commentItems = Array.isArray(data.evidence?.comments) ? data.evidence.comments : [];
+    const timelineEvents = Array.isArray(data.evidence?.all)
+        ? data.evidence.all.filter(event => [ "pr_timeline", "pull_request" ].includes(event?.source))
+        : [];
+    const timelineSourceLabels = {
+        pr_timeline: "Timeline event",
+        pull_request: "Pull request event",
+    };
+    const disclaimerMarker = "Disclaimer: This review was made by a crew of AI Agents.";
+    const disclaimerSource = [
+        data.evidence?.raw_text,
+        data.evidence?.selected,
+        data.evidence?.all_text,
+        data.evidence?.timeline,
+    ].find(value => String(value || "").includes(disclaimerMarker));
+    const commitCount = data.summary?.commits;
 %>
 <% if (data && data.source_type && data.title) { %>
     <article class="pr-card card border-0 shadow-sm overflow-hidden" aria-labelledby="pr-card-title">
@@ -128,11 +145,155 @@
                 </section>
             <% } %>
 
+            <section class="pr-section" aria-labelledby="pr-activity-title">
+                <div class="pr-section-heading">
+                    <div>
+                        <span class="pr-section-eyebrow">03 / Activity</span>
+                        <h3 class="h4 mb-0" id="pr-activity-title">Commits, reviews and comments</h3>
+                    </div>
+                    <span class="text-muted small">Structured history</span>
+                </div>
+                <div class="pr-evidence-list">
+                    <details class="pr-evidence-item">
+                        <summary>
+                            <span><i class="bi bi-git-commit me-2" aria-hidden="true"></i>Commit thread</span>
+                            <span class="badge rounded-pill text-bg-light border"><%= commitCount ?? "—" %> commits</span>
+                        </summary>
+                        <div class="pr-unavailable-state">
+                            <i class="bi bi-info-circle" aria-hidden="true"></i>
+                            <span>The local CSV reports the number of commits, but does not include commit messages, authors, timestamps or the commit thread. GitHub enrichment is required for those details.</span>
+                        </div>
+                    </details>
+
+                    <details class="pr-evidence-item">
+                        <summary>
+                            <span><i class="bi bi-check2-square me-2" aria-hidden="true"></i>Reviews</span>
+                            <span class="badge rounded-pill text-bg-light border"><%= reviewItems.length || data.summary?.reviews || 0 %></span>
+                        </summary>
+                        <% if (reviewItems.length > 0) { %>
+                            <div class="pr-event-list">
+                                <% reviewItems.forEach(review => { %>
+                                    <div class="pr-event-item">
+                                        <div class="d-flex flex-wrap justify-content-between gap-2">
+                                            <strong><%= review.user || "Reviewer unavailable" %></strong>
+                                            <span class="badge rounded-pill text-bg-light border"><%= review.state || "Review" %></span>
+                                        </div>
+                                        <% if (review.created_at) { %><small class="text-muted"><%= review.created_at %></small><% } %>
+                                        <% if (review.text) { %><div class="pr-markdown mt-2"><%- renderSafeMarkdown(review.text) %></div><% } else { %><p class="text-muted small mb-0 mt-2">This review has no written text in the CSV.</p><% } %>
+                                    </div>
+                                <% }); %>
+                            </div>
+                        <% } else { %>
+                            <div class="pr-unavailable-state"><i class="bi bi-inbox" aria-hidden="true"></i><span>No structured review records are available.</span></div>
+                        <% } %>
+                    </details>
+
+                    <details class="pr-evidence-item">
+                        <summary>
+                            <span><i class="bi bi-chat-left-text me-2" aria-hidden="true"></i>Pull request comments</span>
+                            <span class="badge rounded-pill text-bg-light border"><%= commentItems.length || data.summary?.comments || 0 %></span>
+                        </summary>
+                        <% if (commentItems.length > 0) { %>
+                            <div class="pr-event-list">
+                                <% commentItems.forEach(comment => { %>
+                                    <div class="pr-event-item">
+                                        <div class="d-flex flex-wrap justify-content-between gap-2">
+                                            <strong><%= comment.user || "Commenter unavailable" %></strong>
+                                            <% if (comment.state) { %><span class="badge rounded-pill text-bg-light border"><%= comment.state %></span><% } %>
+                                        </div>
+                                        <% if (comment.created_at) { %><small class="text-muted"><%= comment.created_at %></small><% } %>
+                                        <% if (comment.text) { %><div class="pr-markdown mt-2"><%- renderSafeMarkdown(comment.text) %></div><% } %>
+                                    </div>
+                                <% }); %>
+                            </div>
+                        <% } else if (data.evidence?.pull_request_comments) { %>
+                            <div class="pr-markdown mt-3"><%- renderSafeMarkdown(data.evidence.pull_request_comments) %></div>
+                        <% } else { %>
+                            <div class="pr-unavailable-state"><i class="bi bi-inbox" aria-hidden="true"></i><span>No pull request comments are available.</span></div>
+                        <% } %>
+                    </details>
+
+                    <details class="pr-evidence-item">
+                        <summary>
+                            <span><i class="bi bi-chat-square-quote me-2" aria-hidden="true"></i>Review comments</span>
+                            <span class="badge rounded-pill text-bg-light border"><%= reviewCommentItems.length %></span>
+                        </summary>
+                        <% if (reviewCommentItems.length > 0) { %>
+                            <div class="pr-event-list">
+                                <% reviewCommentItems.forEach(comment => { %>
+                                    <div class="pr-event-item">
+                                        <div class="d-flex flex-wrap justify-content-between gap-2">
+                                            <strong><%= comment.user || "Reviewer unavailable" %></strong>
+                                            <% if (comment.path) { %><code><%= comment.path %></code><% } %>
+                                        </div>
+                                        <% if (comment.text) { %><div class="pr-markdown mt-2"><%- renderSafeMarkdown(comment.text) %></div><% } else { %><p class="text-muted small mb-0 mt-2">This review comment has no written text in the CSV.</p><% } %>
+                                    </div>
+                                <% }); %>
+                            </div>
+                        <% } else { %>
+                            <div class="pr-unavailable-state"><i class="bi bi-inbox" aria-hidden="true"></i><span>No inline review comments are available.</span></div>
+                        <% } %>
+                    </details>
+
+                    <details class="pr-evidence-item" open>
+                        <summary>
+                            <span><i class="bi bi-clock-history me-2" aria-hidden="true"></i>Timeline</span>
+                            <span class="badge rounded-pill text-bg-light border"><%= timelineEvents.length %> events</span>
+                        </summary>
+                        <% if (timelineEvents.length > 0) { %>
+                            <div class="pr-event-list">
+                                <% timelineEvents.forEach(event => { %>
+                                    <div class="pr-event-item">
+                                        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+                                            <div>
+                                                <strong><%= timelineSourceLabels[event.source] || "Timeline event" %></strong>
+                                                <% if (event.user) { %><span class="text-muted"> · <%= event.user %></span><% } %>
+                                            </div>
+                                            <span class="badge rounded-pill text-bg-light border"><%= event.state || "Event" %></span>
+                                        </div>
+                                        <% if (event.created_at) { %><small class="text-muted d-block mt-1"><%= event.created_at %></small><% } %>
+                                        <% if (event.id) { %><small class="text-muted d-block mt-1">Event ID: <%= event.id %></small><% } %>
+                                        <% if (event.path) { %><code class="d-inline-block mt-2"><%= event.path %></code><% } %>
+                                        <% if (event.text) { %>
+                                            <div class="pr-markdown mt-2"><%- renderSafeMarkdown(event.text) %></div>
+                                            <% if (/(\.\.\.|…)$/.test(String(event.text).trimEnd())) { %>
+                                                <div class="pr-truncation-note mt-2">
+                                                    <i class="bi bi-scissors me-1" aria-hidden="true"></i>
+                                                    This event text is truncated in the CSV. The complete AI review is available in “AI review / selected evidence” under Analysis and timeline.
+                                                </div>
+                                            <% } %>
+                                        <% } else { %>
+                                            <p class="text-muted small mb-0 mt-2">This timeline event has no text in the CSV.</p>
+                                        <% } %>
+                                    </div>
+                                <% }); %>
+                            </div>
+                        <% } else if (data.evidence?.timeline) { %>
+                            <div class="pr-markdown mt-3"><%- renderSafeMarkdown(data.evidence.timeline) %></div>
+                        <% } else { %>
+                            <div class="pr-unavailable-state"><i class="bi bi-inbox" aria-hidden="true"></i><span>No timeline events are available in the dataset.</span></div>
+                        <% } %>
+                    </details>
+                </div>
+            </section>
+
+            <% if (disclaimerSource) { %>
+                <aside class="pr-disclaimer" aria-labelledby="pr-disclaimer-title">
+                    <div class="pr-disclaimer-icon"><i class="bi bi-robot" aria-hidden="true"></i></div>
+                    <div>
+                        <span class="pr-section-eyebrow">04 / Source note</span>
+                        <h3 class="h5 mb-2" id="pr-disclaimer-title">What does the disclaimer mean?</h3>
+                        <p class="mb-2"><strong>“<%= disclaimerMarker %>”</strong></p>
+                        <p class="mb-0">This means that the review text was produced by a crew of AI agents. It is evidence from the dataset, not an independent human review and not an automatic classification made by this application.</p>
+                    </div>
+                </aside>
+            <% } %>
+
             <section class="pr-section" aria-labelledby="pr-evidence-title">
                 <div class="pr-section-heading">
                     <div>
-                        <span class="pr-section-eyebrow">03 / Evidence</span>
-                        <h3 class="h4 mb-0" id="pr-evidence-title">Review history and evidence</h3>
+                        <span class="pr-section-eyebrow">05 / Evidence</span>
+                        <h3 class="h4 mb-0" id="pr-evidence-title">Analysis and timeline</h3>
                     </div>
                     <span class="badge rounded-pill text-bg-light border"><%= evidenceSections.length %> sections</span>
                 </div>
@@ -141,7 +302,7 @@
                         <% evidenceSections.forEach((section, index) => { %>
                             <details class="pr-evidence-item" <%= index === 0 ? "open" : "" %>>
                                 <summary>
-                                    <span><i class="bi bi-chat-square-text me-2" aria-hidden="true"></i><%= section.label %></span>
+                                    <span><i class="bi bi-file-text me-2" aria-hidden="true"></i><%= section.label %></span>
                                     <span class="text-muted small">Inspect</span>
                                 </summary>
                                 <div class="pr-markdown mt-3"><%- renderSafeMarkdown(section.value) %></div>
