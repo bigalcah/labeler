@@ -41,6 +41,7 @@ export const get = async (req, res) => {
             merged_at: card.merged_at_source,
         };
     }
+    res.locals.participant = participant;
     res.render("review", {
         participant,
         categories,
