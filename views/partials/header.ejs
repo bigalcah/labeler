@@ -20,42 +20,29 @@
                         <a class="nav-link" href="/">Home</a>
                     </li>
                     <%
+                        const participantQuery = locals.participant?.name
+                            ? `?participant=${encodeURIComponent(locals.participant.name)}`
+                            : "";
                         const links = [
-                            "/instances",
-                            "/conflicts",
-                            "/labels",
-                            "/progress",
-                            "/export"
+                            [ "/instances", "PR cards" ],
+                            [ "/conflicts", "Pending cards" ],
+                            [ "/progress", "Progress" ],
+                            [ "/export", "Export" ],
                         ];
-                        links.forEach((link) => {
-                            const name = link.charAt(1).toUpperCase() + link.substring(2);
+                        links.forEach(([ link, name ]) => {
                             const classes = link === locals.path ? "nav-link active" : "nav-link";
                     %>
                         <li class="nav-item">
-                            <a class="<%- classes %>" href="<%- link %>"><%- name %></a>
+                            <a class="<%- classes %>" href="<%- link %><%- [ "/instances", "/conflicts", "/progress" ].includes(link) ? participantQuery : "" %>"><%- name %></a>
                         </li>
                     <%
                         });
                     %>
                 </ul>
-                <% if (!!locals.reviewer) { %>
+                <% if (!!locals.participant) { %>
                     <div class="py-2 ms-lg-auto">
                         <i class="bi bi-person-fill"></i>
-                        <span><%- locals.reviewer.name %></span>
-                    </div>
-                    <div class="vr d-none d-lg-inline-block mx-lg-2"></div>
-                    <div class="py-2">
-                        <span><i class="bi bi-eye-fill" title="Reviewed Instances"></i></span>
-                        <span class="font-monospace">
-                            <%- locals.reviewer.review_progress || 0 %>
-                        </span>
-                    </div>
-                    <div class="vr d-none d-lg-inline-block mx-lg-2"></div>
-                    <div class="py-2">
-                        <span><i class="bi bi-trash-fill" title="Discarded Instances"></i></span>
-                        <span class="font-monospace">
-                            <%- locals.reviewer.discard_progress || 0 %>
-                        </span>
+                        <span><%- locals.participant.name %></span>
                     </div>
                 <% } %>
             </div>
