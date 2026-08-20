@@ -12,7 +12,10 @@
     "lint:md": "markdownlint *.md",
     "minify": "npm-run-all --parallel minify:*",
     "minify:css": "cleancss --batch --batch-suffix '' public/css/*.css",
+    "bootstrap:study": "node scripts/bootstrap-study.js",
     "import:csv": "node scripts/import-pr-csv.js",
+    "migrate:study": "node scripts/migrate-study-schema.js",
+    "test:foundation": "node --test test/foundation.test.js",
     "start": "NODE_ENV=production node index.js",
     "dev": "nodemon index.js"
   },
