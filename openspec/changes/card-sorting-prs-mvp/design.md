@@ -1,56 +1,105 @@
 ## Context
 
-La aplicación actual es un monolito Node.js/Express con EJS, PostgreSQL y rutas basadas en archivos. El runtime usa `instance.data` JSON, labels globales y revisiones multietiqueta. El CSV real tiene 69 columnas, 300 registros lógicos, campos multilinea y JSON incrustado, por lo que no puede cargarse con `scripts/init-data.sh`.
+La aplicación actual es un monolito Node.js/Express con EJS, PostgreSQL y rutas basadas en archivos. El runtime legacy usa `instance`, `label`, `review` y `discard`; el MVP usa `reviewer`, `pr_cards`, categorías privadas y clasificaciones. El CSV real tiene 69 columnas, 300 registros lógicos, campos multilinea y JSON incrustado, por lo que no puede cargarse con el loader legacy.
 
-El objetivo inmediato es una demostración funcional con datos locales. No se implementan todavía GitHub API activa, invitaciones, exportación ni taxonomía final. Las decisiones completas permanecen en los artefactos posteriores del cambio y no deben adelantarse en este MVP.
+El objetivo es un estudio local reproducible. No se implementan GitHub API activa, invitaciones, exportación ni taxonomía final. `reviewer` se conserva como tabla de identidad temporal y `/login` como selector local; ninguno constituye autenticación.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Importar los 300 PR desde el CSV sin perder campos multilinea ni JSON.
-- Guardar una representación local de cada tarjeta y mostrar el campo `language` del CSV.
-- Renderizar una tarjeta visual útil para clasificar, con evidencia disponible en el CSV.
-- Preparar una interfaz de datos sustituible por un proveedor GitHub futuro.
-- Permitir que tres participantes configurables clasifiquen los mismos 300 PR.
-- Mantener categorías y respuestas privadas por participante.
-- Guardar una única categoría por PR y participante, observación opcional y progreso.
+- Validar el CSV completo antes de cualquier escritura y exigir exactamente 300 `source_card_id` únicos.
+- Persistir una configuración JSON y una membresía canónica de estudio para los mismos 300 PR por participante.
+- Arrancar de forma determinista en una base limpia o existente, preservando datos y fallando ante conflictos.
+- Ejecutar un bootstrap one-shot después de la salud de la base y antes de la readiness web.
+- Renderizar tarjetas locales, mantener categorías y respuestas privadas, y permitir exactamente una clasificación por PR y participante.
+- Mantener un contrato sustituible por GitHub sin activar GitHub en el MVP.
 
 **Non-Goals:**
 
-- Consultar GitHub desde la aplicación durante la demostración.
-- Reproducir todas las pestañas de GitHub mediante datos API.
-- Calcular lenguajes desde archivos modificados; por ahora se muestra `language` del CSV.
-- Implementar invitaciones, autenticación administrativa o protección VPS.
-- Implementar exportación, normalización, taxonomía jerárquica, acuerdo o adjudicación.
-- Mantener compatibilidad funcional con el flujo legado de labels globales.
+- Consultar GitHub desde la aplicación o el navegador.
+- Implementar invitaciones, autenticación administrativa, exportación, normalización, acuerdo o adjudicación.
+- Eliminar objetos legacy o cargar sus labels, instances, reviews o fixtures en el bootstrap.
 
 ## Decisions
 
-### 1. Importación CSV local con proveedor intercambiable
+### 1. Configuración y precedencia
 
-El importador leerá el CSV de investigación mediante un parser RFC 4180/streaming y transformará cada fila a un contrato común `PullRequestCard`. El contrato tendrá campos de resumen, evidencia, métricas disponibles, lenguaje y origen.
+La configuración del estudio se lee como JSON con esta forma mínima:
 
-```text
-CSV provider  ─┐
-               ├──> PullRequestCard ───> PostgreSQL ───> EJS
-GitHub provider┘          (futuro)
+```json
+{
+  "studyKey": "pr-card-sorting-2026",
+  "expectedCardCount": 300,
+  "participants": ["participant-a", "participant-b", "participant-c"]
+}
 ```
 
-La fuente GitHub se dejará como interfaz o módulo futuro, pero no se realizarán solicitudes de red en este MVP.
+`expectedCardCount` debe ser 300 para este MVP y `participants` debe contener identificadores únicos. Si existe un estudio activo para `studyKey`, su configuración y membresía persistidas son autoritativas: una configuración local distinta no elimina ni reemplaza participantes o tarjetas y el drift falla. Una configuración explícita solo crea un estudio nuevo. Si no hay configuración explícita, se usa un fallback local de tres participantes. No se reimporta ni se borra silenciosamente para corregir drift.
 
-La categoría de origen del CSV no se mostrará como categoría de clasificación. Los metadatos metodológicos como `population_case_type`, `agent`, `task_confidence` y `evidence_quality_score` se conservarán en el payload de origen, pero no se expondrán al participante por defecto.
+### 2. Bootstrap one-shot y ownership
 
-### 2. Modelo mínimo nuevo junto al esquema legado
+Las migraciones crean únicamente la estructura. Después de que PostgreSQL esté saludable, un proceso `labeling-bootstrap` ejecuta una vez antes de que el servicio web anuncie readiness:
 
-Para reducir el riesgo del avance, se añadirán tablas específicas sin intentar convertir todo el esquema antiguo:
+1. Lee y valida el JSON y todo el CSV sin escribir.
+2. Obtiene el checksum de la fuente y valida encabezado, JSON, campos requeridos, unicidad y exactamente 300 IDs.
+3. En una transacción, crea o reutiliza el estudio y sus reviewers; persiste `study_participant` con orden estable.
+4. Crea o reutiliza `pr_cards` por `source_card_id` solo si el contenido y checksum coinciden.
+5. Crea la membresía canónica `study_card` para el estudio y cada tarjeta.
+6. Marca el bootstrap listo y confirma la transacción.
+
+Un fallo hace rollback de toda la transacción, no borra datos previos y deja el servicio no listo. Las categorías y clasificaciones son siempre creadas por el usuario, nunca por el bootstrap.
+
+### 3. Modelo mínimo nuevo junto al esquema legado
 
 ```text
+study
+study_participant
+study_card
 pr_cards
-participants (o reviewer existente durante la transición)
+reviewer (identidad temporal existente)
 participant_categories
 pr_classifications
 ```
+
+#### `study`
+
+```text
+id UUID PK
+study_key TEXT UNIQUE
+config JSONB
+source_checksum TEXT
+expected_card_count INTEGER CHECK (expected_card_count = 300)
+bootstrap_state TEXT
+created_at TIMESTAMPTZ
+updated_at TIMESTAMPTZ
+```
+
+#### `study_participant`
+
+```text
+study_id UUID FK study(id)
+reviewer_id INTEGER FK reviewer(id)
+ordinal INTEGER
+participant_key TEXT
+created_at TIMESTAMPTZ
+PRIMARY KEY(study_id, reviewer_id)
+UNIQUE(study_id, participant_key)
+```
+
+#### `study_card`
+
+```text
+study_id UUID FK study(id)
+pr_card_id UUID FK pr_cards(id)
+source_card_id TEXT
+ordinal INTEGER
+source_checksum TEXT
+PRIMARY KEY(study_id, pr_card_id)
+UNIQUE(study_id, source_card_id)
+```
+
+`study_card` es la membresía canónica: no se deriva de la existencia global de `pr_cards` y no se modifica por cada participante.
 
 #### `pr_cards`
 
@@ -66,9 +115,6 @@ language TEXT NULL
 state TEXT NULL
 merged BOOLEAN NULL
 html_url TEXT NULL
-created_at TEXT NULL
-closed_at TEXT NULL
-merged_at TEXT NULL
 summary JSONB
 evidence JSONB
 raw_payload JSONB
@@ -78,94 +124,42 @@ created_at TIMESTAMPTZ
 updated_at TIMESTAMPTZ
 ```
 
-`summary` y `evidence` permiten renderizar la tarjeta sin volver a interpretar las 69 columnas en cada ruta. `raw_payload` conserva la fila completa para depuración y fases futuras.
+`summary` y `evidence` permiten renderizar la tarjeta sin volver a interpretar las 69 columnas en cada ruta. `raw_payload` conserva la fila completa. Un `source_card_id` existente con contenido o checksum diferente es un conflicto fatal: no se actualiza y no se sobrescribe una tarjeta clasificada.
 
-#### `participant_categories`
+`participant_categories` y `pr_classifications` mantienen la relación con `reviewer`; una clasificación debe referenciar una categoría del mismo participante y tiene unicidad `(pr_card_id, participant_id)`. Durante esta fase las categorías son planas, privadas y no se emiten por Socket.io. El bootstrap no las siembra.
 
-```text
-id UUID PK
-participant_id INTEGER FK reviewer(id)
-raw_name TEXT
-normalized_name TEXT
-created_at TIMESTAMPTZ
-updated_at TIMESTAMPTZ
-UNIQUE(participant_id, normalized_name)
-```
+### 4. Importación CSV local con proveedor intercambiable
 
-Durante esta fase las categorías son planas y no se emiten por Socket.io.
+El importador usa un parser RFC 4180/streaming y transforma cada fila a `PullRequestCard`, conservando resumen, evidencia, lenguaje, métricas, URL, procedencia y payload original. La fuente GitHub futura debe producir el mismo contrato, pero no realiza solicitudes de red en este MVP.
 
-#### `pr_classifications`
+### 5. Tarjeta visual desde el contrato local
 
-```text
-id UUID PK
-pr_card_id UUID FK pr_cards(id)
-participant_id INTEGER FK reviewer(id)
-category_id UUID FK participant_categories(id)
-remarks TEXT NULL
-classified_at TIMESTAMPTZ
-updated_at TIMESTAMPTZ
-UNIQUE(pr_card_id, participant_id)
-```
+La tarjeta muestra repositorio, número, título, estado, fechas, autor, `language` del CSV, resumen, cuerpo, métricas, evidencia y `html_url` opcional. No se renderiza iframe ni se consulta GitHub desde el navegador.
 
-Una restricción o validación transaccional debe comprobar que `category_id.participant_id` coincide con `participant_id`.
+### 6. Clasificación temporal compatible con el flujo existente
 
-El selector de `/login` seguirá usando `reviewer` temporalmente. Más adelante se sustituirá por participantes de estudio y enlaces privados sin cambiar las categorías ni clasificaciones conceptuales.
+La pantalla conserva la selección local de participante, pero las consultas y mutaciones se limitan al reviewer activo y a su `study_participant`. La cola se basa en `study_card` y excluye solo sus clasificaciones. El flujo nuevo no usa `label`, `instance_review_label` ni conflictos destructivos.
 
-### 3. Tarjeta visual desde el contrato local
+## Readiness, rollback y legado
 
-`views/partials/instance/data.ejs` se reemplazará o dejará como wrapper de un partial de PR. La tarjeta mostrará:
+La readiness web depende de que el bootstrap termine en estado listo y de que el estudio tenga 300 `study_card` y la membresía configurada. En una base limpia, el bootstrap no monta ni siembra `label`, `instance`, `review` o fixtures legacy. En una base existente, preserva todos esos objetos y datos, y nunca elimina automáticamente filas.
 
-- repositorio y número;
-- título;
-- estado y fechas disponibles;
-- autor según la política actual del MVP;
-- `language` del CSV;
-- resumen y cuerpo;
-- métricas del CSV;
-- evidencia seleccionada y JSON adicional bajo demanda;
-- enlace externo opcional a `html_url`.
-
-No se renderizará un iframe ni se consultará GitHub desde el navegador. La estructura de datos usará nombres de secciones que también puedan producirse por el futuro proveedor GitHub.
-
-### 4. Clasificación temporal compatible con el flujo existente
-
-La pantalla conservará la selección local de participante, pero el formulario nuevo usará categorías asociadas al participante actual. La cola servirá la siguiente `pr_card` no clasificada por ese participante y permitirá avanzar hasta completar las 300 tarjetas.
-
-El flujo nuevo no usará `label`, `instance_review_label` ni los conflictos destructivos del sistema legado. El esquema antiguo puede permanecer para los fixtures actuales mientras las nuevas rutas usan las tablas de PR.
-
-### 5. GitHub preparado, no activo
-
-El contrato `PullRequestCard` y el campo `source_type` deben permitir posteriormente:
-
-- importar el detalle del PR;
-- añadir commits, archivos, reviews, comentarios, diff y timeline;
-- crear snapshots.
-
-Esta fase no añade credenciales GitHub, worker ni llamadas API. La interfaz de proveedor se documentará y se probará con el CSV como implementación disponible.
+La retirada legacy es escalonada: aislar consumidores, migrar rutas, verificar que no haya dependencias, y retirar objetos en un cambio posterior.
 
 ## Risks / Trade-offs
 
-- [El CSV contiene JSON y texto multilínea] → Usar parser CSV real, no `\COPY` heredado ni split por líneas.
-- [La tarjeta no tiene toda la navegación de GitHub] → Mostrar toda la evidencia disponible en el CSV y conservar secciones compatibles con una futura fuente API.
-- [El campo `language` es el lenguaje del dataset, no necesariamente el lenguaje exacto de archivos del PR] → Etiquetarlo como lenguaje informado por la fuente; posponer el cálculo por archivos.
-- [El selector de participantes no es seguro para VPS] → Mantenerlo solo para demostración local y documentarlo como deuda explícita.
-- [La implementación parcial puede convivir con labels legacy] → Separar tablas y rutas nuevas; no reutilizar consultas destructivas.
-- [300 tarjetas pueden ser pesadas] → Renderizar resumen y evidencia bajo demanda dentro de la tarjeta, conservando el payload en PostgreSQL.
+- El CSV contiene JSON y texto multilínea: usar parser CSV real, no split por líneas ni el loader legacy.
+- Un volumen existente puede contener fixtures o clasificaciones: reutilizar lo compatible y fallar ante drift, sin reimportación incondicional.
+- El selector de participantes no es seguro para VPS: mantenerlo solo para demostración local y documentarlo como deuda.
+- El campo `language` es el lenguaje informado por la fuente, no un cálculo por archivos.
 
 ## Migration Plan
 
-1. Crear tablas nuevas para tarjetas, categorías privadas y clasificaciones.
-2. Importar el CSV real en una base limpia o entorno aislado.
-3. Verificar conteo de 300 tarjetas y una muestra de campos multilínea/JSON.
-4. Activar la vista de tarjeta y el clasificador con participantes existentes.
-5. Probar tres participantes y comprobar que todos reciben 300 tarjetas sin compartir categorías.
-6. Mantener el flujo legacy disponible para los fixtures mientras se valida el avance.
-7. En una fase posterior, añadir proveedor GitHub y snapshots sin cambiar el contrato de tarjeta.
+1. Crear estructura nueva mediante migraciones, sin cargar labels, instances ni reviewers desde fixtures legacy.
+2. Ejecutar el bootstrap después de la salud de PostgreSQL y antes de la readiness web.
+3. Validar el CSV completo y confirmar 300 tarjetas y 300 membresías por participante.
+4. Activar el clasificador local con `reviewer` como identidad temporal.
+5. Verificar reanudación, aislamiento y conflicto ante una fuente modificada.
+6. Mantener legacy aislado y retirarlo por etapas en cambios posteriores.
 
-Rollback: detener el nuevo flujo y conservar las tablas legacy; las tablas nuevas pueden eliminarse únicamente en una base de desarrollo, nunca junto con datos que ya deban preservarse.
-
-## Open Questions
-
-- La duración y seguridad de invitaciones se decidirán cuando se implemente `participant-access` completo.
-- El formato de exportación y la inclusión de snapshots se decidirán cuando se implemente `study-export`.
-- El algoritmo de acuerdo y la estructura jerárquica se decidirán cuando se implemente `taxonomy-normalization` y `agreement-analysis`.
+Rollback: fallar o detener el bootstrap antes del commit y conservar todos los datos existentes. No hay eliminación automática; cualquier retiro de tablas legacy o nuevas requiere un cambio explícito y una base de desarrollo apropiada.
