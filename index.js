@@ -14,7 +14,6 @@ import {router} from "express-file-routing";
 import {fileURLToPath} from "url";
 import {parse as parseUserAgent} from "useragent";
 import {createStream as createRotatingFileStream} from "rotating-file-stream";
-import {Server as IO} from "socket.io";
 import HTTPStatus from "./util/http-status.js";
 import {renderSafeMarkdown} from "./util/safe-markdown.js";
 
@@ -115,7 +114,7 @@ app.use(async (err, _req, res, _next) => {
     res.status(HTTPStatus.INTERNAL_SERVER_ERROR).render("error", { message });
 });
 
-const server = app.listen(port, () => {
+const _server = app.listen(port, () => {
     if (nodeEnv === "development") {
         console.debug(`
 App listening on:
@@ -123,18 +122,4 @@ App listening on:
 * http://${ip.address()}:${port}
 `);
     }
-});
-
-const io = new IO(server);
-
-io.on("connection", (socket) => {
-    socket.on("label_added", (label) => {
-        socket.broadcast.emit("label_append", label);
-    });
-    socket.on("label_removed", (label) => {
-        socket.broadcast.emit("label_detach", label);
-    });
-    socket.on("label_renamed", (data) => {
-        socket.broadcast.emit("label_replace", data);
-    });
 });
