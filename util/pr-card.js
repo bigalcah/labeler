@@ -115,6 +115,7 @@ const buildPullRequestCard = row => {
         },
         evidence: {
             selected: raw.evidence_text,
+            raw_text: raw.evidence_raw_text,
             source: raw.evidence_source,
             path: raw.evidence_path,
             diff_hunk: raw.evidence_diff_hunk,
