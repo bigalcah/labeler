@@ -73,8 +73,46 @@ CREATE TABLE "pr_cards" (
   "raw_payload" JSONB NOT NULL,
   "source_type" TEXT NOT NULL DEFAULT 'CSV',
   "source_checksum" TEXT,
+  "content_checksum" TEXT,
+  "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE ("id", "source_card_id")
+);
+
+CREATE TABLE "study" (
+  "id" UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  "study_key" TEXT UNIQUE NOT NULL,
+  "config" JSONB NOT NULL,
+  "source_checksum" TEXT NOT NULL,
+  "expected_card_count" INTEGER NOT NULL CHECK ("expected_card_count" = 300),
+  "bootstrap_state" TEXT NOT NULL DEFAULT 'PENDING'
+    CHECK ("bootstrap_state" IN ('PENDING', 'READY')),
   "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE "study_participant" (
+  "study_id" UUID NOT NULL REFERENCES "study" ("id"),
+  "reviewer_id" INTEGER NOT NULL REFERENCES "reviewer" ("id"),
+  "participant_key" TEXT NOT NULL,
+  "ordinal" INTEGER NOT NULL CHECK ("ordinal" >= 0),
+  "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY ("study_id", "reviewer_id"),
+  UNIQUE ("study_id", "participant_key"),
+  UNIQUE ("study_id", "ordinal")
+);
+
+CREATE TABLE "study_card" (
+  "study_id" UUID NOT NULL REFERENCES "study" ("id"),
+  "pr_card_id" UUID NOT NULL,
+  "source_card_id" TEXT NOT NULL,
+  "ordinal" INTEGER NOT NULL CHECK ("ordinal" >= 0),
+  "source_checksum" TEXT NOT NULL,
+  PRIMARY KEY ("study_id", "pr_card_id"),
+  UNIQUE ("study_id", "source_card_id"),
+  UNIQUE ("study_id", "ordinal"),
+  FOREIGN KEY ("pr_card_id", "source_card_id")
+    REFERENCES "pr_cards" ("id", "source_card_id")
 );
 
 CREATE TABLE "participant_category" (
@@ -105,6 +143,8 @@ CREATE TABLE "pr_classification" (
 
 CREATE INDEX ON "pr_cards" ("repository", "pr_number");
 CREATE INDEX ON "pr_classification" ("participant_id", "updated_at");
+CREATE INDEX ON "study_participant" ("reviewer_id");
+CREATE INDEX ON "study_card" ("pr_card_id");
 
 CREATE UNIQUE INDEX ON "instance_review" ("instance_id", "reviewer_id");
 
