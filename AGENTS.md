@@ -85,3 +85,5 @@ docker compose --env-file deployment/.env -f deployment/docker-compose.yml down
 - Git Flow is initialized with `master`, `develop`, and `feature/`. Use feature branches from `develop`.
 - Commit messages must be conventional commits written in Spanish with an explanatory body. Obtain explicit approval
   before any commit or push.
+- Never add commit watermarks, Sisyphus text or links, automatic trailers, or `Co-authored-by` lines unless the user
+  explicitly requests them for that commit.
