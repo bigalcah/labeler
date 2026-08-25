@@ -39,7 +39,7 @@ Las decisiones tendrán FKs compuestas hacia `study_card`, `study_participant` y
 
 ### Cliente GitHub
 
-Se usará un adaptador REST con headers de versión y `Accept` estándar, aliases exactos por `owner/name`, token fine-grained read-only por defecto, paginación por `Link`, ETags, límite de concurrencia configurable y retries limitados por `Retry-After`/reset. La autenticación se inyectará por secretos montados únicamente en `labeling-study-prepare`; `labeling-server` no recibirá esos secretos. La interfaz del adaptador permitirá sustituir posteriormente credenciales de GitHub App sin cambiar el contrato.
+Se usará un adaptador REST con headers de versión y `Accept` estándar, un único perfil de credencial neutral `default`, token fine-grained read-only, paginación por `Link`, ETags, límite de concurrencia configurable y retries limitados por `Retry-After`/reset. La autenticación se inyectará por un secreto montado únicamente en `labeling-study-prepare`; `labeling-server` no recibirá ese secreto. La interfaz del adaptador permitirá sustituir posteriormente la fuente de credencial sin cambiar el contrato.
 
 ### Paginación, ETag y manifests
 
@@ -63,7 +63,7 @@ Las páginas pueden persistirse como staging de un run `RUNNING`, pero ninguna c
 
 La concurrencia por defecto será 4 y permanecerá entre 1 y 8. Cada solicitud tendrá timeout de 30 segundos y como máximo cuatro intentos totales. Solo serán reintentables timeouts, transporte, `429`, `502`, `503`, `504` y `403` identificado como rate limit. El proceso respetará `Retry-After` o reset dentro de cinco minutos por página y treinta por run; `401`, autorización `403`, `404`, malformación y errores de identidad serán terminales.
 
-La configuración de routing contendrá aliases y patrones exactos `owner/name`, no tokens. Los aliases resolverán secretos montados read-only o variables del proceso de preparación. Los logs aplicarán redacción a tokens, query strings sensibles y headers.
+La configuración contendrá únicamente el perfil neutral `default`; no contendrá tokens inline ni un mapa `owner/name -> perfil`. Todos los repositorios de la muestra resolverán ese perfil. El perfil resolverá un secreto read-only mediante `GITHUB_TOKEN` o un archivo montado. Los logs aplicarán redacción a tokens, query strings sensibles y headers. El formato previo que trataba cada clave `owner/name` como alias será rechazado y deberá migrarse explícitamente a `default`.
 
 ### Retención
 

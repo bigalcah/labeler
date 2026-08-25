@@ -5,13 +5,23 @@ Capturar de forma autenticada y reproducible la evidencia GitHub necesaria para 
 ## ADDED Requirements
 
 ### Requirement: Credenciales y routing de mínimo privilegio
-El enriquecimiento habilitado MUST usar credenciales autenticadas de solo lectura disponibles únicamente para el proceso one-shot. Una configuración no secreta SHALL resolver el repositorio normalizado `owner/name` mediante coincidencia exacta a un alias de credencial y, en su defecto, a un alias `default`; un alias ausente o ambiguo MUST fallar antes de solicitar la tarjeta.
+El enriquecimiento habilitado MUST usar una única credencial autenticada de solo lectura disponible únicamente para el proceso one-shot. La configuración SHALL declarar un único perfil neutral `default`; todos los repositorios normalizados `owner/name` de la muestra SHALL resolver ese perfil y MUST fallar antes de solicitar cualquier tarjeta si el perfil, su secreto o sus permisos no son válidos.
 
-Cada alias MUST proporcionar acceso read-only a metadata del repositorio, Pull Requests y contents; issues read-only será obligatorio cuando issue comments sea obligatorio y para intentar timeline. El sistema MAY persistir el alias usado, pero MUST NOT persistir tokens, hashes de tokens ni headers `Authorization`.
+El perfil `default` MUST referenciar exactamente una fuente de secreto por variable de entorno o archivo montado. La validación MUST devolver códigos de error estables y sanitizados para perfil inválido, secreto ausente o permisos insuficientes, sin incluir valores de tokens ni headers. No habrá mapa de routing por repositorio ni soporte para múltiples tokens en este cambio. Las claves antiguas con formato `owner/repository`, perfiles adicionales o aliases ambiguos MUST fallar durante la validación de configuración.
+
+El perfil `default` MUST proporcionar acceso read-only a metadata del repositorio, Pull Requests y contents; issues read-only será obligatorio cuando issue comments sea obligatorio y para intentar timeline. El sistema MAY persistir el nombre del perfil usado, pero MUST NOT persistir tokens, hashes de tokens ni headers `Authorization`.
 
 #### Scenario: Repositorio correctamente enrutado
 - **WHEN** una tarjeta identifica `owner/name` y su alias resuelve una credencial con permisos suficientes
 - **THEN** todas sus páginas usan ese alias sin exponer el secreto al servidor web, navegador, HTML, fixtures o logs
+
+#### Scenario: Token compartido por la muestra
+- **WHEN** las tarjetas pertenecen a cualquiera de los repositorios de la muestra y el perfil `default` es válido
+- **THEN** todas sus páginas usan la misma credencial read-only sin requerir un alias por repositorio
+
+#### Scenario: Configuración de perfiles inconsistente
+- **WHEN** falta el perfil `default`, se declara una clave `owner/repository`, se declara más de un perfil o la fuente del secreto es inválida
+- **THEN** la configuración falla antes de realizar solicitudes GitHub
 
 #### Scenario: Ruta o permiso insuficiente
 - **WHEN** falta el alias, la credencial no existe o no permite leer un endpoint obligatorio
