@@ -25,9 +25,13 @@ edites manualmente `labeler_migration`; revisa `deployment/ROLLBACK.md` ante dri
 
 ## GitHub
 
-Aliases usan coincidencia exacta `owner/name`. Un `GITHUB_DEFAULT_ALIAS` no vacío debe ser una clave existente del mapa.
-La credencial solo pertenece a prepare. Consulta [`GITHUB-ENRICHMENT.md`](../deployment/GITHUB-ENRICHMENT.md) sin
-imprimir el token.
+La configuración habilitada debe declarar exactamente un perfil `default` en
+`GITHUB_CREDENTIAL_ALIASES`; las claves `owner/name` y los perfiles adicionales fallan
+con `INVALID_PROFILE`. El perfil debe usar exactamente una fuente (`tokenEnv` o
+`tokenFile`). `CREDENTIAL_NOT_FOUND` indica secreto ausente y
+`INSUFFICIENT_PERMISSIONS` permisos read-only declarados insuficientes. La credencial
+solo pertenece a prepare. Consulta [`GITHUB-ENRICHMENT.md`](../deployment/GITHUB-ENRICHMENT.md)
+sin imprimir el token.
 
 ## Resultados engañosos
 
