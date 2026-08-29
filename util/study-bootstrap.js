@@ -18,6 +18,28 @@ const assertBootstrapCards = (cards, expectedCardCount) => {
     }
 };
 
+const assertStudySchemaReady = async pool => {
+    let rows;
+    try {
+        ({rows} = await pool.query(
+            `SELECT migration_id
+             FROM labeler_migration
+             WHERE migration_id IN ('001_study_foundation', '003_private_pr_discard', '004_github_pr_api_enrichment')`,
+        ));
+    } catch (error) {
+        if (error.code === "42P01") {
+            throw new StudyBootstrapConflictError("Study schema migrations are missing");
+        }
+        throw error;
+    }
+    const applied = new Set(rows.map(row => row.migration_id));
+    if (applied.size !== 3) {
+        throw new StudyBootstrapConflictError(
+            "Bootstrap requires migrations 001_study_foundation, 003_private_pr_discard, and 004_github_pr_api_enrichment",
+        );
+    }
+};
+
 const findOrCreateStudy = async (client, config, sourceChecksum) => {
     await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [ config.studyKey ]);
     const {rows: existingRows} = await client.query(
@@ -132,6 +154,7 @@ const persistStudyCards = async options => {
 
 const bootstrapStudy = async options => {
     const {pool, config, cards, sourceChecksum} = options;
+    await assertStudySchemaReady(pool);
     assertBootstrapCards(cards, config.expectedCardCount);
     return withTransaction(pool, async client => {
         const study = await findOrCreateStudy(client, config, sourceChecksum);
@@ -159,4 +182,4 @@ const bootstrapStudy = async options => {
     });
 };
 
-export {StudyBootstrapConflictError, assertBootstrapCards, bootstrapStudy};
+export {StudyBootstrapConflictError, assertBootstrapCards, assertStudySchemaReady, bootstrapStudy};

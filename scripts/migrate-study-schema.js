@@ -1,8 +1,9 @@
 import pool from "../util/pg-pool.js";
-import {applyStudySchema} from "../util/study-schema.js";
+import {parseThrough, runStudyMigrations} from "../util/study-schema.js";
 
 try {
-    await applyStudySchema(pool);
+    const through = parseThrough(process.argv.slice(2));
+    await runStudyMigrations(pool, through);
     console.log("Study schema migration complete");
 } finally {
     await pool.end();

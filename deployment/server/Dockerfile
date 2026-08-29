@@ -5,6 +5,7 @@ WORKDIR /build
 COPY public public/
 COPY routes routes/
 COPY scripts scripts/
+COPY schema/migrations schema/migrations/
 COPY util util/
 COPY views views/
 COPY index.js          \
@@ -33,7 +34,8 @@ COPY --from=build build .
 RUN apk update --quiet && \
     apk add --quiet --no-cache \
         curl=~8.14 \
-        jq=~1.7 && \
+        jq=~1.7 \
+        postgresql17-client && \
     npm ci --quiet
 
 HEALTHCHECK \
