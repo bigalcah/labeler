@@ -52,6 +52,10 @@ La proyección SHALL incluir `enrichment.run_id`, `enrichment.snapshot_checksum`
 - **WHEN** un campo GitHub es nulo o su endpoint no está completo
 - **THEN** el valor CSV permanece visible y la proyección informa el estado GitHub sin inventar ni borrar evidencia
 
+#### Scenario: Tarjeta omitida por identidad inexistente
+- **WHEN** el repositorio o Pull Request de una tarjeta responde `404` durante la captura
+- **THEN** la proyección conserva el baseline CSV, informa GitHub como `UNAVAILABLE` y no muestra payload GitHub
+
 #### Scenario: Preservación del baseline
 - **WHEN** se construye cualquier proyección enriquecida
 - **THEN** `raw_payload`, `source_checksum`, `content_checksum`, `source_card_id`, repositorio, número y ordinal coinciden byte o canónicamente con el baseline previo

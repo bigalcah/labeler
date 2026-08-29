@@ -59,5 +59,5 @@
 
 - [x] 8.1 Registrar Docker/PostgreSQL como no ejecutado y `IMPLEMENTED-UNVERIFIED` sin entorno desechable aprobado.
 - [x] 8.2 Verificar que el apply no ejecutó Compose ni modificó bases, contenedores, redes o volúmenes.
-- [ ] 8.3 Comparar estado final con inicial y confirmar que no se alteraron cambios ajenos ni rutas fuera de allowlist.
+- [x] 8.3 Comparar estado final con inicial y confirmar que no se alteraron cambios ajenos ni rutas fuera de allowlist.
 - [x] 8.4 Ejecutar `openspec validate "complete-project-documentation" --strict` y registrar el resultado.

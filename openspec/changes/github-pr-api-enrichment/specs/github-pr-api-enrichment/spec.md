@@ -27,10 +27,14 @@ El perfil `default` MUST proporcionar acceso read-only a metadata del repositori
 - **WHEN** falta el alias, la credencial no existe o no permite leer un endpoint obligatorio
 - **THEN** la tarjeta y el run terminan en fallo no promocionable con un código sanitizado
 
+#### Scenario: Repositorio o Pull Request inexistente
+- **WHEN** el endpoint de metadata responde `404` porque el repositorio o Pull Request no existe
+- **THEN** la tarjeta se omite del enriquecimiento sin abortar el lote, conserva únicamente su baseline CSV y registra una captura auditable sin payload GitHub
+
 ### Requirement: Completitud por endpoint
 Para cada tarjeta, metadata de PR, commits, files, reviews, issue comments y review comments SHALL ser endpoints obligatorios. Timeline y diff completo SHALL ser opcionales. Un endpoint obligatorio solo estará completo después de recorrer todas sus páginas; cero resultados se registrará como `COMPLETE_EMPTY`.
 
-Los estados terminales serán `COMPLETE`, `COMPLETE_EMPTY`, `UNAVAILABLE`, `TRUNCATED` y `FAILED`; `PARTIAL` solo podrá existir durante una ejecución y nunca será promocionable. `UNAVAILABLE` o `TRUNCATED` serán aceptables únicamente para endpoints opcionales o para campos documentadamente omitidos dentro de una respuesta completa. Autorización fallida, respuesta malformada, transporte agotado o paginación incompleta producirán `FAILED`.
+Los estados terminales serán `COMPLETE`, `COMPLETE_EMPTY`, `UNAVAILABLE`, `TRUNCATED` y `FAILED`; `PARTIAL` solo podrá existir durante una ejecución y nunca será promocionable. `UNAVAILABLE` o `TRUNCATED` serán aceptables únicamente para endpoints opcionales o para campos documentadamente omitidos dentro de una respuesta completa. Un `404` de identidad de la tarjeta completa se representa como endpoints `UNAVAILABLE` y no marca el run como fallido. Autorización fallida, respuesta malformada, transporte agotado o paginación incompleta producirán `FAILED`.
 
 #### Scenario: Evidencia obligatoria completa
 - **WHEN** todos los endpoints obligatorios terminan todas sus páginas y los opcionales alcanzan un estado terminal permitido
@@ -64,6 +68,8 @@ Cada ejecución SHALL crear un `enrichment_run` ligado a un solo `study_id`, che
 
 Un run solo podrá pasar a `COMPLETED` cuando las 300 membresías tengan snapshot promocionable y el manifest coincida con sus ordinales. La promoción del estudio será una inserción única y transaccional; no se expondrá ninguna página o snapshot de runs `RUNNING` o `FAILED`.
 
+Una tarjeta omitida por `404` contará con snapshot promocionable vacío, sin payload GitHub, para conservar la cardinalidad de 300 membresías; su baseline CSV seguirá siendo la única evidencia disponible.
+
 #### Scenario: Lote completo
 - **WHEN** las 300 tarjetas cumplen completitud y persisten sus manifests
 - **THEN** el run se completa y puede promocionarse en una sola transacción
@@ -72,14 +78,20 @@ Un run solo podrá pasar a `COMPLETED` cuando las 300 membresías tengan snapsho
 - **WHEN** una tarjeta no alcanza un estado promocionable
 - **THEN** el run queda `FAILED`, no cambia la promoción vigente y ninguna evidencia parcial aparece en clasificación
 
+#### Scenario: Omisión de una tarjeta inexistente
+- **WHEN** una tarjeta recibe `404` de identidad y las demás tarjetas completan sus endpoints
+- **THEN** el run continúa, conserva 300 relaciones de tarjeta, completa y puede promocionarse; la tarjeta omitida muestra baseline CSV sin evidencia GitHub
+
 #### Scenario: Captura equivalente
 - **WHEN** el snapshot canónico coincide con uno ya persistido
 - **THEN** el run referencia el snapshot existente por checksum sin duplicar su contenido normalizado
 
 ### Requirement: Presupuesto determinista de solicitudes
-La concurrencia por defecto SHALL ser 4 y MUST permanecer entre 1 y 8. Cada solicitud tendrá timeout de 30 segundos y como máximo cuatro intentos totales. Solo serán reintentables timeouts, errores de transporte, `429`, `502`, `503`, `504` y `403` identificado por headers como rate limit.
+El run SHALL usar un único coordinador de cuota compartido por todos los workers. La concurrencia SHALL comenzar en 1 y MUST permanecer entre 1 y 4, aumentando solo después de ventanas estables con criterios temporales y de cuota y reduciéndose ante señales de límite, latencia anómala o descenso rápido del remanente. Antes de cada solicitud el coordinador SHALL considerar `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After` y señales documentadas de límite secundario, reservar un margen de seguridad, aplicar pacing global y evitar ráfagas.
 
-El proceso SHALL respetar `Retry-After` o el reset informado únicamente dentro de un máximo acumulado de cinco minutos por página y treinta minutos por run. Si la espera requerida supera el presupuesto restante, la página fallará. `401`, autorización `403`, `404`, respuestas malformadas y errores de identidad serán terminales sin retry.
+Cada solicitud tendrá timeout de 30 segundos y como máximo cuatro intentos totales. Solo serán reintentables timeouts, errores de transporte, `429`, `502`, `503`, `504` y `403` identificado como rate limit por headers o por el mensaje documentado de límite secundario. Un `403` de autorización MUST permanecer terminal.
+
+El proceso SHALL respetar `Retry-After`, `X-RateLimit-Reset` y el límite secundario con backoff exponencial, jitter y margen de seguridad. Si la cuota exige esperar más que el presupuesto operativo inmediato, el run SHALL persistir un checkpoint sanitizado, `next_resume_at` y el estado de cuota, quedar en `RUNNING` con resultado `PAUSED` y bloquear nuevas solicitudes hasta la hora segura, incluso después de reiniciar el proceso. Agotar los cuatro intentos por cuota SHALL producir `PAUSED`, nunca `FAILED`. `401`, autorización `403`, `404`, respuestas malformadas y errores de identidad serán terminales sin retry, excepto el `404` de identidad que se omite según el contrato de la tarjeta inexistente.
 
 #### Scenario: Retry dentro del presupuesto
 - **WHEN** una respuesta reintentable indica una espera dentro del presupuesto
@@ -88,6 +100,34 @@ El proceso SHALL respetar `Retry-After` o el reset informado únicamente dentro 
 #### Scenario: Presupuesto agotado
 - **WHEN** se agotan intentos o tiempo acumulado
 - **THEN** la página y el run fallan de forma determinista sin loop ni promoción parcial
+
+#### Scenario: Cuota primaria o secundaria alcanzada
+- **WHEN** los headers, `Retry-After` o el mensaje de un `403` indican remanente insuficiente, reset futuro o límite secundario
+- **THEN** el coordinador detiene nuevas solicitudes, reduce la concurrencia, persiste el checkpoint y `next_resume_at`, y reanuda después de la hora segura sin repetir páginas completas ni marcar el run como fallido
+
+#### Scenario: Reanudación bloqueada hasta la hora segura
+- **WHEN** un proceso reiniciado encuentra un run `RUNNING` con `next_resume_at` futuro
+- **THEN** carga el mismo run y sus señales de cuota, no realiza solicitudes antes de esa hora y conserva el cursor pendiente
+
+#### Scenario: Cuatro respuestas de cuota
+- **WHEN** los cuatro intentos de una página terminan por `403` secundario o `429`
+- **THEN** la página devuelve `PAUSED`, el run permanece `RUNNING` y el one-shot no comunica finalización exitosa
+
+#### Scenario: Error de autorización
+- **WHEN** GitHub responde `403` sin señales ni mensaje de límite secundario
+- **THEN** la respuesta se clasifica como autorización terminal y no se reintenta como rate limit
+
+#### Scenario: Página paginada parcialmente comprometida
+- **WHEN** existe una página `PARTIAL` con fingerprint compatible y `nextUrl` persistido
+- **THEN** la reanudación reutiliza esa página y solicita únicamente la primera página pendiente
+
+#### Scenario: Conflicto de página persistida
+- **WHEN** una respuesta repetida no coincide con el fingerprint o contenido de una página staging ya comprometida
+- **THEN** el proceso rechaza el conflicto y no ignora la discrepancia con `ON CONFLICT DO NOTHING`
+
+#### Scenario: Cobertura completa sin abuso
+- **WHEN** el coordinador reanuda todos los checkpoints y cada tarjeta tiene snapshot completo u omitido auditable
+- **THEN** el run demuestra 300/300 relaciones, cero páginas pendientes, cero solicitudes fuera de cuota y queda listo para promoción
 
 ### Requirement: Retención de payload privado
 El sistema MUST normalizar respuestas GitHub en memoria y MUST NOT persistir ni registrar bodies crudos de éxito o error. Persistirá únicamente el payload normalizado requerido por la tarjeta, checksums, ETags, estados, conteos y metadatos sanitizados. El `raw_payload` existente seguirá siendo exclusivamente la fila CSV.

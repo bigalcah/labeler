@@ -15,6 +15,10 @@ El sistema SHALL conservar el CSV y `study_card` como autoridad exclusiva de per
 - **WHEN** el run está incompleto, pertenece a otro checksum CSV, el estudio ya tiene una promoción o existe una clasificación o descarte
 - **THEN** la promoción falla sin modificar la promoción vigente, la muestra ni las decisiones existentes
 
+#### Scenario: Promoción con tarjetas GitHub omitidas
+- **WHEN** el run conserva las 300 membresías y algunas tarjetas tienen captura vacía por `404`, mientras las restantes son completas y no existen decisiones
+- **THEN** el sistema promueve el run; las tarjetas omitidas permanecen disponibles con baseline CSV y sin evidencia GitHub
+
 #### Scenario: Decisión asociada a evidencia exacta
 - **WHEN** un participante clasifica o descarta una tarjeta de un estudio enriquecido
 - **THEN** la decisión conserva `study_id` y el identificador del único `enrichment_run` promovido que produjo la evidencia visible
