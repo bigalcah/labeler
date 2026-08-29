@@ -11,67 +11,133 @@
         <main>
             <div class="container">
                 <% if (participant && card) { %>
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h1 class="h3 mb-0">PR classification</h1>
-                        <span class="text-muted">
-                            <%= progress.completed %>/<%= total %> classified by <%= participant.name %>
-                        </span>
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+                        <div>
+                            <span class="pr-section-eyebrow">Private study card</span>
+                            <h1 class="h3 mb-0">PR classification</h1>
+                        </div>
+                        <div class="text-muted small text-md-end">
+                            <div><%= progress.completed %>/<%= total %> completed by <%= participant.name %></div>
+                            <div><%= progress.pending %> pending · <%= progress.classified %> classified · <%= progress.discarded %> discarded</div>
+                        </div>
+                    </div>
+
+                    <nav class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3" aria-label="Card navigation">
+                        <% if (navigation?.previousId) { %>
+                            <a class="btn btn-outline-secondary" href="/<%= encodeURIComponent(participant.name) %>/queue/<%= encodeURIComponent(navigation.previousId) %>">
+                                <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Previous
+                            </a>
+                        <% } else { %>
+                            <span class="btn btn-outline-secondary disabled" aria-disabled="true">
+                                <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Previous
+                            </span>
+                        <% } %>
+                        <span class="badge rounded-pill text-bg-light border">Card <%= card.ordinal + 1 %> of <%= total %></span>
+                        <% if (navigation?.nextId) { %>
+                            <a class="btn btn-outline-secondary" href="/<%= encodeURIComponent(participant.name) %>/queue/<%= encodeURIComponent(navigation.nextId) %>">
+                                Next<i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
+                            </a>
+                        <% } else { %>
+                            <span class="btn btn-outline-secondary disabled" aria-disabled="true">
+                                Next<i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
+                            </span>
+                        <% } %>
+                    </nav>
+
+                    <div class="alert <%= card.status === "CLASSIFIED" ? "alert-success" : card.status === "DISCARDED" ? "alert-secondary" : "alert-warning" %>" role="status">
+                        <% if (card.status === "CLASSIFIED") { %>
+                            <i class="bi bi-check-circle me-1" aria-hidden="true"></i>
+                            Classified privately as <strong><%= card.own_category || "a personal category" %></strong>. You can edit this response below.
+                        <% } else if (card.status === "DISCARDED") { %>
+                            <i class="bi bi-slash-circle me-1" aria-hidden="true"></i>
+                            Discarded privately for <strong><%= card.discard_reason || "no reason supplied" %></strong>. Other participants can still review this card.
+                        <% } else { %>
+                            <i class="bi bi-hourglass-split me-1" aria-hidden="true"></i>
+                            This card is pending your private response.
+                        <% } %>
                     </div>
 
                     <%- include('./partials/instance/data', { data: card }); %>
 
-                    <section class="card mt-3" aria-labelledby="classification-title">
-                        <div class="card-body">
-                            <h2 class="h5" id="classification-title">Main cause of rework or extra effort</h2>
-                            <form action="/<%= encodeURIComponent(participant.name) %>/queue/<%= card.id %>/classify"
-                                  method="post">
-                                <label class="form-label" for="category-id">Personal category</label>
-                                <div class="input-group mb-3">
-                                    <select id="category-id" name="category_id" class="form-select" required>
-                                        <option value="" selected disabled>Select or create a category...</option>
-                                        <% categories.forEach(category => { %>
-                                            <option value="<%= category.id %>"><%= category.raw_name %></option>
-                                        <% }); %>
-                                    </select>
-                                    <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal"
-                                            data-bs-target="#new-category-modal">
-                                        New category
+                    <% if (card.status !== "DISCARDED") { %>
+                        <section class="card mt-3" aria-labelledby="classification-title">
+                            <div class="card-body">
+                                <h2 class="h5" id="classification-title">Main cause of rework or extra effort</h2>
+                                <form action="/<%= encodeURIComponent(participant.name) %>/queue/<%= encodeURIComponent(card.id) %>/classify"
+                                      method="post">
+                                    <input type="hidden" name="expected_revision" value="<%= card.revision || 0 %>">
+                                    <label class="form-label" for="category-id">Personal category</label>
+                                    <div class="input-group mb-3">
+                                        <select id="category-id" name="category_id" class="form-select" required>
+                                            <option value="" <%= card.category_id ? "" : "selected" %> disabled>Select or create a category...</option>
+                                            <% categories.forEach(category => { %>
+                                                <option value="<%= category.id %>" <%= category.id === card.category_id ? "selected" : "" %>><%= category.raw_name %></option>
+                                            <% }); %>
+                                        </select>
+                                        <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal"
+                                                data-bs-target="#new-category-modal">
+                                            New category
+                                        </button>
+                                    </div>
+                                    <label class="form-label" for="remarks">Observation (optional)</label>
+                                    <textarea id="remarks" name="remarks" class="form-control mb-3" rows="4"
+                                              placeholder="Why does this category describe the main cause?"><%= card.remarks || "" %></textarea>
+                                    <button class="btn btn-primary" type="submit">
+                                        <%= card.status === "CLASSIFIED" ? "Update classification and continue" : "Save classification and continue" %>
                                     </button>
-                                </div>
-                                <label class="form-label" for="remarks">Observation (optional)</label>
-                                <textarea id="remarks" name="remarks" class="form-control mb-3" rows="4"
-                                          placeholder="Why does this category describe the main cause?"></textarea>
-                                <button class="btn btn-primary" type="submit">Save classification and continue</button>
-                            </form>
-                        </div>
-                    </section>
-
-                    <div class="modal fade" id="new-category-modal" tabindex="-1" aria-labelledby="new-category-title">
-                        <div class="modal-dialog">
-                            <div class="modal-content">
-                                <div class="modal-header">
-                                    <h2 class="modal-title h5" id="new-category-title">New personal category</h2>
-                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                                </div>
-                                <form id="new-category-form">
-                                    <div class="modal-body">
-                                        <label class="form-label" for="category-name">Name</label>
-                                        <input id="category-name" class="form-control" required maxlength="160">
-                                        <div id="category-error" class="text-danger mt-2 d-none" role="alert">
-                                            This category already exists or could not be created.
-                                        </div>
-                                    </div>
-                                    <div class="modal-footer">
-                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                        <button type="submit" class="btn btn-primary">Create category</button>
-                                    </div>
                                 </form>
                             </div>
+                        </section>
+
+                        <% if (card.status === "PENDING") { %>
+                            <section class="card border-secondary mt-3" aria-labelledby="discard-title">
+                                <div class="card-body">
+                                    <h2 class="h5" id="discard-title">Cannot classify this card?</h2>
+                                    <p class="text-muted">Discarding is private to <%= participant.name %> and does not remove the card for other participants.</p>
+                                    <form action="/<%= encodeURIComponent(participant.name) %>/queue/<%= encodeURIComponent(card.id) %>/discard"
+                                          method="post" onsubmit="return window.confirm('Discard this card for your participant?');">
+                                        <input type="hidden" name="expected_revision" value="<%= card.revision || 0 %>">
+                                        <label class="form-label" for="discard-reason">Reason (optional)</label>
+                                        <textarea id="discard-reason" name="reason" class="form-control mb-3" rows="2"
+                                                  placeholder="Optional private reason"></textarea>
+                                        <button class="btn btn-outline-secondary" type="submit">
+                                            <i class="bi bi-slash-circle me-1" aria-hidden="true"></i>Discard and continue
+                                        </button>
+                                    </form>
+                                </div>
+                            </section>
+                        <% } %>
+                    <% } %>
+
+                    <% if (card.status !== "DISCARDED") { %>
+                        <div class="modal fade" id="new-category-modal" tabindex="-1" aria-labelledby="new-category-title">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h2 class="modal-title h5" id="new-category-title">New personal category</h2>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                    </div>
+                                    <form id="new-category-form">
+                                        <div class="modal-body">
+                                            <label class="form-label" for="category-name">Name</label>
+                                            <input id="category-name" class="form-control" required maxlength="160">
+                                            <div id="category-error" class="text-danger mt-2 d-none" role="alert">
+                                                This category already exists or could not be created.
+                                            </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                            <button type="submit" class="btn btn-primary">Create category</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
                         </div>
-                    </div>
+                    <% } %>
                 <% } else if (participant) { %>
                     <h1 class="text-center mb-3">Classification queue complete</h1>
-                    <p class="text-center">You classified all available PR cards.</p>
+                    <p class="text-center">You classified or discarded every card in your private queue.</p>
+                    <div class="text-center"><a class="btn btn-outline-primary" href="/progress?participant=<%= encodeURIComponent(participant.name) %>">View private progress</a></div>
                 <% } else { %>
                     <h1 class="text-center mb-3">Select a participant from the login page</h1>
                     <%- include('./partials/home-button'); %>
@@ -80,7 +146,7 @@
         </main>
         <%- include('./partials/footer'); %>
         <%- include('./partials/scripts/bootstrap'); %>
-        <% if (participant && card) { %>
+        <% if (participant && card && card.status !== "DISCARDED") { %>
             <script>
                 const categoryForm = document.getElementById("new-category-form");
                 categoryForm.addEventListener("submit", async event => {

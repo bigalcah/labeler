@@ -1,328 +1,83 @@
 <%
-    const normalizedState = String(data.state || "").toLowerCase();
-    const isMerged = data.merged === true || Boolean(data.dates?.merged_at);
-    const status = isMerged
-        ? { label: "MERGED", icon: "bi-check-circle-fill", className: "pr-status-merged" }
-        : normalizedState === "closed"
-            ? { label: "CLOSED", icon: "bi-x-circle-fill", className: "pr-status-closed" }
-            : normalizedState === "open"
-                ? { label: "OPEN", icon: "bi-record-circle-fill", className: "pr-status-open" }
-                : { label: "STATUS UNAVAILABLE", icon: "bi-question-circle-fill", className: "pr-status-unknown" };
+    const v2 = data.card_v2 || {};
+    const identity = v2.identity || {};
+    const value = name => v2.fields?.[name]?.value ?? "Not available";
+    const availability = name => v2.fields?.[name]?.availability || "EMPTY";
     const metricLabels = {
-        commits: "Commits",
-        reviews: "Reviews",
-        comments: "Comments",
-        changes_requested: "Changes requested",
+        commit_count: "Commits", changed_file_count: "Changed files", additions: "Additions",
+        deletions: "Deletions", total_changes: "Total changes", review_event_count: "Review events",
+        changes_requested_review_count: "Changes requested", issue_comment_count: "PR comments",
+        review_comment_count: "Inline comments",
     };
-    const metrics = Object.entries(data.summary || {})
-        .filter(([name, value]) => metricLabels[name] && value !== null && value !== undefined && value !== "")
-        .map(([name, value]) => ({ label: metricLabels[name], value }));
-    const evidenceCandidates = [
-        [ "selected", "AI review / selected evidence", data.evidence?.raw_text || data.evidence?.selected ],
-        [ "changes_requested", "Requested changes", data.evidence?.changes_requested ],
-        [ "diff_hunk", "Diff context", data.evidence?.diff_hunk ],
-    ];
-    const evidenceSections = evidenceCandidates
-        .filter(([, , value]) => value !== null && value !== undefined && value !== "")
-        .map(([key, label, value]) => ({ key, label, value }));
-    if (evidenceSections.length === 0 && data.evidence?.all_text) {
-        evidenceSections.push({ key: "all_text", label: "All available evidence", value: data.evidence.all_text });
-    }
-    const reviewItems = Array.isArray(data.evidence?.reviews) ? data.evidence.reviews : [];
-    const reviewCommentItems = Array.isArray(data.evidence?.review_comments_json)
-        ? data.evidence.review_comments_json
-        : [];
-    const commentItems = Array.isArray(data.evidence?.comments) ? data.evidence.comments : [];
-    const timelineEvents = Array.isArray(data.evidence?.all)
-        ? data.evidence.all.filter(event => [ "pr_timeline", "pull_request" ].includes(event?.source))
-        : [];
-    const timelineSourceLabels = {
-        pr_timeline: "Timeline event",
-        pull_request: "Pull request event",
+    const sectionLabels = {
+        files: "Changed files", reviews: "Reviews", issue_comments: "Pull request comments",
+        review_comments: "Inline review comments", timeline: "Timeline", supplementary_activity: "Commits",
     };
-    const disclaimerMarker = "Disclaimer: This review was made by a crew of AI Agents.";
-    const disclaimerSource = [
-        data.evidence?.raw_text,
-        data.evidence?.selected,
-        data.evidence?.all_text,
-        data.evidence?.timeline,
-    ].find(value => String(value || "").includes(disclaimerMarker));
-    const commitCount = data.summary?.commits;
+    const sectionIcons = {files: "bi-file-earmark-code", reviews: "bi-check2-square", issue_comments: "bi-chat-left-text", review_comments: "bi-chat-square-quote", timeline: "bi-clock-history", supplementary_activity: "bi-git-commit"};
+    const statusLabel = state => state === "UNAVAILABLE" ? "Unavailable" : state === "TRUNCATED" ? "Truncated" : state === "EMPTY" ? "Empty" : "Available";
+    const statusClass = state => state === "PRESENT" ? "text-bg-success" : state === "TRUNCATED" ? "text-bg-warning" : state === "UNAVAILABLE" ? "text-bg-secondary" : "text-bg-light border";
+    const normalizedState = String(value("state") || "").toLowerCase();
+    const isMerged = value("merged") === true || Boolean(v2.dates?.merged_at?.value);
+    const status = isMerged ? "MERGED" : normalizedState === "closed" ? "CLOSED" : normalizedState === "open" ? "OPEN" : "STATUS UNAVAILABLE";
+    const metrics = Object.entries(v2.metrics || {}).filter(([, metric]) => metric.value !== null && metric.value !== undefined);
+    const csvEvidence = v2.csv_evidence || {};
+    const evidenceSections = [["description", "Description", csvEvidence.body], ["selected", "Selected CSV evidence", csvEvidence.selected], ["all", "All CSV evidence", csvEvidence.all_text]].filter(([, , text]) => text);
 %>
-<% if (data && data.source_type && data.title) { %>
+<% if (data && identity.source_card_id) { %>
     <article class="pr-card card border-0 shadow-sm overflow-hidden" aria-labelledby="pr-card-title">
         <header class="pr-card-header p-4 p-lg-5">
             <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
                 <div class="min-w-0">
-                    <div class="pr-card-kicker mb-2">
-                        <span><i class="bi bi-git-pull-request me-1" aria-hidden="true"></i>Pull request</span>
-                        <span class="text-muted">/</span>
-                        <span class="text-break"><%= data.repository || "Repository unavailable" %></span>
-                        <span class="text-muted">#<%= data.pr_number || "?" %></span>
-                    </div>
-                    <h2 class="pr-card-title mb-0" id="pr-card-title"><%= data.title %></h2>
+                    <div class="pr-card-kicker mb-2">Pull request / <span class="text-break"><%= identity.repository || "Repository unavailable" %></span> #<%= identity.pr_number || "?" %></div>
+                    <h2 class="pr-card-title mb-0" id="pr-card-title"><%= value("title") %></h2>
                 </div>
-                <% if (data.html_url) { %>
-                    <a class="btn btn-dark rounded-pill px-3 flex-shrink-0" href="<%= data.html_url %>" target="_blank"
-                       rel="noopener noreferrer">
-                        <i class="bi bi-box-arrow-up-right me-1" aria-hidden="true"></i>Open on GitHub
-                    </a>
-                <% } %>
+                <% if (value("html_url") !== "Not available") { %><a class="btn btn-dark rounded-pill px-3 flex-shrink-0" href="<%= value("html_url") %>" target="_blank" rel="noopener noreferrer">Open on GitHub</a><% } %>
             </div>
-            <div class="d-flex flex-wrap gap-2 mt-4" aria-label="Pull request status and source">
-                <span class="pr-status badge rounded-pill <%= status.className %>">
-                    <i class="bi <%= status.icon %> me-1" aria-hidden="true"></i><%= status.label %>
-                </span>
-                <% if (isMerged && normalizedState === "closed") { %>
-                    <span class="badge rounded-pill text-bg-light border">GitHub state: CLOSED</span>
-                <% } %>
-                <span class="badge rounded-pill text-bg-light border">
-                    <i class="bi bi-database me-1" aria-hidden="true"></i>Source: <%= data.source_type %>
-                </span>
-                <% if (data.language) { %>
-                    <span class="badge rounded-pill pr-language-badge">
-                        <i class="bi bi-code-slash me-1" aria-hidden="true"></i><%= data.language %> language
-                    </span>
-                <% } %>
+            <div class="d-flex flex-wrap gap-2 mt-4" aria-label="Pull request status and sources">
+                <span class="pr-status badge rounded-pill"><%= status %></span>
+                <span class="badge rounded-pill text-bg-light border">Sample: CSV</span>
+                <span class="badge rounded-pill text-bg-light border">Evidence: <%= v2.snapshot?.run_id ? "GitHub snapshot" : "CSV only" %></span>
+                <span class="badge rounded-pill pr-language-badge">Dataset language: <%= v2.dataset_language?.value || "Not available" %></span>
             </div>
         </header>
-
         <div class="card-body p-4 p-lg-5">
             <div class="pr-meta-grid mb-4">
-                <div class="pr-meta-item">
-                    <span class="pr-meta-label"><i class="bi bi-person me-1" aria-hidden="true"></i>Author</span>
-                    <strong class="text-break"><%= data.author || "Not available" %></strong>
-                </div>
-                <div class="pr-meta-item">
-                    <span class="pr-meta-label"><i class="bi bi-calendar3 me-1" aria-hidden="true"></i>Created</span>
-                    <strong><%= data.dates?.created_at || "Not available" %></strong>
-                </div>
-                <div class="pr-meta-item">
-                    <span class="pr-meta-label"><i class="bi bi-calendar-x me-1" aria-hidden="true"></i>Closed</span>
-                    <strong><%= data.dates?.closed_at || "Not available" %></strong>
-                </div>
-                <div class="pr-meta-item">
-                    <span class="pr-meta-label"><i class="bi bi-check2-circle me-1" aria-hidden="true"></i>Merged</span>
-                    <strong><%= data.dates?.merged_at || "Not available" %></strong>
-                </div>
-            </div>
-
-            <% if (data.body) { %>
-                <section class="pr-section" aria-labelledby="pr-description-title">
-                    <div class="pr-section-heading">
-                        <div>
-                            <span class="pr-section-eyebrow">01 / Context</span>
-                            <h3 class="h4 mb-0" id="pr-description-title">Description</h3>
-                        </div>
-                        <span class="badge rounded-pill text-bg-light border">Markdown</span>
-                    </div>
-                    <div class="pr-markdown"><%- renderSafeMarkdown(data.body) %></div>
-                </section>
-            <% } else { %>
-                <div class="alert alert-light border d-flex align-items-center gap-2 mb-4" role="status">
-                    <i class="bi bi-info-circle" aria-hidden="true"></i>
-                    <span>Description not available in the dataset.</span>
-                </div>
-            <% } %>
-
-            <% if (metrics.length > 0) { %>
-                <section class="pr-section" aria-labelledby="pr-metrics-title">
-                    <div class="pr-section-heading">
-                        <div>
-                            <span class="pr-section-eyebrow">02 / Signal</span>
-                            <h3 class="h4 mb-0" id="pr-metrics-title">Available metrics</h3>
-                        </div>
-                        <span class="text-muted small"><%= metrics.length %> values</span>
-                    </div>
-                    <div class="pr-metrics-grid">
-                        <% metrics.forEach(metric => { %>
-                            <div class="pr-metric">
-                                <span class="pr-metric-label"><%= metric.label %></span>
-                                <strong class="pr-metric-value"><%= metric.value %></strong>
-                            </div>
-                        <% }); %>
-                    </div>
-                </section>
-            <% } %>
-
-            <section class="pr-section" aria-labelledby="pr-activity-title">
-                <div class="pr-section-heading">
-                    <div>
-                        <span class="pr-section-eyebrow">03 / Activity</span>
-                        <h3 class="h4 mb-0" id="pr-activity-title">Commits, reviews and comments</h3>
-                    </div>
-                    <span class="text-muted small">Structured history</span>
-                </div>
-                <div class="pr-evidence-list">
-                    <details class="pr-evidence-item">
-                        <summary>
-                            <span><i class="bi bi-git-commit me-2" aria-hidden="true"></i>Commit thread</span>
-                            <span class="badge rounded-pill text-bg-light border"><%= commitCount ?? "—" %> commits</span>
-                        </summary>
-                        <div class="pr-unavailable-state">
-                            <i class="bi bi-info-circle" aria-hidden="true"></i>
-                            <span>The local CSV reports the number of commits, but does not include commit messages, authors, timestamps or the commit thread. GitHub enrichment is required for those details.</span>
-                        </div>
-                    </details>
-
-                    <details class="pr-evidence-item">
-                        <summary>
-                            <span><i class="bi bi-check2-square me-2" aria-hidden="true"></i>Reviews</span>
-                            <span class="badge rounded-pill text-bg-light border"><%= reviewItems.length || data.summary?.reviews || 0 %></span>
-                        </summary>
-                        <% if (reviewItems.length > 0) { %>
-                            <div class="pr-event-list">
-                                <% reviewItems.forEach(review => { %>
-                                    <div class="pr-event-item">
-                                        <div class="d-flex flex-wrap justify-content-between gap-2">
-                                            <strong><%= review.user || "Reviewer unavailable" %></strong>
-                                            <span class="badge rounded-pill text-bg-light border"><%= review.state || "Review" %></span>
-                                        </div>
-                                        <% if (review.created_at) { %><small class="text-muted"><%= review.created_at %></small><% } %>
-                                        <% if (review.text) { %><div class="pr-markdown mt-2"><%- renderSafeMarkdown(review.text) %></div><% } else { %><p class="text-muted small mb-0 mt-2">This review has no written text in the CSV.</p><% } %>
-                                    </div>
-                                <% }); %>
-                            </div>
-                        <% } else { %>
-                            <div class="pr-unavailable-state"><i class="bi bi-inbox" aria-hidden="true"></i><span>No structured review records are available.</span></div>
-                        <% } %>
-                    </details>
-
-                    <details class="pr-evidence-item">
-                        <summary>
-                            <span><i class="bi bi-chat-left-text me-2" aria-hidden="true"></i>Pull request comments</span>
-                            <span class="badge rounded-pill text-bg-light border"><%= commentItems.length || data.summary?.comments || 0 %></span>
-                        </summary>
-                        <% if (commentItems.length > 0) { %>
-                            <div class="pr-event-list">
-                                <% commentItems.forEach(comment => { %>
-                                    <div class="pr-event-item">
-                                        <div class="d-flex flex-wrap justify-content-between gap-2">
-                                            <strong><%= comment.user || "Commenter unavailable" %></strong>
-                                            <% if (comment.state) { %><span class="badge rounded-pill text-bg-light border"><%= comment.state %></span><% } %>
-                                        </div>
-                                        <% if (comment.created_at) { %><small class="text-muted"><%= comment.created_at %></small><% } %>
-                                        <% if (comment.text) { %><div class="pr-markdown mt-2"><%- renderSafeMarkdown(comment.text) %></div><% } %>
-                                    </div>
-                                <% }); %>
-                            </div>
-                        <% } else if (data.evidence?.pull_request_comments) { %>
-                            <div class="pr-markdown mt-3"><%- renderSafeMarkdown(data.evidence.pull_request_comments) %></div>
-                        <% } else { %>
-                            <div class="pr-unavailable-state"><i class="bi bi-inbox" aria-hidden="true"></i><span>No pull request comments are available.</span></div>
-                        <% } %>
-                    </details>
-
-                    <details class="pr-evidence-item">
-                        <summary>
-                            <span><i class="bi bi-chat-square-quote me-2" aria-hidden="true"></i>Review comments</span>
-                            <span class="badge rounded-pill text-bg-light border"><%= reviewCommentItems.length %></span>
-                        </summary>
-                        <% if (reviewCommentItems.length > 0) { %>
-                            <div class="pr-event-list">
-                                <% reviewCommentItems.forEach(comment => { %>
-                                    <div class="pr-event-item">
-                                        <div class="d-flex flex-wrap justify-content-between gap-2">
-                                            <strong><%= comment.user || "Reviewer unavailable" %></strong>
-                                            <% if (comment.path) { %><code><%= comment.path %></code><% } %>
-                                        </div>
-                                        <% if (comment.text) { %><div class="pr-markdown mt-2"><%- renderSafeMarkdown(comment.text) %></div><% } else { %><p class="text-muted small mb-0 mt-2">This review comment has no written text in the CSV.</p><% } %>
-                                    </div>
-                                <% }); %>
-                            </div>
-                        <% } else { %>
-                            <div class="pr-unavailable-state"><i class="bi bi-inbox" aria-hidden="true"></i><span>No inline review comments are available.</span></div>
-                        <% } %>
-                    </details>
-
-                    <details class="pr-evidence-item" open>
-                        <summary>
-                            <span><i class="bi bi-clock-history me-2" aria-hidden="true"></i>Timeline</span>
-                            <span class="badge rounded-pill text-bg-light border"><%= timelineEvents.length %> events</span>
-                        </summary>
-                        <% if (timelineEvents.length > 0) { %>
-                            <div class="pr-event-list">
-                                <% timelineEvents.forEach(event => { %>
-                                    <div class="pr-event-item">
-                                        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
-                                            <div>
-                                                <strong><%= timelineSourceLabels[event.source] || "Timeline event" %></strong>
-                                                <% if (event.user) { %><span class="text-muted"> · <%= event.user %></span><% } %>
-                                            </div>
-                                            <span class="badge rounded-pill text-bg-light border"><%= event.state || "Event" %></span>
-                                        </div>
-                                        <% if (event.created_at) { %><small class="text-muted d-block mt-1"><%= event.created_at %></small><% } %>
-                                        <% if (event.id) { %><small class="text-muted d-block mt-1">Event ID: <%= event.id %></small><% } %>
-                                        <% if (event.path) { %><code class="d-inline-block mt-2"><%= event.path %></code><% } %>
-                                        <% if (event.text) { %>
-                                            <div class="pr-markdown mt-2"><%- renderSafeMarkdown(event.text) %></div>
-                                            <% if (/(\.\.\.|…)$/.test(String(event.text).trimEnd())) { %>
-                                                <div class="pr-truncation-note mt-2">
-                                                    <i class="bi bi-scissors me-1" aria-hidden="true"></i>
-                                                    This event text is truncated in the CSV. The complete AI review is available in “AI review / selected evidence” under Analysis and timeline.
-                                                </div>
-                                            <% } %>
-                                        <% } else { %>
-                                            <p class="text-muted small mb-0 mt-2">This timeline event has no text in the CSV.</p>
-                                        <% } %>
-                                    </div>
-                                <% }); %>
-                            </div>
-                        <% } else if (data.evidence?.timeline) { %>
-                            <div class="pr-markdown mt-3"><%- renderSafeMarkdown(data.evidence.timeline) %></div>
-                        <% } else { %>
-                            <div class="pr-unavailable-state"><i class="bi bi-inbox" aria-hidden="true"></i><span>No timeline events are available in the dataset.</span></div>
-                        <% } %>
-                    </details>
-                </div>
-            </section>
-
-            <% if (disclaimerSource) { %>
-                <aside class="pr-disclaimer" aria-labelledby="pr-disclaimer-title">
-                    <div class="pr-disclaimer-icon"><i class="bi bi-robot" aria-hidden="true"></i></div>
-                    <div>
-                        <span class="pr-section-eyebrow">04 / Source note</span>
-                        <h3 class="h5 mb-2" id="pr-disclaimer-title">What does the disclaimer mean?</h3>
-                        <p class="mb-2"><strong>“<%= disclaimerMarker %>”</strong></p>
-                        <p class="mb-0">This means that the review text was produced by a crew of AI agents. It is evidence from the dataset, not an independent human review and not an automatic classification made by this application.</p>
-                    </div>
-                </aside>
-            <% } %>
-
-            <section class="pr-section" aria-labelledby="pr-evidence-title">
-                <div class="pr-section-heading">
-                    <div>
-                        <span class="pr-section-eyebrow">05 / Evidence</span>
-                        <h3 class="h4 mb-0" id="pr-evidence-title">Analysis and timeline</h3>
-                    </div>
-                    <span class="badge rounded-pill text-bg-light border"><%= evidenceSections.length %> sections</span>
-                </div>
-                <% if (evidenceSections.length > 0) { %>
-                    <div class="pr-evidence-list">
-                        <% evidenceSections.forEach((section, index) => { %>
-                            <details class="pr-evidence-item" <%= index === 0 ? "open" : "" %>>
-                                <summary>
-                                    <span><i class="bi bi-file-text me-2" aria-hidden="true"></i><%= section.label %></span>
-                                    <span class="text-muted small">Inspect</span>
-                                </summary>
-                                <div class="pr-markdown mt-3"><%- renderSafeMarkdown(section.value) %></div>
-                            </details>
-                        <% }); %>
-                    </div>
-                <% } else { %>
-                    <div class="pr-empty-state">
-                        <i class="bi bi-inbox" aria-hidden="true"></i>
-                        <span>No textual evidence is available for this card.</span>
-                    </div>
+                <div class="pr-meta-item"><span class="pr-meta-label">Author</span><strong><%= value("author") %></strong></div>
+                <% for (const [dateName, label] of [["created_at", "Created"], ["closed_at", "Closed"], ["merged_at", "Merged"]]) { %>
+                    <div class="pr-meta-item"><span class="pr-meta-label"><%= label %></span><strong><%= v2.dates?.[dateName]?.value || "Not available" %></strong></div>
                 <% } %>
+            </div>
+            <% if (evidenceSections.length) { %>
+                <section class="pr-section" aria-labelledby="pr-context-title"><div class="pr-section-heading"><div><span class="pr-section-eyebrow">01 / CSV sample</span><h3 class="h4 mb-0" id="pr-context-title">Intention and baseline evidence</h3></div></div><div class="pr-evidence-list"><% evidenceSections.forEach(([key, label, text], index) => { %><details class="pr-evidence-item" <%= index === 0 ? "open" : "" %>><summary><span><%= label %></span><span class="badge rounded-pill text-bg-light border">CSV</span></summary><div class="pr-markdown mt-3"><%- renderSafeMarkdown(text) %></div></details><% }); %></div></section>
+            <% } %>
+            <section class="pr-section" aria-labelledby="pr-metrics-title"><div class="pr-section-heading"><div><span class="pr-section-eyebrow">02 / Signal</span><h3 class="h4 mb-0" id="pr-metrics-title">Metrics</h3></div><span class="badge rounded-pill text-bg-light border">Evidence values</span></div><div class="pr-metrics-grid"><% metrics.forEach(([name, metric]) => { %><div class="pr-metric"><span class="pr-metric-label"><%= metricLabels[name] %></span><strong class="pr-metric-value"><%= metric.value %></strong><small class="text-muted"><%= metric.provenance.source %></small></div><% }); %></div></section>
+            <section class="pr-section" aria-labelledby="pr-evidence-title"><div class="pr-section-heading"><div><span class="pr-section-eyebrow">03 / Snapshot</span><h3 class="h4 mb-0" id="pr-evidence-title">GitHub evidence</h3></div><% if (v2.snapshot?.run_id) { %><span class="badge rounded-pill text-bg-light border">Local snapshot</span><% } %></div>
+                <div class="pr-evidence-list">
+                    <% Object.entries(v2.github_evidence || {}).forEach(([name, section]) => { %>
+                        <details class="pr-evidence-item" data-local-section="<%= name %>"><summary><span><i class="bi <%= sectionIcons[name] %> me-2" aria-hidden="true"></i><%= sectionLabels[name] %></span><span class="badge rounded-pill <%= statusClass(section.availability) %>"><%= statusLabel(section.availability) %> · <%= section.captured_count %></span></summary>
+                            <% if (section.availability !== "PRESENT") { %><div class="pr-unavailable-state mt-3"><span><strong><%= statusLabel(section.availability) %>.</strong> <% if (section.reason) { %><%= section.reason %><% } else if (section.availability === "EMPTY") { %>No records were captured.<% } else { %>This evidence is not available in the local snapshot.<% } %></span></div><% } %>
+                            <% if (section.items?.length) { %><div class="pr-event-list mt-3" data-page-size="10"><% section.items.forEach((item, index) => { %><div class="pr-event-item" data-local-item="<%= index %>"><div class="d-flex flex-wrap justify-content-between gap-2"><strong><%= item.author || "Author unavailable" %></strong><span class="badge rounded-pill <%= item.state === "CHANGES_REQUESTED" ? "text-bg-warning" : "text-bg-light border" %>"><%= item.state || "Event" %></span></div><% if (item.created_at) { %><small class="text-muted"><%= item.created_at %></small><% } %><% if (item.path) { %><code class="d-block mt-2"><%= item.path %><%= item.line ? ":" + item.line : "" %></code><% } %><% if (item.body) { %><div class="pr-markdown mt-2"><%- renderSafeMarkdown(item.body) %></div><% } else if (name === "reviews") { %><p class="text-muted small mt-2 mb-0">No written explanation was captured.</p><% } %></div><% }); %></div><% } %>
+                        </details>
+                    <% }); %>
+                </div>
+                <% if (value("html_url") !== "Not available") { %><p class="small mt-3 mb-0"><a href="<%= value("html_url") %>" target="_blank" rel="noopener noreferrer">View full diff and deeper GitHub details</a></p><% } %>
             </section>
-
-            <details class="pr-raw-data">
-                <summary><i class="bi bi-braces me-2" aria-hidden="true"></i>Inspect original CSV JSON</summary>
-                <pre class="mt-3 mb-0"><code><%= JSON.stringify(data.raw_payload, null, 2) %></code></pre>
-            </details>
         </div>
     </article>
-<% } else { %>
-    <pre class="border rounded"><code class="language-json" style="white-space: pre!important; height: 550px!important;"><%= JSON.stringify(data, null, 2) || " " %></code></pre>
 <% } %>
+<script>
+    document.querySelectorAll("[data-local-section]").forEach(section => {
+        const items = [...section.querySelectorAll("[data-local-item]")];
+        if (items.length <= 10) return;
+        items.slice(10).forEach(item => item.hidden = true);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn btn-sm btn-outline-secondary mt-3";
+        button.textContent = `Show ${items.length - 10} more locally`;
+        button.addEventListener("click", () => {
+            items.forEach(item => item.hidden = false);
+            button.remove();
+        });
+        section.querySelector(".pr-event-list")?.append(button);
+    });
+</script>

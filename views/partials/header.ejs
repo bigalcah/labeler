@@ -20,20 +20,31 @@
                         <a class="nav-link" href="/">Home</a>
                     </li>
                     <%
-                        const participantQuery = locals.participant?.name
-                            ? `?participant=${encodeURIComponent(locals.participant.name)}`
+                        const participantName = locals.participant?.name
+                            ? encodeURIComponent(locals.participant.name)
                             : "";
                         const links = [
-                            [ "/instances", "PR cards" ],
-                            [ "/conflicts", "Pending cards" ],
-                            [ "/progress", "Progress" ],
-                            [ "/export", "Export" ],
+                            [
+                                `/instances${participantName ? `?participant=${participantName}` : ""}`,
+                                "PR cards",
+                                locals.path === "/instances" && locals.status !== "pending",
+                            ],
+                            [
+                                `/instances?status=pending${participantName ? `&participant=${participantName}` : ""}`,
+                                "Pending cards",
+                                locals.path === "/instances" && locals.status === "pending",
+                            ],
+                            [
+                                `/progress${participantName ? `?participant=${participantName}` : ""}`,
+                                "Progress",
+                                locals.path === "/progress",
+                            ],
                         ];
-                        links.forEach(([ link, name ]) => {
-                            const classes = link === locals.path ? "nav-link active" : "nav-link";
+                        links.forEach(([ link, name, active ]) => {
+                            const classes = active ? "nav-link active" : "nav-link";
                     %>
                         <li class="nav-item">
-                            <a class="<%- classes %>" href="<%- link %><%- [ "/instances", "/conflicts", "/progress" ].includes(link) ? participantQuery : "" %>"><%- name %></a>
+                            <a class="<%- classes %>" href="<%- link %>"><%- name %></a>
                         </li>
                     <%
                         });

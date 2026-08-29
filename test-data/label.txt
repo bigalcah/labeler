@@ -1,4 +1,0 @@
-bug
-feature
-documentation
-maintenance

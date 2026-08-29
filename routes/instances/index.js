@@ -1,109 +1,114 @@
 import pool from "../../util/pg-pool.js";
+import {loadStudyProgress, resolveReadyStudy, resolveStudyParticipant, respondWithStudyRuntimeError} from "../../util/study-runtime.js";
 
 const toPositiveInteger = (value, fallback) => {
     const parsed = Number.parseInt(value, 10);
     return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-const getParticipant = async name => {
-    if (!name) return null;
-    const { rows: [ participant ] } = await pool.query(
-        "SELECT id, name FROM reviewer WHERE name = $1 LIMIT 1",
-        [ name ],
-    );
-    return participant || null;
-};
+const allowedStatuses = new Set([ "all", "pending", "classified", "discarded" ]);
+
+const emptyPagination = {items: 0, pages: 0, current: 1, limit: 20, id: 1};
 
 export const get = async (req, res) => {
     const current = toPositiveInteger(req.query.page, 1);
     const limit = Math.min(toPositiveInteger(req.query.limit, 20), 100);
     const direction = Number(req.query.id) < 0 ? "DESC" : "ASC";
-    const status = [ "pending", "classified" ].includes(req.query.status) ? req.query.status : "all";
-    const participant = await getParticipant(req.query.participant);
-    const participantId = participant?.id || null;
-    const params = [ participantId ];
-    const filters = [];
+    const status = allowedStatuses.has(req.query.status) ? req.query.status : "all";
 
-    if (status === "pending") {
-        filters.push(participant
-            ? "classification.id IS NULL"
-            : "NOT EXISTS (SELECT 1 FROM pr_classification pending_classification WHERE pending_classification.pr_card_id = card.id)");
+    try {
+        if (!req.query.participant) {
+            await resolveReadyStudy(pool);
+            res.render("instances", {
+                cards: [],
+                participant: null,
+                status,
+                progress: {total: 0, classified: 0, discarded: 0, pending: 0, completed: 0},
+                pagination: emptyPagination,
+            });
+            return;
+        }
+
+        const {study, participant} = await resolveStudyParticipant(pool, req.query.participant);
+        const params = [ study.id, participant.id ];
+        const filters = [ "study_card.study_id = $1" ];
+        if (status === "pending") filters.push("classification.pr_card_id IS NULL", "discard.pr_card_id IS NULL");
+        if (status === "classified") filters.push("classification.pr_card_id IS NOT NULL");
+        if (status === "discarded") filters.push("discard.pr_card_id IS NOT NULL");
+        const where = `WHERE ${filters.join(" AND ")}`;
+        const countQuery = `
+            SELECT COUNT(*)::INTEGER AS items
+            FROM pr_cards card
+            INNER JOIN study_card ON card.id = study_card.pr_card_id
+            LEFT JOIN pr_classification classification
+                ON classification.pr_card_id = study_card.pr_card_id
+               AND classification.study_id = study_card.study_id
+               AND classification.participant_id = $2
+            LEFT JOIN pr_discard discard
+                ON discard.pr_card_id = study_card.pr_card_id
+               AND discard.study_id = study_card.study_id
+               AND discard.participant_id = $2
+            ${where}`;
+        const dataQuery = `
+            SELECT
+                card.id,
+                card.source_card_id,
+                card.repository,
+                card.pr_number,
+                card.title,
+                card.state,
+                card.merged,
+                card.language,
+                card.html_url,
+                study_card.ordinal,
+                CASE
+                    WHEN classification.pr_card_id IS NOT NULL THEN 'CLASSIFIED'
+                    WHEN discard.pr_card_id IS NOT NULL THEN 'DISCARDED'
+                    ELSE 'PENDING'
+                END AS status,
+                category.raw_name AS own_category,
+                discard.reason AS discard_reason
+            FROM pr_cards card
+            INNER JOIN study_card ON card.id = study_card.pr_card_id
+            LEFT JOIN pr_classification classification
+                ON classification.pr_card_id = study_card.pr_card_id
+               AND classification.study_id = study_card.study_id
+               AND classification.participant_id = $2
+            LEFT JOIN pr_discard discard
+                ON discard.pr_card_id = study_card.pr_card_id
+               AND discard.study_id = study_card.study_id
+               AND discard.participant_id = $2
+            LEFT JOIN participant_category category
+                ON category.id = classification.category_id
+               AND category.participant_id = $2
+            ${where}
+            ORDER BY study_card.ordinal ${direction}
+            OFFSET $3 LIMIT $4`;
+        const [
+            {rows: [ {items} ]},
+            {rows: cards},
+        ] = await Promise.all([
+            pool.query(countQuery, params),
+            pool.query(dataQuery, [ ...params, (current - 1) * limit, limit ]),
+        ]);
+        const progress = await loadStudyProgress(pool, study.id, participant.id);
+
+        res.locals.participant = participant;
+        res.locals.status = status;
+        res.render("instances", {
+            cards,
+            participant,
+            status,
+            progress: {...progress, completed: progress.classified + progress.discarded},
+            pagination: {
+                items,
+                pages: Math.ceil(items / limit),
+                current,
+                limit,
+                id: direction === "ASC" ? 1 : -1,
+            },
+        });
+    } catch (error) {
+        if (!respondWithStudyRuntimeError(res, error)) throw error;
     }
-    if (status === "classified") {
-        filters.push(participant
-            ? "classification.id IS NOT NULL"
-            : "EXISTS (SELECT 1 FROM pr_classification classified_classification WHERE classified_classification.pr_card_id = card.id)");
-    }
-
-    const where = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
-    const countQuery = `
-        SELECT COUNT(*)::INTEGER AS items
-        FROM pr_cards card
-        LEFT JOIN pr_classification classification
-            ON classification.pr_card_id = card.id
-           AND classification.participant_id = $1
-        ${where}`;
-    const dataQuery = `
-        SELECT
-            card.id,
-            card.source_card_id,
-            card.repository,
-            card.pr_number,
-            card.title,
-            card.state,
-            card.merged,
-            card.language,
-            card.html_url,
-            CASE
-                WHEN $1::INTEGER IS NULL THEN 'SELECT PARTICIPANT'
-                WHEN classification.id IS NULL THEN 'PENDING'
-                ELSE 'CLASSIFIED'
-            END AS status,
-            category.raw_name AS own_category
-        FROM pr_cards card
-        LEFT JOIN pr_classification classification
-            ON classification.pr_card_id = card.id
-           AND classification.participant_id = $1
-        LEFT JOIN participant_category category
-            ON category.id = classification.category_id
-           AND category.participant_id = $1
-        ${where}
-        ORDER BY card.source_card_id ${direction}
-        OFFSET $2 LIMIT $3`;
-    const [
-        { rows: [ { items } ] },
-        { rows: cards },
-    ] = await Promise.all([
-        pool.query(countQuery, params),
-        pool.query(dataQuery, [ participantId, (current - 1) * limit, limit ]),
-    ]);
-
-    const { rows: [ progress ] } = participant
-        ? await pool.query(
-            `SELECT
-                COUNT(*)::INTEGER AS total,
-                COUNT(classification.id)::INTEGER AS completed,
-                (COUNT(*) - COUNT(classification.id))::INTEGER AS pending
-             FROM pr_cards card
-             LEFT JOIN pr_classification classification
-                 ON classification.pr_card_id = card.id
-                AND classification.participant_id = $1`,
-            [ participant.id ],
-        )
-        : { rows: [ { total: items, completed: 0, pending: items } ] };
-
-    res.locals.participant = participant;
-    res.render("instances", {
-        cards,
-        participant,
-        status,
-        progress,
-        pagination: {
-            items,
-            pages: Math.ceil(items / limit),
-            current,
-            limit,
-            id: direction === "ASC" ? 1 : -1,
-        },
-    });
 };

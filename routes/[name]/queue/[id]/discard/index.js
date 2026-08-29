@@ -2,9 +2,8 @@ import pool from "../../../../../util/pg-pool.js";
 import HTTPStatus from "../../../../../util/http-status.js";
 import {withTransaction} from "../../../../../util/transaction.js";
 import {
-    assertParticipantCategory,
     lockStudyCard,
-    normalizeRemarks,
+    normalizeDiscardReason,
     parseExpectedRevision,
     readLockedCardState,
 } from "../../../../../util/study-mutation.js";
@@ -22,15 +21,16 @@ const continuationPath = (participantName, cardId) => cardId
 
 export const post = async (req, res) => {
     const cardId = req.params.id;
-    const categoryId = req.body?.category_id;
-    if (!isUuid(cardId) || !isUuid(categoryId)) {
+    if (!isUuid(cardId)) {
         res.status(HTTPStatus.BAD_REQUEST).end();
         return;
     }
 
     let expectedRevision;
+    let reason;
     try {
         expectedRevision = parseExpectedRevision(req.body?.expected_revision);
+        reason = normalizeDiscardReason(req.body?.reason);
     } catch (error) {
         if (!respondWithStudyRuntimeError(res, error)) throw error;
         return;
@@ -40,43 +40,26 @@ export const post = async (req, res) => {
         const nextCardId = await withTransaction(pool, async client => {
             const {study, participant} = await resolveStudyParticipant(client, req.params.name);
             const lockedCard = await lockStudyCard(client, study.id, cardId);
-            await assertParticipantCategory(client, participant.id, categoryId);
             const state = await readLockedCardState(client, study.id, participant.id, cardId);
             const currentRevision = state.classification_id ? Number(state.revision) : 0;
-            if (state.discard_card_id) {
-                throw new StudyRuntimeError(HTTPStatus.CONFLICT, "A discarded card cannot be classified");
+            if (state.classification_id) {
+                throw new StudyRuntimeError(HTTPStatus.CONFLICT, "A classified card cannot be discarded");
             }
             if (expectedRevision !== currentRevision) {
                 throw new StudyRuntimeError(HTTPStatus.CONFLICT, "The card revision is stale");
             }
-
-            if (state.classification_id) {
-                const {rowCount} = await client.query(
-                    `UPDATE pr_classification
-                     SET category_id = $3,
-                         remarks = $4,
-                         revision = revision + 1,
-                         updated_at = NOW(),
-                         study_id = $6,
-                         enrichment_run_id = $7
-                     WHERE pr_card_id = $1
-                       AND participant_id = $2
-                       AND study_id = $6
-                       AND revision = $5`,
-                    [ cardId, participant.id, categoryId, normalizeRemarks(req.body?.remarks), expectedRevision, study.id, lockedCard.enrichment_run_id ],
-                );
-                if (rowCount !== 1) {
-                    throw new StudyRuntimeError(HTTPStatus.CONFLICT, "The card revision is stale");
+            if (state.discard_card_id) {
+                if (state.discard_reason !== reason) {
+                    throw new StudyRuntimeError(HTTPStatus.CONFLICT, "The discard reason does not match the saved replay");
                 }
-            } else {
-                await client.query(
-                    `INSERT INTO pr_classification(
-                        pr_card_id, participant_id, category_id, remarks, revision, study_id, enrichment_run_id
-                    ) VALUES ($1, $2, $3, $4, 1, $5, $6)`,
-                    [ cardId, participant.id, categoryId, normalizeRemarks(req.body?.remarks), study.id, lockedCard.enrichment_run_id ],
-                );
+                return findNextPendingCard(client, study.id, participant.id, lockedCard.ordinal);
             }
 
+            await client.query(
+                `INSERT INTO pr_discard(pr_card_id, participant_id, reason, study_id, enrichment_run_id)
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [ cardId, participant.id, reason, study.id, lockedCard.enrichment_run_id ],
+            );
             return findNextPendingCard(client, study.id, participant.id, lockedCard.ordinal);
         });
         res.redirect(HTTPStatus.SEE_OTHER, continuationPath(req.params.name, nextCardId));
@@ -84,5 +67,3 @@ export const post = async (req, res) => {
         if (!respondWithStudyRuntimeError(res, error)) throw error;
     }
 };
-
-export {isUuid};
