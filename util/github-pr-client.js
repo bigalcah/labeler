@@ -54,7 +54,7 @@ const parseNumericHeader = (headers, name) => {
     return Number.isFinite(parsed) ? parsed : null;
 };
 
-const retryHint = (response, now) => {
+const retryHint = (response, now, rateLimited = false) => {
     const retryAfter = response.headers.get("retry-after")?.trim();
     if (retryAfter) {
         const seconds = Number(retryAfter);
@@ -62,7 +62,7 @@ const retryHint = (response, now) => {
         const date = Date.parse(retryAfter);
         if (Number.isFinite(date)) return {delayMs: Math.max(0, date - now()), source: "RETRY_AFTER"};
     }
-    const reset = parseNumericHeader(response.headers, "x-ratelimit-reset");
+    const reset = rateLimited ? parseNumericHeader(response.headers, "x-ratelimit-reset") : null;
     return reset !== null && reset > 0 ? {delayMs: Math.max(0, reset * 1000 - now()), source: "RESET"} : null;
 };
 
@@ -86,7 +86,7 @@ const classifyHttpResponse = (response, message = null) => {
 };
 
 const retryDelay = ({response, now, attempt, rateLimited, random, margin = QUOTA_MARGIN}) => {
-    const hint = retryHint(response, now);
+    const hint = retryHint(response, now, rateLimited);
     const base = hint?.delayMs ?? (rateLimited ? FALLBACK_RATE_LIMIT_DELAY_MS : RETRY_BACKOFF_MS);
     const multiplier = hint ? 1 : 2 ** (attempt - 1);
     return base * multiplier + margin * 1000 + Math.floor(random() * MAX_JITTER_MS);
@@ -346,7 +346,7 @@ const createGithubClient = ({config, fetch: fetchImplementation = globalThis.fet
                     const retryable = rateLimited || classification.classification === "RETRYABLE_HTTP";
                     const delay = retryDelay({response, now, attempt, rateLimited, random});
                     const willRetry = retryable && attempt < config.maxAttempts;
-                    const hint = retryHint(response, now);
+                    const hint = retryHint(response, now, rateLimited);
                     await recordTelemetry({eventType: "ATTEMPT_FINISHED", eventId: randomUUID(), attemptId, executionId, runId, studyId, prCardId, endpoint, pageOrdinal, attemptNumber: attempt, fingerprint, occurredAt: new Date(now()).toISOString(), durationMs: now() - startedAt, ...classification, httpStatus: response.status, errorCode: rateLimited ? "RATE_LIMITED" : null, quotaRemaining: parseNumericHeader(response.headers, "x-ratelimit-remaining"), quotaResetAt: parseNumericHeader(response.headers, "x-ratelimit-reset"), retryAfterMs: hint?.source === "RETRY_AFTER" ? hint.delayMs : null, retrySource: hint?.source || (rateLimited ? "FALLBACK_RATE_LIMIT" : "BACKOFF"), scheduledWaitMs: willRetry ? delay : null, waitSource: hint?.source || (rateLimited ? "FALLBACK" : "BACKOFF"), effectiveRetryAt: willRetry ? new Date(now() + delay).toISOString() : null, requestId: response.headers.get("x-github-request-id")});
                     telemetryFinished = true;
                     coordinator?.observe(response, {latencyMs, rateLimited, retryDelayMs: rateLimited ? delay : undefined});

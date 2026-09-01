@@ -175,6 +175,28 @@ test("retries rate limits and 5xx at most four attempts without exposing token-s
     assert.doesNotMatch(JSON.stringify(result), /fixture-token|secret response/);
 });
 
+test("does not use a rate-limit reset header to delay an ordinary 5xx retry", async () => {
+    let attempts = 0;
+    const waits = [];
+    const client = createGithubClient({
+        config: config({apiBase: "https://api.test"}),
+        fetch: async () => {
+            attempts += 1;
+            return attempts === 1
+                ? response(500, {message: "temporary failure"}, {"x-ratelimit-reset": "4102444800"})
+                : response(200, []);
+        },
+        sleep: async delay => waits.push(delay),
+        random: () => 0,
+    });
+    const result = await client.fetchEndpoint({repository: "public/repo", number: 7, endpoint: "commits", credential: {getToken: () => "fixture-token"}});
+    assert.equal(result.status, "COMPLETE_EMPTY");
+    assert.equal(attempts, 2);
+    assert.equal(waits[0], 2_000);
+    assert.equal(waits.length, 2);
+    assert.ok(waits[1] < 1_000);
+});
+
 test("retries a 429 with Retry-After and then accepts a successful page", async () => {
     let attempts = 0;
     const client = createGithubClient({
