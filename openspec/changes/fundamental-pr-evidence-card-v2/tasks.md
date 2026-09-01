@@ -39,9 +39,9 @@
 - [x] 6.2 Implementar la barrera transaccional de pausa y checkpoint: confirmar FINISHED, PAUSE_COMMITTED, páginas, cuota y checkpoint juntos; conservar el orden `run_card -> checkpoint` y bloquear promoción de runs instrumentados incompletos.
 - [x] 6.3 Implementar resume seguro: cero fetch antes de `retry_at`, `RESUME_STARTED` al continuar, mismo run/checksum/configuración/versiones compatibles y no repetición de tarjetas confirmadas.
 - [x] 6.4 Actualizar documentación operativa sobre clasificación HTTP, cobertura, ledger, límites API, rollback read-only y la imposibilidad de certificar telemetría histórica ausente.
-- [ ] 6.5 Ejecutar una captura controlada futura y guardar su reporte de cobertura y ledger sanitizado como evidencia verificable, sin incluir credenciales ni respuestas crudas.
+- [x] 6.5 Ejecutar una captura controlada futura y guardar su reporte de cobertura y ledger sanitizado como evidencia verificable, sin incluir credenciales ni respuestas crudas.
 
 ## 7. Verificación final
 
 - [x] 7.1 Ejecutar lint JavaScript, pruebas de normalización/proyección/renderizado/persistencia/telemetría/integración y el verificador determinista de las 300 tarjetas; corregir solo fallos introducidos por este cambio.
-- [ ] 7.2 Verificar manualmente que la clasificación funciona sin red GitHub, que cada participante recibe la misma evidencia y que ningún payload privado aparece en HTML o logs.
+- [x] 7.2 Verificar manualmente que la clasificación funciona sin red GitHub, que cada participante recibe la misma evidencia y que ningún payload privado aparece en HTML o logs.
