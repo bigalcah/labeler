@@ -11,9 +11,12 @@ El MVP necesita una muestra histórica reproducible y una frontera clara entre l
 - En una base limpia, crear participantes desde la configuración, importar `pr_cards` y asociar las mismas 300 tarjetas a cada participante mediante `study_card`.
 - En una base existente, tratar el estudio activo y su configuración persistida como autoridad; una configuración explícita solo puede crear un estudio nuevo. El drift falla sin borrar silenciosamente datos.
 - Fallar ante un cambio del contenido de un `source_card_id` existente, sin sobrescribir tarjetas o clasificaciones; nunca borrar automáticamente.
-- Mantener `reviewer` como tabla de identidad temporal: el bootstrap reutiliza o crea reviewers y persiste su pertenencia al estudio. No sembrar labels ni instances legacy.
+- Usar cuentas locales preprovisionadas con hashes de contraseñas Argon2id. No habrá autorregistro ni MFA.
+- Mantener la identidad del participante solo cuando provenga de una sesión validada. Las sesiones opacas se almacenan en PostgreSQL y caducan tras ocho horas de inactividad o 24 horas de vida absoluta.
+- Exigir CSRF para las mutaciones y mantener las categorías planas privadas entre participantes.
 - Mantener categorías planas privadas y exactamente una clasificación por PR y participante. Las categorías y clasificaciones no se crean durante el bootstrap.
-- Mantener GitHub inactivo: las tarjetas provienen solo del CSV local durante este MVP; el contrato de proveedor queda preparado para una fase posterior.
+- Mantener la frontera offline de snapshots de GitHub: la muestra se selecciona solo del CSV local y cualquier enriquecimiento de GitHub ocurre fuera del flujo interactivo del estudio. No habrá webhooks.
+- Publicar únicamente mediante Caddy en los puertos 80 y 443. La aplicación y PostgreSQL permanecerán en la red interna.
 - Documentar la retirada escalonada del flujo legacy sin eliminar sus objetos en este cambio.
 
 ## Capabilities
@@ -33,6 +36,6 @@ No existen capacidades OpenSpec previas que deban modificarse.
 
 - Se añadirán tablas de estudio y membresía junto al esquema legado; las migraciones solo crean estructura y no cargan fixtures legacy.
 - El bootstrap será dueño de la carga de participantes, tarjetas y membresía. El servidor web no estará listo si el bootstrap falla o no deja el estudio listo.
-- `/login` seguirá usando `reviewer` como identidad temporal local, no como autenticación ni frontera de seguridad.
-- La fuente GitHub, webhooks, invitaciones, exportación, taxonomía jerárquica, normalización, acuerdo y adjudicación quedan fuera del MVP.
+- El acceso usará cuentas locales preprovisionadas, sesiones opacas server-side con expiración por inactividad de ocho horas y expiración absoluta de 24 horas, identidad derivada solo de sesiones validadas y CSRF para mutaciones. No habrá autorregistro ni MFA.
+- La selección de muestra seguirá limitada a exactamente 300 PR del CSV, con la misma muestra para todos los participantes. Las categorías planas privadas y la frontera offline de snapshots de GitHub permanecen dentro del MVP; invitaciones, exportación, taxonomía jerárquica, normalización, acuerdo y adjudicación quedan fuera.
 - El retiro legacy será por etapas: primero aislar rutas y consultas nuevas, después migrar/retirar consumidores, y solo al final retirar objetos cuando no existan dependencias.

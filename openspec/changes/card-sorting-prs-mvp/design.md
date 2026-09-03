@@ -1,31 +1,35 @@
 ## Context
 
-La aplicación actual es un monolito Node.js/Express con EJS, PostgreSQL y rutas basadas en archivos. El runtime legacy usa `instance`, `label`, `review` y `discard`; el MVP usa `reviewer`, `pr_cards`, categorías privadas y clasificaciones. El CSV real tiene 69 columnas, 300 registros lógicos, campos multilinea y JSON incrustado, por lo que no puede cargarse con el loader legacy.
+La aplicación es un monolito Node.js/Express con EJS, PostgreSQL y rutas basadas en archivos. El flujo legacy usa `instance`, `label`, `review` y `discard`; el MVP usa un estudio, tarjetas de PR, categorías privadas y clasificaciones. El CSV de la muestra contiene exactamente 300 PR lógicos, 69 columnas, texto multilínea y JSON incrustado, por lo que no puede procesarse con el loader legacy.
 
-El objetivo es un estudio local reproducible. No se implementan GitHub API activa, invitaciones, exportación ni taxonomía final. `reviewer` se conserva como tabla de identidad temporal y `/login` como selector local; ninguno constituye autenticación.
+El MVP se desplegará en un VPS público. La identidad del participante no puede depender de un selector, de un parámetro recibido del navegador ni de una cabecera confiada. Cada participante tendrá una cuenta local preprovisionada y la aplicación derivará la identidad únicamente de una sesión válida del servidor.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- Validar el CSV completo antes de cualquier escritura y exigir exactamente 300 `source_card_id` únicos.
-- Persistir una configuración JSON y una membresía canónica de estudio para los mismos 300 PR por participante.
+- Validar el CSV completo antes de escribir y exigir exactamente 300 `source_card_id` únicos.
+- Persistir la configuración del estudio y una membresía canónica con los mismos 300 PR para cada participante.
 - Arrancar de forma determinista en una base limpia o existente, preservando datos y fallando ante conflictos.
-- Ejecutar un bootstrap one-shot después de la salud de la base y antes de la readiness web.
-- Renderizar tarjetas locales, mantener categorías y respuestas privadas, y permitir exactamente una clasificación por PR y participante.
-- Mantener un contrato sustituible por GitHub sin activar GitHub en el MVP.
+- Ejecutar un bootstrap one-shot después de la salud de PostgreSQL y antes de la readiness web.
+- Usar cuentas locales preprovisionadas con contraseñas Argon2id, sesiones opacas almacenadas en PostgreSQL, identidad derivada solo de la sesión y revocación explícita.
+- Proteger todas las mutaciones con token CSRF synchronizer y validación de `Origin`.
+- Renderizar tarjetas locales, mantener categorías y respuestas privadas y permitir exactamente una clasificación por PR y participante.
+- Mantener el contrato sustituible por GitHub sin activar GitHub durante la clasificación.
+- Publicar el servicio solo detrás de Caddy en los puertos 80 y 443, con aplicación y PostgreSQL en la red interna.
 
 **Non-Goals:**
 
-- Consultar GitHub desde la aplicación o el navegador.
-- Implementar invitaciones, autenticación administrativa, exportación, normalización, acuerdo o adjudicación.
-- Eliminar objetos legacy o cargar sus labels, instances, reviews o fixtures en el bootstrap.
+- Autorregistro, MFA, OIDC, JWT, autenticación por cabeceras, UI administrativa, recuperación por correo o webhooks.
+- Consultar GitHub desde la aplicación o el navegador durante el estudio. El enriquecimiento de snapshots ocurre fuera del flujo interactivo y permanece offline.
+- Invitaciones, exportación, normalización, acuerdo, adjudicación o taxonomía jerárquica durante esta fase. Las categorías del participante son planas.
+- Eliminar objetos legacy automáticamente o implementar un rollback destructivo.
 
 ## Decisions
 
-### 1. Configuración y precedencia
+### 1. Configuración y muestra
 
-La configuración del estudio se lee como JSON con esta forma mínima:
+La configuración mínima es:
 
 ```json
 {
@@ -35,131 +39,92 @@ La configuración del estudio se lee como JSON con esta forma mínima:
 }
 ```
 
-`expectedCardCount` debe ser 300 para este MVP y `participants` debe contener identificadores únicos. Si existe un estudio activo para `studyKey`, su configuración y membresía persistidas son autoritativas: una configuración local distinta no elimina ni reemplaza participantes o tarjetas y el drift falla. Una configuración explícita solo crea un estudio nuevo. Si no hay configuración explícita, se usa un fallback local de tres participantes. No se reimporta ni se borra silenciosamente para corregir drift.
+`expectedCardCount` debe ser 300 y `participants` debe contener identificadores únicos. Si existe un estudio activo para `studyKey`, su configuración y membresía persistidas son autoritativas. Una configuración distinta produce drift y falla, no reemplaza participantes ni tarjetas. Una configuración explícita solo crea un estudio nuevo.
 
-### 2. Bootstrap one-shot y ownership
+El CSV es la única fuente de selección de la muestra. Se valida entero, incluyendo encabezado, campos requeridos, JSON, texto multilínea, checksum y unicidad. El estudio usa los mismos 300 `study_card` para todos los participantes. La futura fuente GitHub debe producir el mismo contrato de tarjeta, pero no realiza solicitudes de red desde el runtime de clasificación.
 
-Las migraciones crean únicamente la estructura. Después de que PostgreSQL esté saludable, un proceso `labeling-bootstrap` ejecuta una vez antes de que el servicio web anuncie readiness:
+### 2. Bootstrap y preservación
 
-1. Lee y valida el JSON y todo el CSV sin escribir.
-2. Obtiene el checksum de la fuente y valida encabezado, JSON, campos requeridos, unicidad y exactamente 300 IDs.
-3. En una transacción, crea o reutiliza el estudio y sus reviewers; persiste `study_participant` con orden estable.
-4. Crea o reutiliza `pr_cards` por `source_card_id` solo si el contenido y checksum coinciden.
-5. Crea la membresía canónica `study_card` para el estudio y cada tarjeta.
-6. Marca el bootstrap listo y confirma la transacción.
+Las migraciones crean únicamente estructura. Con PostgreSQL saludable y antes de iniciar la aplicación o Caddy, la preparación valida sin escribir el modo, la configuración, el CSV completo y un manifiesto exacto de cuentas suministrado por el operador mediante un archivo secreto montado de solo lectura o un descriptor; ninguna contraseña ni hash se acepta por argumento ni se registra. En una única transacción crea o reutiliza el estudio, las tarjetas, `study_card` y `study_participant`; después, cuando ya existe la membresía referenciada, inserta únicamente las `participant_account` ausentes, valida exactamente una cuenta habilitada con hash Argon2id válido por participante configurado, marca el estudio `READY` y confirma. Las cuentas existentes compatibles, incluidos `password_hash` y `credential_version`, se preservan y solo pueden cambiar mediante el procedimiento separado de reset. Cualquier fallo revierte todas las escrituras del intento, conserva el estado previo y deja el despliegue no listo. Una tarjeta existente con contenido o checksum diferente es un conflicto fatal. No se sobrescriben tarjetas clasificadas.
 
-Un fallo hace rollback de toda la transacción, no borra datos previos y deja el servicio no listo. Las categorías y clasificaciones son siempre creadas por el usuario, nunca por el bootstrap.
+En modo `clean`, la preparación falla si detecta objetos legacy y nunca los elimina. En modo `existing`, solo se permite la retirada explícita y escalonada tras un respaldo externo verificable y la confirmación operativa requerida. Un fallo hace rollback de la transacción, conserva datos previos y deja el servicio no listo.
 
-### 3. Modelo mínimo nuevo junto al esquema legado
+### 3. Modelo de datos
+
+El modelo nuevo se mantiene junto al esquema legacy:
 
 ```text
 study
 study_participant
 study_card
 pr_cards
-reviewer (identidad temporal existente)
+participant_account
+app_session
 participant_categories
 pr_classifications
 ```
 
-#### `study`
+`study` conserva `study_key`, configuración, checksum de fuente, cantidad esperada y estado de bootstrap. `study_participant` relaciona el estudio con el participante, su clave visible de configuración y su orden estable. `study_card` es la membresía canónica del estudio y garantiza una sola entrada por `source_card_id`.
 
-```text
-id UUID PK
-study_key TEXT UNIQUE
-config JSONB
-source_checksum TEXT
-expected_card_count INTEGER CHECK (expected_card_count = 300)
-bootstrap_state TEXT
-created_at TIMESTAMPTZ
-updated_at TIMESTAMPTZ
-```
+`pr_cards` conserva la procedencia CSV, los campos normalizados para presentación, el resumen, la evidencia y el payload original. La tarjeta no se actualiza si su checksum cambia.
 
-#### `study_participant`
+`participant_account` se vincula a una membresía de estudio. Guarda el nombre de usuario normalizado, un hash Argon2id, estado habilitado, `credential_version`, contadores y marcas temporales de límites. Nunca guarda contraseñas en texto plano ni añade contraseñas a `reviewer`.
 
-```text
-study_id UUID FK study(id)
-reviewer_id INTEGER FK reviewer(id)
-ordinal INTEGER
-participant_key TEXT
-created_at TIMESTAMPTZ
-PRIMARY KEY(study_id, reviewer_id)
-UNIQUE(study_id, participant_key)
-```
+`app_session` guarda en PostgreSQL el identificador opaco, la cuenta y membresía asociadas, la versión de credenciales, creación, última actividad y expiración. La cookie solo contiene el identificador firmado de sesión, con atributos Secure, HttpOnly, SameSite=Lax y Path=/, sin Domain.
 
-#### `study_card`
+Las categorías son planas, privadas y propiedad del participante autenticado. Una clasificación referencia una categoría propia y tiene unicidad `(pr_card_id, participant_id)`. No se difunden categorías ni clasificaciones por Socket.io.
 
-```text
-study_id UUID FK study(id)
-pr_card_id UUID FK pr_cards(id)
-source_card_id TEXT
-ordinal INTEGER
-source_checksum TEXT
-PRIMARY KEY(study_id, pr_card_id)
-UNIQUE(study_id, source_card_id)
-```
+### 4. Acceso y ciclo de sesión
 
-`study_card` es la membresía canónica: no se deriva de la existencia global de `pr_cards` y no se modifica por cada participante.
+Las cuentas se crean fuera de la interfaz mediante un procedimiento de provisión controlado. El hash usa Argon2id con parámetros ajustados al VPS. No existe registro público ni UI administrativa. Un reset operativo incrementa `credential_version` y revoca las sesiones asociadas.
 
-#### `pr_cards`
+El login acepta solo username y contraseña. Para cuentas inexistentes se ejecuta una verificación ficticia equivalente y se devuelve el mismo error genérico que para credenciales inválidas, cuentas deshabilitadas o cuentas temporalmente limitadas. Se aplican límites persistentes de fallos por cuenta y de intentos por IP, con respuesta acotada y sin revelar existencia de cuentas.
 
-```text
-id UUID PK
-source_card_id TEXT UNIQUE
-source_pr_id TEXT NULL
-repository TEXT
-pr_number INTEGER NULL
-body TEXT NULL
-author TEXT NULL
-language TEXT NULL
-state TEXT NULL
-merged BOOLEAN NULL
-html_url TEXT NULL
-summary JSONB
-evidence JSONB
-raw_payload JSONB
-source_type TEXT DEFAULT 'CSV'
-source_checksum TEXT
-created_at TIMESTAMPTZ
-updated_at TIMESTAMPTZ
-```
+Al autenticarse se regenera el identificador de sesión y se guarda la nueva sesión en PostgreSQL. Cada solicitud protegida vuelve a validar cuenta, membresía, versión de credenciales, expiración por inactividad de ocho horas y expiración absoluta de 24 horas. Un fallo del store se trata como no autenticado. Logout es una mutación POST protegida por CSRF, destruye la sesión y limpia la cookie.
 
-`summary` y `evidence` permiten renderizar la tarjeta sin volver a interpretar las 69 columnas en cada ruta. `raw_payload` conserva la fila completa. Un `source_card_id` existente con contenido o checksum diferente es un conflicto fatal: no se actualiza y no se sobrescribe una tarjeta clasificada.
+La identidad de dominio, `study_id` y `participant_id` se derivan exclusivamente de la sesión validada. Las rutas canónicas no incluyen identificadores de participante en path, query string ni formularios. Las rutas antiguas con nombre de participante no se conservan como compatibilidad silenciosa.
 
-`participant_categories` y `pr_classifications` mantienen la relación con `reviewer`; una clasificación debe referenciar una categoría del mismo participante y tiene unicidad `(pr_card_id, participant_id)`. Durante esta fase las categorías son planas, privadas y no se emiten por Socket.io. El bootstrap no las siembra.
+### 5. CSRF y mutaciones
 
-### 4. Importación CSV local con proveedor intercambiable
+Cada sesión recibe un token synchronizer aleatorio, almacenado server-side y rotado tras login. Las mutaciones POST, PUT, PATCH y DELETE requieren el token en formulario o cabecera, comparación segura y `Origin` válido contra `APP_ORIGIN`. La falta de token, un token de otra sesión o un origen inválido producen rechazo sin mutación. El token nunca aparece en URL ni logs.
 
-El importador usa un parser RFC 4180/streaming y transforma cada fila a `PullRequestCard`, conservando resumen, evidencia, lenguaje, métricas, URL, procedencia y payload original. La fuente GitHub futura debe producir el mismo contrato, pero no realiza solicitudes de red en este MVP.
+### 6. Despliegue y operación VPS
 
-### 5. Tarjeta visual desde el contrato local
+Caddy es el único borde público y publica 80 y 443, redirige HTTP a HTTPS y termina TLS antes de reenviar al servidor interno. La aplicación y PostgreSQL usan red interna y no publican 3000, 7755 ni 5432. Los endpoints operativos no se exponen externamente.
 
-La tarjeta muestra repositorio, número, título, estado, fechas, autor, `language` del CSV, resumen, cuerpo, métricas, evidencia y `html_url` opcional. No se renderiza iframe ni se consulta GitHub desde el navegador.
+Los secretos se entregan mediante archivos montados con permisos mínimos. El entorno solo contiene configuración no secreta. El runtime usa imágenes fijadas, usuario no root, capacidades reducidas, filesystem de aplicación de solo lectura cuando sea compatible, límites de recursos, healthchecks internos, logs estructurados y redacción de contraseñas, cookies, CSRF y tokens. Los respaldos lógicos son externos, cifrados, con manifiesto y checksum, retención definida y restauración probada en una base aislada. Nunca se restaura sobre producción como parte del rollback.
 
-### 6. Clasificación temporal compatible con el flujo existente
+## Readiness, migration and rollback constraints
 
-La pantalla conserva la selección local de participante, pero las consultas y mutaciones se limitan al reviewer activo y a su `study_participant`. La cola se basa en `study_card` y excluye solo sus clasificaciones. El flujo nuevo no usa `label`, `instance_review_label` ni conflictos destructivos.
+La readiness pública exige el éxito de la ejecución de preparación actual, no solo un estado `READY` persistido anteriormente. El orden operativo es: PostgreSQL saludable; validación previa de modo, configuración, CSV y manifiesto; migraciones aditivas y gate de modo; transacción de estudio, tarjetas y membresías; provisión de cuentas ausentes; validación final y commit de `READY`; arranque y health interno de la aplicación; y, únicamente entonces, arranque público de Caddy.
 
-## Readiness, rollback y legado
+La migración mantiene el monolito y añade gradualmente el modelo de estudio, acceso, autorización, CSRF y el borde Caddy. Primero se aísla el flujo nuevo de consumidores legacy, después se verifica la preservación en clean y existing, y finalmente se retiran consumidores legacy en etapas posteriores. Las tablas legacy permanecen mientras existan dependencias, incluidas las cuentas que referencien membresías existentes.
 
-La readiness web depende de que el bootstrap termine en estado listo y de que el estudio tenga 300 `study_card` y la membresía configurada. En una base limpia, el bootstrap no monta ni siembra `label`, `instance`, `review` o fixtures legacy. En una base existente, preserva todos esos objetos y datos, y nunca elimina automáticamente filas.
+El rollback solo puede detener el despliegue, volver a una versión de aplicación compatible y restaurar un respaldo verificado en un destino separado o expresamente aprobado. No se usa `down -v`, no se borra el volumen, no se eliminan filas automáticamente y no se restaura sobre el volumen de producción. Cualquier retirada de tablas requiere un cambio explícito posterior.
 
-La retirada legacy es escalonada: aislar consumidores, migrar rutas, verificar que no haya dependencias, y retirar objetos en un cambio posterior.
+## Design rationale
+
+La sesión server-side evita que el navegador elija o falsifique la identidad y permite revocación inmediata por logout, expiración o cambio de credenciales. PostgreSQL mantiene la sesión junto al estado del estudio sin introducir un almacén adicional. Argon2id protege las credenciales provisionadas sin convertir `reviewer` en una tabla de autenticación.
+
+El CSV como fuente de selección hace reproducible la muestra y evita que una llamada externa cambie el estudio durante la participación. Los snapshots offline permiten enriquecer evidencia sin romper esa frontera. Caddy concentra TLS y reduce la superficie pública, mientras que clean/existing y los respaldos verificables protegen el trabajo existente.
 
 ## Risks / Trade-offs
 
-- El CSV contiene JSON y texto multilínea: usar parser CSV real, no split por líneas ni el loader legacy.
-- Un volumen existente puede contener fixtures o clasificaciones: reutilizar lo compatible y fallar ante drift, sin reimportación incondicional.
-- El selector de participantes no es seguro para VPS: mantenerlo solo para demostración local y documentarlo como deuda.
-- El campo `language` es el lenguaje informado por la fuente, no un cálculo por archivos.
+- Las credenciales locales requieren provisión y reset por operador. No hay recuperación automática ni MFA en este MVP.
+- Los límites por IP pueden afectar a participantes que compartan dirección de salida, por lo que deben ser observables y acotados sin revelar cuentas.
+- La caducidad absoluta obliga a volver a iniciar sesión aunque haya actividad, a cambio de limitar la vida de una sesión comprometida.
+- El CSV puede contener JSON o texto multilínea y debe procesarse con un parser RFC 4180 real.
+- Una base existente puede contener fixtures o trabajo legacy. El drift, la falta de respaldo y los conflictos deben fallar cerrados.
+- `language` es el valor informado por la fuente, no un cálculo derivado de archivos.
 
 ## Migration Plan
 
-1. Crear estructura nueva mediante migraciones, sin cargar labels, instances ni reviewers desde fixtures legacy.
-2. Ejecutar el bootstrap después de la salud de PostgreSQL y antes de la readiness web.
-3. Validar el CSV completo y confirmar 300 tarjetas y 300 membresías por participante.
-4. Activar el clasificador local con `reviewer` como identidad temporal.
-5. Verificar reanudación, aislamiento y conflicto ante una fuente modificada.
-6. Mantener legacy aislado y retirarlo por etapas en cambios posteriores.
+1. Crear la estructura de estudio, cuentas y sesiones sin cargar fixtures legacy ni eliminar objetos existentes.
+2. Validar completamente configuración, CSV y manifiesto antes de escribir y, dentro de una transacción, crear o reutilizar las 300 tarjetas y las membresías.
+3. En esa misma transacción y después de crear o reutilizar `study_participant`, insertar solo las cuentas ausentes desde el manifiesto, preservar las existentes y validar el conjunto completo antes de marcar `READY`.
+4. Activar login, sesiones PostgreSQL, expiraciones, revocación, rutas canónicas y CSRF.
+5. Verificar aislamiento, reanudación, límites, conflicto de fuente y preservación en clean y existing.
+6. Arrancar la aplicación en la red interna después del commit, validar su readiness y solo entonces publicar Caddy en 80 y 443, con secretos por archivo, hardening y respaldos externos.
+7. Mantener el flujo legacy aislado y retirar sus consumidores por etapas en cambios posteriores.
 
-Rollback: fallar o detener el bootstrap antes del commit y conservar todos los datos existentes. No hay eliminación automática; cualquier retiro de tablas legacy o nuevas requiere un cambio explícito y una base de desarrollo apropiada.
+Rollback: detener el bootstrap antes del commit ante cualquier error. Para un despliegue ya iniciado, volver a una versión compatible y restaurar el respaldo verificado en un destino separado. No hay rollback destructivo ni eliminación automática.
