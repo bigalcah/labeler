@@ -275,7 +275,16 @@ a[target="_blank"] {
     overflow: hidden;
 }
 
-.pr-evidence-item summary,
+.pr-evidence-item summary {
+    align-items: center;
+    cursor: pointer;
+    display: grid;
+    font-weight: 700;
+    grid-template-columns: minmax(0, 1fr) auto 1.25rem;
+    list-style: none;
+    padding: 1rem 1.1rem;
+}
+
 .pr-raw-data summary {
     align-items: center;
     cursor: pointer;
@@ -286,12 +295,28 @@ a[target="_blank"] {
     padding: 1rem 1.1rem;
 }
 
+.pr-evidence-item summary > span:first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.pr-evidence-item summary > span:nth-child(2) {
+    justify-self: end;
+}
+
 .pr-evidence-item summary::-webkit-details-marker,
 .pr-raw-data summary::-webkit-details-marker {
     display: none;
 }
 
-.pr-evidence-item summary::after,
+.pr-evidence-item summary::after {
+    color: #718096;
+    content: "+";
+    font-size: 1.25rem;
+    font-weight: 400;
+    justify-self: end;
+}
+
 .pr-raw-data summary::after {
     color: #718096;
     content: "+";
