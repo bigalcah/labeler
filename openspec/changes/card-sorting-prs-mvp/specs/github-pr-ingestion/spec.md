@@ -44,6 +44,22 @@ El sistema MUST ejecutar la preparación de tarjetas y membresía en una única 
 - **WHEN** falla la creación de una tarjeta, reviewer o `study_card`
 - **THEN** se revierte toda la transacción, se conserva el estado previo y el servicio permanece no listo
 
+### Requirement: Readiness pública condicionada a la preparación coordinada
+
+El sistema MUST validar completamente el CSV y el manifiesto de cuentas antes de iniciar escrituras. El orquestador SHALL mantener una única transacción coordinada: esta capability crea o reutiliza tarjetas y membresías, y después la fase de cuentas definida por `study-management` provisiona las cuentas ausentes vinculadas a las membresías ya existentes. La autenticación Argon2id y las sesiones PostgreSQL permanecen fuera del contrato de ingestión. La preparación solo SHALL confirmar `READY` después de validar ambas fases.
+
+#### Scenario: Cuentas de participantes presentes
+- **WHEN** la importación transaccional, las membresías y la fase de cuentas son válidas
+- **THEN** la transacción confirma y el servicio puede avanzar hacia readiness interna y posterior exposición pública
+
+#### Scenario: Falta una cuenta requerida
+- **WHEN** falta una cuenta requerida o el manifiesto o una cuenta existente no cumple el contrato
+- **THEN** se revierte la transacción coordinada, se conservan los datos anteriores y el despliegue permanece no listo
+
+#### Scenario: Reejecución sin reimportación destructiva
+- **WHEN** se repite la preparación con datos compatibles
+- **THEN** conserva cuentas, hashes, versiones, tarjetas, membresías y clasificaciones existentes sin borrado, sobrescritura ni reset implícito
+
 ### Requirement: Contrato de proveedor de tarjetas
 
 El sistema SHALL transformar cualquier fuente aceptada a un contrato de tarjeta que incluya resumen, evidencia, lenguaje, métricas disponibles, URL y procedencia.

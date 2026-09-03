@@ -4,6 +4,21 @@ Presentar cada Pull Request del CSV como una tarjeta legible para que el partici
 
 ## ADDED Requirements
 
+### Requirement: Inspección dentro de la sesión del participante
+El sistema MUST permitir inspeccionar una tarjeta únicamente dentro de una sesión autenticada y validada del participante. El PR actual y el contexto de progreso MUST derivarse de esa sesión, sin aceptar un participante seleccionado por el cliente ni parámetros de participante en la URL.
+
+#### Scenario: Sesión ausente o no válida
+- **WHEN** una persona intenta abrir la tarjeta sin una sesión autenticada y validada
+- **THEN** el sistema no muestra la tarjeta ni el contexto de progreso y solicita autenticación
+
+#### Scenario: Contexto derivado de la sesión
+- **WHEN** un participante autenticado abre la tarjeta actual
+- **THEN** el sistema muestra el PR actual y su progreso a partir de la sesión del participante, sin usar una identidad proporcionada por el cliente
+
+#### Scenario: Privacidad entre participantes
+- **WHEN** un participante inspecciona una tarjeta
+- **THEN** no aparecen categorías, clasificaciones, observaciones ni progreso de otros participantes
+
 ### Requirement: Tarjeta de Pull Request
 El sistema SHALL mostrar repositorio, número, título, estado, autor, lenguaje informado por el CSV, fechas, URL y métricas disponibles.
 

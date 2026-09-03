@@ -4,9 +4,25 @@ Permitir que participantes persistidos clasifiquen las mismas 300 tarjetas con c
 
 ## ADDED Requirements
 
+### Requirement: Contexto de sesión autoritativo
+
+Toda ruta protegida y toda mutación del estudio SHALL derivar el participante y el estudio exclusivamente de una sesión de servidor validada. El sistema MUST ignorar y no usar identificadores de participante o estudio recibidos en la URL, query string, formulario o cabeceras del cliente, y MUST rechazar el acceso si la sesión no está autenticada, ha expirado o no es válida.
+
+#### Scenario: Acceso sin sesión
+- **WHEN** un cliente solicita una cola, categorías, tarjetas, clasificaciones, progreso u observaciones sin una sesión autenticada válida
+- **THEN** el sistema deniega la operación y no revela datos ni escribe cambios
+
+#### Scenario: Identificador de otro participante
+- **WHEN** un cliente autenticado incluye en la URL, query string, formulario o cabeceras el identificador de otro participante o estudio
+- **THEN** el sistema usa únicamente el contexto de la sesión, deniega cualquier intento de acceder o mutar datos ajenos y no realiza ninguna mutación
+
+#### Scenario: URL antigua con participante
+- **WHEN** un cliente solicita una ruta antigua que selecciona al participante mediante la URL
+- **THEN** el sistema deniega la solicitud o la trata como una ruta no protegida inexistente, sin cargar ni modificar datos de ningún participante
+
 ### Requirement: Categorías privadas por participante
 
-El sistema SHALL permitir crear, renombrar y reutilizar categorías planas asociadas al participante seleccionado, sin compartirlas con otros participantes.
+El sistema SHALL permitir crear, renombrar y reutilizar categorías planas asociadas al participante derivado de la sesión, sin compartirlas con otros participantes.
 
 #### Scenario: Categorías similares
 - **WHEN** dos participantes crean `Missing tests` y `Falta de pruebas`
@@ -32,9 +48,25 @@ El sistema SHALL permitir guardar una observación textual junto a la categoría
 - **WHEN** el participante clasifica un PR y escribe una observación
 - **THEN** la observación queda asociada a su clasificación y permanece oculta para los demás participantes
 
+### Requirement: Protección CSRF y origen
+
+Toda acción que cree, renombre, actualice o elimine categorías, clasificaciones u observaciones MUST exigir un token CSRF sincronizador válido, asociado a la sesión autenticada, y un origen permitido. El sistema MUST validar ambos controles antes de iniciar cualquier mutación.
+
+#### Scenario: Token CSRF ausente o inválido
+- **WHEN** una mutación llega sin token CSRF, con un token inválido o con un token perteneciente a otra sesión
+- **THEN** el sistema deniega la operación y no crea, renombra, actualiza ni elimina ningún dato
+
+#### Scenario: Origen ausente o no permitido
+- **WHEN** una mutación llega sin origen válido o desde un origen no permitido
+- **THEN** el sistema deniega la operación y no realiza ninguna mutación, aunque el token CSRF sea válido
+
+#### Scenario: Sesión cruzada
+- **WHEN** un cliente combina un token CSRF, cookies o contexto de sesión de participantes distintos
+- **THEN** el sistema deniega la operación y no acepta ni persiste datos para ninguno de los dos participantes
+
 ### Requirement: Cola común de tarjetas
 
-El sistema SHALL leer los mismos 300 PR desde la membresía `study_card` para cada participante y excluir de su cola únicamente los PR que ese participante ya haya clasificado.
+El sistema SHALL leer los mismos 300 PR desde la membresía `study_card` para cada participante y excluir de su cola únicamente los PR que el participante derivado de la sesión ya haya clasificado.
 
 #### Scenario: Tres participantes
 - **WHEN** tres participantes comienzan el estudio local
@@ -58,8 +90,8 @@ El bootstrap SHALL crear solo la estructura del estudio, participantes, tarjetas
 
 ### Requirement: Aislamiento del flujo local
 
-El selector de participantes existente SHALL poder utilizarse durante esta fase de demostración, pero las rutas de clasificación MUST derivar el participante de la selección válida y no exponer categorías o clasificaciones ajenas.
+El flujo de clasificación MUST operar sin selector de participantes. Las categorías, cola, tarjetas, clasificaciones, observaciones, progreso y mutaciones SHALL ser privadas y derivadas del contexto de sesión validado.
 
-#### Scenario: Cambio de participante
-- **WHEN** se selecciona otro participante en el entorno local
-- **THEN** se carga únicamente su catálogo de categorías y sus PR pendientes
+#### Scenario: Sesiones independientes
+- **WHEN** dos participantes autenticados consultan o modifican el estudio
+- **THEN** cada uno carga únicamente sus categorías, sus PR pendientes, sus clasificaciones, sus observaciones y su progreso, sin afectar al otro
