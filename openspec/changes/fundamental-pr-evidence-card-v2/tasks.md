@@ -32,6 +32,9 @@
 - [x] 5.2 Añadir secciones locales para archivos, reviews, comentarios de PR, comentarios inline y actividad suplementaria, con orden determinista, colapsado inicial y paginación sin fetch a GitHub.
 - [x] 5.3 Mostrar estados `EMPTY`, `UNAVAILABLE` y `TRUNCATED`, distinguir visualmente `CHANGES_REQUESTED` y enlazar explícitamente el diff completo y detalles profundos a GitHub.
 - [x] 5.4 Añadir pruebas de renderizado para escaping, allowlist de URLs, contenido multilinea, estados de sección y ausencia de payloads crudos o información privada.
+- [x] 5.5 Simplificar la evidencia participante: ocultar Timeline, Commits y revisiones sin cuerpo, manteniendo las métricas y la evidencia persistida para auditoría.
+- [x] 5.6 Añadir pruebas de renderizado que confirmen la ausencia de Timeline, Commits y placeholders de revisiones sin texto, sin alterar los conteos de review.
+- [x] 5.7 Sustituir la distribución flex de los encabezados CSV/GitHub por tres columnas estables para título, badge y expansión; añadir una regresión de layout que compare los bordes finales de `CSV`, `Available`, `Truncated`, `Empty` y `Unavailable` a 375, 768 y 1280 píxeles, permitiendo wrap sin solapamiento.
 
 ## 6. Integración y documentación
 
@@ -45,3 +48,4 @@
 
 - [x] 7.1 Ejecutar lint JavaScript, pruebas de normalización/proyección/renderizado/persistencia/telemetría/integración y el verificador determinista de las 300 tarjetas; corregir solo fallos introducidos por este cambio.
 - [x] 7.2 Verificar manualmente que la clasificación funciona sin red GitHub, que cada participante recibe la misma evidencia y que ningún payload privado aparece en HTML o logs.
+- [x] 7.3 Reconstruir y recrear `labeling-server` mediante el Compose normal, verificar en Playwright sobre `http://localhost:7755` que no aparecen Timeline, la sección Commits, reviews sin texto ni el placeholder, y confirmar que los badges conservan la alineación especificada en los tres viewports sin errores de consola.

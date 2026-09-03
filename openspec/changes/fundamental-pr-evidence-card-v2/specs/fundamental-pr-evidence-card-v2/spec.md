@@ -24,7 +24,8 @@ El sistema SHALL recuperar desde GitHub metadata del PR, autor, estado, fechas, 
 
 #### Scenario: Revisión con cambios solicitados
 - **WHEN** una revisión tiene estado `CHANGES_REQUESTED` aunque su cuerpo sea nulo
-- **THEN** se conserva como evento de revisión y se muestra que no tiene explicación escrita
+- **THEN** se conserva como evento de revisión para métricas y auditoría
+- **AND** no se muestra como evidencia textual ni con un placeholder de explicación ausente
 
 ### Requirement: Separación de evidencia y baseline
 El sistema MUST conservar el CSV como autoridad de muestra, identidad, ordinal, contenido y checksum. La evidencia textual CSV y los arrays GitHub SHALL permanecer en namespaces separados; no se concatenarán ni deduplicarán implícitamente.
