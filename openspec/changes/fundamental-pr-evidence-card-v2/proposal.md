@@ -7,8 +7,10 @@ El CSV puede identificar los 300 PRs, pero deja incompletos campos fundamentales
 - Recuperar desde snapshots autenticados de GitHub únicamente los campos faltantes o semánticamente compatibles: metadatos del PR, métricas de commits/cambios, archivos modificados, revisiones, comentarios de PR y comentarios inline.
 - Conservar separados el baseline CSV y la evidencia GitHub; nunca sobrescribir la muestra, identidad, ordinales, checksums ni decisiones privadas.
 - Introducir una proyección `CardV2` con disponibilidad (`PRESENT`, `EMPTY`, `UNAVAILABLE`, `TRUNCATED`) y procedencia por campo y sección.
-- Mostrar en la tarjeta título, intención, autor, estado, fechas, métricas, archivos, revisiones y comentarios, priorizando la evidencia de `CHANGES_REQUESTED` sin ocultar otros estados.
+- Mostrar en la tarjeta título, intención, autor, estado, fechas, métricas, archivos, revisiones con explicación escrita y comentarios, priorizando la evidencia de `CHANGES_REQUESTED` sin ocultar otros estados textuales.
 - Paginar localmente las secciones voluminosas, mantener el diff completo y los detalles profundos como acción explícita hacia GitHub.
+- No mostrar Timeline ni Commits como secciones de evidencia participante. Las revisiones sin cuerpo se conservarán para métricas y auditoría, pero no se presentarán con un placeholder explicativo.
+- Alinear consistentemente las etiquetas de fuente y disponibilidad (`CSV`, `Available`, `Truncated`, `Empty`, `Unavailable`) en una columna visual estable, separada del título y del control de expansión tanto en escritorio como en móvil.
 - Evitar que la tarjeta participante exponga payloads crudos, secretos, categorías, observaciones o progreso de otros participantes.
 - Instrumentar exclusivamente las nuevas capturas offline con un ledger versionado y append-only de eventos de intentos API, pausas y reanudaciones. El ledger permitirá demostrar qué respuestas se observaron, qué decisión de retry se tomó y si la cobertura telemétrica del run es completa, sin incorporarse al snapshot, `CardV2`, rutas web ni HTML participante.
 - **BREAKING**: separar visual y semánticamente “Muestra: CSV” de “Evidencia: snapshot GitHub” y retirar la exposición del payload CSV completo en la vista v2.

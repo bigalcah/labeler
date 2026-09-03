@@ -36,13 +36,19 @@ Alternativa descartada: usar `review_comments` como cantidad de revisiones, porq
 
 ### Snapshot local y paginación de presentación
 
-La captura offline persistirá la evidencia necesaria; la vista recibirá una proyección ya sanitizada. Archivos, comentarios y actividad se mostrarán localmente con secciones colapsadas y paginación determinista. El diff completo será un enlace explícito a GitHub.
+La captura offline persistirá la evidencia necesaria; la vista recibirá una proyección ya sanitizada. Archivos, revisiones con explicación escrita y comentarios se mostrarán localmente con secciones colapsadas y paginación determinista. Timeline y Commits no se mostrarán como secciones participantes; las revisiones sin cuerpo permanecerán disponibles solo para métricas y auditoría, sin placeholder explicativo. El diff completo será un enlace explícito a GitHub.
 
 Alternativa descartada: fetch bajo demanda en la vista, porque rompe clasificación offline, reproducibilidad y aislamiento de credenciales.
 
 ### Estados en vez de silencios
 
 Cada endpoint distinguirá completo, vacío, no disponible y truncado. Los límites documentados de GitHub se conservarán como truncamiento con conteos, no como falsa completitud. Los endpoints requeridos que fallen impedirán promoción; fallas opcionales se mostrarán como no disponibles.
+
+### Encabezados de evidencia con columnas estables
+
+Cada `summary` de evidencia usará el mismo patrón de tres columnas: título flexible, etiqueta de fuente/disponibilidad alineada al final y control de expansión de ancho fijo. El título podrá envolver sin desplazar la etiqueta ni superponerse con ella. El patrón será compartido por la evidencia CSV y GitHub y conservará esas tres responsabilidades en escritorio, tablet y móvil.
+
+Alternativa descartada: distribuir título, etiqueta y pseudoelemento con `justify-content: space-between`, porque la posición horizontal de la etiqueta cambia según el ancho del título y dificulta comparar estados entre filas.
 
 ### Ledger versionado de eventos
 
