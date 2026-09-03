@@ -1,26 +1,33 @@
-# Repository Guide
+# Guía del repositorio
 
-## Source of truth
+## Fuente de verdad
 
-- The executable app is still the legacy generic labeler. The planned PR study is **not implemented**.
-- Before product work, run `openspec status --change "card-sorting-prs-mvp" --json` and read the returned
-  artifact paths.
-- For the target behavior, prefer `openspec/changes/card-sorting-prs-mvp/` over older drafts in `plans/`.
-- Fixed MVP decisions: retrospective sample of 300 PRs; default 3 configurable participants; all receive the same
-  300 PRs and complete every non-withdrawn card; categories stay hidden across participants; only `CLASSIFIED` has
-  exactly one private flat category; only the normalized final taxonomy is hierarchical; CSV selects the sample and
-  GitHub API enriches snapshots; no webhooks in the MVP.
-- OpenSpec `propose`/`update` are planning-only. Start code changes only through an explicit apply request.
+- La aplicación ejecutable todavía es el etiquetador genérico legacy. El estudio de PR planificado **no está implementado**.
+- Antes de trabajar en el producto, ejecuta `openspec status --change "card-sorting-prs-mvp" --json` y lee las rutas de
+  artifacts devueltas.
+- Antes de cambiar código de implementación, dependencias, rutas, vistas, configuración, fixtures o SQL, el cambio
+  OpenSpec correspondiente DEBE tener `proposal.md`, specs completas, `design.md` y `tasks.md`. Se recomienda pasar
+  `openspec validate "<change>" --strict` como comprobación técnica complementaria, pero esa comprobación no sustituye
+  la revisión y aprobación explícita del usuario. No comiences la implementación sin la aprobación del usuario.
+- Para el comportamiento objetivo, prioriza `openspec/changes/card-sorting-prs-mvp/` sobre los borradores antiguos de `plans/`.
+- Decisiones fijas del MVP: muestra retrospectiva de 300 PRs; 3 participantes configurables por defecto; todos reciben
+  los mismos 300 PRs y completan cada tarjeta no retirada; las categorías permanecen ocultas entre participantes; solo
+  `CLASSIFIED` tiene exactamente una categoría plana privada; únicamente la taxonomía final normalizada es jerárquica;
+  el CSV selecciona la muestra y la API de GitHub enriquece los snapshots; no hay webhooks en el MVP.
+- `propose`/`update` de OpenSpec solo sirven para planificar. Los cambios de código deben comenzar únicamente mediante
+  una solicitud explícita de apply.
+- La implementación DEBE comenzar mediante `/opsx-apply <change>` después de recibir la aprobación explícita del usuario;
+  nunca implementes primero para documentar o validar el plan de migración después.
 
-## Commands
+## Comandos
 
-Run from the repository root; EJS views and `dotenv` rely on the working directory.
+Ejecuta desde la raíz del repositorio; las vistas EJS y `dotenv` dependen del directorio de trabajo.
 
 ```bash
 npm ci
-npm run dev          # nodemon, development, http://localhost:3000
-npm run start        # production mode
-npm run lint:js      # reliable focused check
+  npm run dev          # nodemon, desarrollo, http://localhost:3000
+  npm run start        # modo producción
+  npm run lint:js      # comprobación enfocada y fiable
 ```
 
 Local Docker stack:
@@ -40,50 +47,51 @@ docker compose --env-file deployment/.env -f deployment/docker-compose.yml down
 - `npm run minify` rewrites `public/css/*.css` in place. It is a build step, not a read-only verification command.
 - There is no test script or automated test suite yet. Do not report tests as passing when only lint/build ran.
 
-## Runtime architecture
+## Arquitectura de ejecución
 
-- `index.js` is the entrypoint: Express middleware, EJS SSR, actuator, response minification, rotating logs, and
-  Socket.io. Starting it creates `logs/`.
-- `routes/` uses `express-file-routing`: filesystem paths define URLs and modules export `get`, `post`, `del`, etc.
-  Bracketed names such as `[id]` and `[target]` are route parameters.
-- `util/pg-pool.js` is the shared PostgreSQL pool. Routes issue SQL directly; there is no ORM or service layer.
-- `schema/01_...` through `06_...` are loaded in numeric order: schema, declarations, views, then implementations.
-  There is no migration runner in the legacy app.
-- Frontend code is EJS plus inline JavaScript and CDN dependencies; there is no bundler. Instance rendering is
-  centralized in `views/partials/instance/data.ejs`.
-- Current exports stream JSONL from PostgreSQL views; they are not the planned reproducible CSV/TSV study package.
+- `index.js` es el punto de entrada: middleware de Express, SSR de EJS, actuator, minificación de respuestas, logs
+  rotativos y Socket.io. Al iniciarlo se crea `logs/`.
+- `routes/` usa `express-file-routing`: las rutas del sistema de archivos definen las URLs y los módulos exportan
+  `get`, `post`, `del`, etc. Los nombres entre corchetes como `[id]` y `[target]` son parámetros de ruta.
+- `util/pg-pool.js` es el pool compartido de PostgreSQL. Las rutas ejecutan SQL directamente; no hay ORM ni capa de servicios.
+- `schema/01_...` a `06_...` se cargan en orden numérico: esquema, declaraciones, vistas y después implementaciones.
+  La aplicación legacy no tiene ejecutor de migraciones.
+- El frontend es EJS con JavaScript inline y dependencias CDN; no hay bundler. El renderizado de instancias está
+  centralizado en `views/partials/instance/data.ejs`.
+- Las exportaciones actuales transmiten JSONL desde vistas de PostgreSQL; no son el paquete reproducible CSV/TSV
+  planificado para el estudio.
 
-## PostgreSQL and fixture traps
+## Trampas de PostgreSQL y fixtures
 
-- PostgreSQL executes `/docker-entrypoint-initdb.d` only for empty `PGDATA`. SQL or fixture edits do nothing to an
-  existing `labeling-data` volume. `down -v` deletes it; the next `up` reloads schema and fixtures, losing local data.
-- Compose mounts `test-data/{label.txt,reviewer.txt,instance.tsv}`: 4 labels, 3 reviewers, and 6 fake PRs. It does not
-  load the 300-record research CSV.
-- The legacy loader accepts only two columns: `category` plus JSON, with no header. The research CSV has 69 columns,
-  multiline quoted fields, and embedded JSON; it requires the importer specified by OpenSpec.
-- `scripts/init-data.sh` checks CSV before TSV despite the README claiming TSV precedence. Its nonstandard quote
-  character also makes conventional CSV with JSON commas unsafe; use the mounted TSV for legacy fixtures.
-- `COMPOSE_PROJECT_NAME` changes the project name, but explicit container, volume, and network names (`labeling-*`)
-  still prevent parallel stack isolation. PostgreSQL is internal-only; the app is exposed at port 7755.
+- PostgreSQL ejecuta `/docker-entrypoint-initdb.d` solo cuando `PGDATA` está vacío. Los cambios de SQL o fixtures no
+  afectan un volumen `labeling-data` existente. `down -v` lo elimina; el siguiente `up` vuelve a cargar esquema y
+  fixtures, perdiendo los datos locales.
+- Compose monta el CSV de investigación de 300 registros únicamente en el servicio one-shot de preparación del estudio.
+- El servicio `labeling-study-prepare` espera PostgreSQL saludable, ejecuta la ruta protegida `clean` o `existing` y debe
+  terminar correctamente antes de que arranque `labeling-server`.
+- La ruta `existing` exige respaldo externo verificable y confirmación explícita antes de aplicar la migración de retiro;
+  la ruta `clean` falla si detecta objetos legacy y nunca los elimina automáticamente.
+- `COMPOSE_PROJECT_NAME` cambia el nombre del proyecto, pero los nombres explícitos de contenedores, volumen y red
+  (`labeling-*`) aún impiden aislar stacks en paralelo. PostgreSQL solo es interno; la app se expone en el puerto 7755.
 
-## Legacy behavior that must not leak into the MVP
+## Comportamiento legacy que no debe filtrarse al MVP
 
-- “Login” only enumerates reviewers and trusts a client-supplied `reviewer_id`; there are no sessions, authorization,
-  or CSRF protections.
-- Labels are global, multiselect, and broadcast through Socket.io. In the MVP, personal categories remain private;
-  only a `CLASSIFIED` result has exactly one flat category.
-- Candidate/finished SQL hard-codes 2 reviews; bucket completion hard-codes 366.
-- Review label inserts are neither awaited nor transactional.
-- Conflict resolution deletes or overwrites original reviews/discards and materializes a shared outcome. The MVP must
-  preserve originals and store normalization, agreement, and adjudication separately.
+- “Login” solo enumera reviewers y confía en un `reviewer_id` enviado por el cliente; no hay sesiones, autorización ni
+  protecciones CSRF.
+- Los labels son globales, multiselección y se difunden mediante Socket.io. En el MVP, las categorías personales
+  permanecen privadas; solo un resultado `CLASSIFIED` tiene exactamente una categoría plana.
+- El SQL de candidatos/finalizados fija 2 reviews; la finalización del bucket fija 366.
+- Las inserciones de labels de review no se esperan ni son transaccionales.
+- La resolución de conflictos elimina o sobrescribe reviews/discards originales y materializa un resultado compartido.
+  El MVP debe conservar los originales y almacenar por separado normalización, acuerdo y adjudicación.
 
-## Style and workflow
+## Estilo y flujo de trabajo
 
-- JavaScript is ESM with 4 spaces, double quotes, semicolons, and Unix line endings; prefix intentionally unused names
-  with `_`.
-- SQL uses `snake_case`; preserve the definition/implementation split when touching legacy SQL.
-- Git Flow is initialized with `master`, `develop`, and `feature/`. Use feature branches from `develop`.
-- Commit messages must be conventional commits written in Spanish with an explanatory body. Obtain explicit approval
-  before any commit or push.
-- Never add commit watermarks, Sisyphus text or links, automatic trailers, or `Co-authored-by` lines unless the user
-  explicitly requests them for that commit.
+- JavaScript usa ESM con 4 espacios, comillas dobles, punto y coma y finales de línea Unix; ante nombres
+  intencionalmente no usados, añade el prefijo `_`.
+- SQL usa `snake_case`; conserva la separación entre definiciones e implementaciones al tocar SQL legacy.
+- Git Flow está inicializado con `master`, `develop` y `feature/`. Usa ramas de feature basadas en `develop`.
+- Los mensajes de commit deben ser Conventional Commits escritos en español y tener un cuerpo explicativo. Obtén
+  aprobación explícita antes de cualquier commit o push.
+- Nunca añadas marcas de agua, texto o enlaces de Sisyphus, trailers automáticos ni líneas `Co-authored-by`, salvo que
+  el usuario lo solicite explícitamente para ese commit.
