@@ -253,12 +253,5 @@ dist
 ### Project-specific
 schema/00_init.sql
 instance.*
-label.txt
-reviewer.txt
 docker-compose.*.yml
-
-# Test fixtures for local development
-!test-data/
-!test-data/label.txt
-!test-data/reviewer.txt
-!test-data/instance.tsv
+!deployment/docker-compose.rollback-readonly.yml

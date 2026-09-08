@@ -1,42 +1,41 @@
-import morgan from "morgan";
-import compression from "compression";
-import * as ip from "neoip";
 import * as fs from "node:fs";
-import * as path from "path";
-import express from "express";
-import paginate from "express-paginate";
-import actuator from "express-actuator";
-import minifyHTML from "express-minify-html-2";
-import {minify as minifyJS} from "uglify-js";
-import bodyParser from "body-parser";
-import {config} from "dotenv";
-import {router} from "express-file-routing";
+import path from "node:path";
 import {fileURLToPath} from "url";
-import {parse as parseUserAgent} from "useragent";
+import {config} from "dotenv";
 import {createStream as createRotatingFileStream} from "rotating-file-stream";
-import HTTPStatus from "./util/http-status.js";
-import {renderSafeMarkdown} from "./util/safe-markdown.js";
+import morgan from "morgan";
+import * as ip from "neoip";
+import {createApp} from "./app.js";
+import {ProductionConfigError, readProductionConfig} from "./util/production-config.js";
 
 config();
 
+const nodeEnv = process.env.NODE_ENV || "development";
+try {
+    readProductionConfig(process.env);
+} catch (error) {
+    if (error instanceof ProductionConfigError) {
+        console.error(error.message);
+        process.exitCode = 1;
+    } else {
+        throw error;
+    }
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const __logs = path.join(__dirname, "logs");
-if (!fs.existsSync(__logs)) fs.mkdirSync(__logs, {recursive: true});
-
-const nodeEnv = process.env.NODE_ENV || "development";
-const port = process.env.PORT || 3000;
-
-const app = express();
-
-app.use(morgan(nodeEnv === "development" ? "dev" : "common"));
-app.use(morgan(
-    "combined",
-    {
+let server;
+if (process.exitCode !== 1) {
+    const logsDirectory = path.join(__dirname, "logs");
+    if (!fs.existsSync(logsDirectory)) fs.mkdirSync(logsDirectory, {recursive: true});
+    const port = process.env.PORT || 3000;
+    const {default: pool} = await import("./util/pg-pool.js");
+    const logger = morgan(nodeEnv === "development" ? "dev" : "common");
+    const fileLogger = morgan("combined", {
         stream: createRotatingFileStream(
             (time, i) => time ? `server.${time.toISOString().split("T")[0]}.${i}.log.gz` : "server.log",
             {
-                path: __logs,
+                path: logsDirectory,
                 size: "100M",
                 interval: "1d",
                 compress: "gzip",
@@ -50,76 +49,19 @@ app.use(morgan(
             default:
                 return false;
             }
-        },
-    }
-));
-
-app.set("views", "./views");
-app.set("view engine", "ejs");
-
-app.use("/", express.static(path.join(__dirname, "public")));
-
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-
-app.use(paginate.middleware(10, 50));
-app.use((req, res, next) => {
-    res.locals.path = req.baseUrl + req.path;
-    const user_agent = req.headers["user-agent"];
-    res.locals.os = parseUserAgent(user_agent).os.family;
-    res.locals.renderSafeMarkdown = renderSafeMarkdown;
-    next();
-});
-app.use(
-    minifyHTML({
-        override: true,
-        exceptionUrls: false,
-        htmlMinifier: {
-            removeComments: true,
-            collapseWhitespace: true,
-            collapseBooleanAttributes: true,
-            removeAttributeQuotes: true,
-            removeEmptyAttributes: true,
         }
-    })
-);
-app.use((req, res, next) => {
-    const originalSend = res.send;
-    res.send = function (body) {
-        if (typeof body === "string") {
-            const minified = body.replace(
-                /<script>([\s\S]*?)<\/script>/gi,
-                (match, content) => `<script>${(minifyJS(content).code)}</script>`
-            );
-            originalSend.call(this, minified);
-        } else {
-            originalSend.call(this, body);
-        }
-    };
-    next();
-});
+    });
+    const app = await createApp({pool, logger: (req, res, next) => {
+        logger(req, res, () => fileLogger(req, res, next));
+    }});
 
-app.use(compression());
+    server = app.listen(port, () => {
+        if (nodeEnv === "development") console.debug(`
+ App listening on:
+ * http://localhost:${port}
+ * http://${ip.address()}:${port}
+  `);
+    });
+}
 
-app.use(actuator({ basePath: "/actuator" }));
-
-app.use("/", await router());
-
-app.use(async (err, _req, res, _next) => {
-    const message = nodeEnv === "production"
-        ? err.message
-        : err.stack.split("\n")
-            .map(line => line.trimStart())
-            .join("\n");
-    res.status(HTTPStatus.INTERNAL_SERVER_ERROR).render("error", { message });
-});
-
-const _server = app.listen(port, () => {
-    if (nodeEnv === "development") {
-        console.debug(`
-App listening on:
-* http://localhost:${port}
-* http://${ip.address()}:${port}
-`);
-    }
-});
+export default server;
