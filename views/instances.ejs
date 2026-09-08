@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
     <head>
-        <title>Labeling - Instances</title>
+        <title>Labeler - PR cards</title>
         <%- include('./partials/head/meta'); %>
         <%- include('./partials/head/link'); %>
         <%- include('./partials/head/noscript'); %>
@@ -9,127 +9,76 @@
     <body class="min-vh-100 mw-100 d-flex flex-column justify-content-between">
         <%- include('./partials/header'); %>
         <main>
-            <div class="container">
-                <div class="row">
-                    <div class="col">
-                        <h1 class="text-center mb-3">
-                            Instances: <%- pagination.items %>
-                        </h1>
+            <div class="container py-3">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+                    <div>
+                        <span class="pr-section-eyebrow">Study sample</span>
+                        <h1 class="h2 mb-1">PR cards</h1>
+                        <p class="text-muted mb-0"><%= pagination.items %> cards in this view</p>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                        <% if (participant) { %>
+                            <span class="badge rounded-pill text-bg-light border">
+                                <i class="bi bi-person me-1" aria-hidden="true"></i><%= participant.name %>
+                            </span>
+                            <span class="badge rounded-pill text-bg-primary"><%= progress.completed %>/<%= progress.total %> completed</span>
+                        <% } else { %>
+                            <span class="badge rounded-pill text-bg-warning">Select a participant to see personal status</span>
+                        <% } %>
                     </div>
                 </div>
-                <div class="row justify-content-center">
-                    <div class="col-12 col-md-6 col-lg-4">
-                        <div class="list-group mb-3">
-                            <%
-                                instances.forEach((instance) => {
-                                    const id = instance.id;
-                                    const category = instance.category;
-                            %>
-                                <a id="instance-<%- id %>"
-                                   href="/instances/<%- id %>"
-                                   class="list-group-item list-group-item-dark list-group-item-action font-monospace text-truncate"
-                                >
-                                    Instance: <%- id %> [<%- category %>]
-                                </a>
-                            <%
-                                });
-                            %>
+
+                <div class="d-flex flex-wrap gap-2 mb-4">
+                    <% [ [ "all", "All cards" ], [ "pending", "Pending" ], [ "classified", "Classified" ], [ "discarded", "Discarded" ] ].forEach(([ value, label ]) => { %>
+                        <a class="btn btn-sm <%= status === value ? "btn-dark" : "btn-outline-secondary" %>"
+                           href="/instances?status=<%= value %><%= participant ? `&participant=${encodeURIComponent(participant.name)}` : "" %>">
+                            <%= label %>
+                        </a>
+                    <% }); %>
+                    <% if (!participant) { %>
+                        <a class="btn btn-sm btn-outline-primary" href="/login">Choose participant</a>
+                    <% } %>
+                </div>
+
+                <div class="pr-card-list">
+                    <% if (!cards.length) { %>
+                        <div class="pr-empty-state">
+                            <i class="bi bi-inbox" aria-hidden="true"></i>
+                            <span>No PR cards match this filter.</span>
                         </div>
-                    </div>
-                    <div class="col-12">
-                        <nav aria-label="Page navigation" class="d-flex flex-wrap justify-content-center">
-                            <ul id="instances-pagination" class="pagination mb-3 mb-lg-0 me-md-2"></ul>
-                            <form id="instances-pagination-jump" class="input-group w-auto mb-3 mb-lg-0 me-2">
-                                <input type="number"
-                                       id="instances-pagination-jump-input"
-                                       aria-describedby="instances-pagination-jump-button"
-                                       aria-label="Page number"
-                                       placeholder="Jump to page..."
-                                       class="form-control"
-                                       min="0"
-                                />
-                                <button type="submit"
-                                        id="instances-pagination-jump-button"
-                                        class="btn btn-dark"
-                                >
-                                    Go!
-                                </button>
-                            </form>
-                            <select id="instances-sort-select"
-                                    class="form-select w-auto mb-3 mb-md-0"
-                                    aria-label="Instance Sort Order By ID"
-                            >
-                                <option <%- (locals.pagination.id > 0) ? "selected" : "" %> value="1">Ascending</option>
-                                <option <%- (locals.pagination.id < 0) ? "selected" : "" %> value="-1">Descending</option>
-                            </select>
-                        </nav>
-                    </div>
+                    <% } %>
+                    <% cards.forEach(card => { %>
+                        <a class="pr-list-item" href="/<%= participant ? encodeURIComponent(participant.name) : "" %>/queue/<%= card.id %>">
+                            <div class="pr-list-main">
+                                <div class="pr-card-kicker mb-1">
+                                    <span><%= card.repository || "Repository unavailable" %> #<%= card.pr_number || "?" %></span>
+                                </div>
+                                <h2 class="h5 mb-2"><%= card.title %></h2>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <span class="badge rounded-pill <%= card.merged ? "pr-status-merged" : card.state === "closed" ? "pr-status-closed" : "pr-status-open" %>"><%= card.merged ? "MERGED" : String(card.state || "UNKNOWN").toUpperCase() %></span>
+                                    <% if (card.language) { %><span class="badge rounded-pill pr-language-badge"><%= card.language %></span><% } %>
+                                </div>
+                            </div>
+                            <div class="pr-list-status text-md-end">
+                                 <span class="badge rounded-pill <%= card.status === "CLASSIFIED" ? "text-bg-success" : card.status === "PENDING" ? "text-bg-warning" : card.status === "DISCARDED" ? "text-bg-secondary" : "text-bg-light border" %>"><%= card.status %></span>
+                                 <% if (card.own_category) { %><small class="d-block text-muted mt-2"><%= card.own_category %></small><% } %>
+                                 <% if (card.discard_reason) { %><small class="d-block text-muted mt-2"><%= card.discard_reason %></small><% } %>
+                            </div>
+                        </a>
+                    <% }); %>
                 </div>
+
+                <% if (pagination.pages > 1) { %>
+                    <nav class="d-flex justify-content-center gap-2 mt-4" aria-label="PR card pagination">
+                        <% const base = `/instances?limit=${pagination.limit}&status=${status}${participant ? `&participant=${encodeURIComponent(participant.name)}` : ""}`; %>
+                        <% if (pagination.current > 1) { %><a class="btn btn-outline-secondary" href="<%= base %>&page=<%= pagination.current - 1 %>">Previous</a><% } %>
+                        <span class="btn btn-light disabled">Page <%= pagination.current %> / <%= pagination.pages %></span>
+                        <% if (pagination.current < pagination.pages) { %><a class="btn btn-outline-secondary" href="<%= base %>&page=<%= pagination.current + 1 %>">Next</a><% } %>
+                    </nav>
+                <% } %>
             </div>
         </main>
         <%- include('./partials/footer'); %>
-        <%- include('./partials/scripts/jquery'); %>
         <%- include('./partials/scripts/bootstrap'); %>
-        <%- include('./partials/scripts/pagination'); %>
-        <script>
-            window.addEventListener("load", () => {
-                const params = new URLSearchParams(location.search);
-                let reload = false;
-                if (!params.has("page")) {
-                    params.append("page", "1");
-                    reload = true;
-                }
-                if (!params.has("limit")) {
-                    params.append("limit", "10");
-                    reload = true;
-                }
-                if (!params.has("id")) {
-                    params.append("id", "1");
-                    reload = true;
-                }
-                if (reload) {
-                    location.search = params.toString();
-                }
-            });
-
-            document.getElementById("instances-pagination-jump-input")
-                .addEventListener("input", (event) => {
-                    const min = Number(event.target.min);
-                    const value = Number(event.target.value);
-                    const abs = Math.abs(value);
-                    event.target.value = !!value && abs >= min ? abs : null;
-                });
-
-            document.getElementById("instances-pagination-jump")
-                .addEventListener("submit", (event) => {
-                    event.preventDefault();
-                    const page = document.getElementById("instances-pagination-jump-input").value;
-                    location.search = location.search.replace(/page=[^&$]*/i, `page=${page}`);
-                });
-
-            document.getElementById("instances-sort-select")
-                .addEventListener("change", (event) => {
-                    const order = event.target.value;
-                    location.search = location.search
-                        .replace(/id=[^&$]*/i, `id=${order}`)
-                        .replace(/page=[^&$]*/i, "page=1");
-                }
-            );
-
-            $("#instances-pagination").twbsPagination({
-                visiblePages: 5,
-                hideOnlyOnePage: true,
-                initiateStartPageClick: false,
-                startPage: Number(`<%- paginate.page %>`) || 1,
-                totalPages: Number(`<%- pagination.pages %>`) || 1,
-                first: `<i class="bi bi-chevron-double-left"></i>`,
-                prev: `<i class="bi bi-chevron-left"></i>`,
-                next: `<i class="bi bi-chevron-right"></i>`,
-                last: `<i class="bi bi-chevron-double-right"></i>`,
-                onPageClick: function (_, page) {
-                    location.search = location.search.replace(/page=[^&$]*/i, `page=${page}`);
-                }
-            });
-        </script>
     </body>
 </html>

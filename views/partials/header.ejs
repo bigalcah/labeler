@@ -20,16 +20,28 @@
                         <a class="nav-link" href="/">Home</a>
                     </li>
                     <%
+                        const participantName = locals.participant?.name
+                            ? encodeURIComponent(locals.participant.name)
+                            : "";
                         const links = [
-                            "/instances",
-                            "/conflicts",
-                            "/labels",
-                            "/progress",
-                            "/export"
+                            [
+                                `/instances${participantName ? `?participant=${participantName}` : ""}`,
+                                "PR cards",
+                                locals.path === "/instances" && locals.status !== "pending",
+                            ],
+                            [
+                                `/instances?status=pending${participantName ? `&participant=${participantName}` : ""}`,
+                                "Pending cards",
+                                locals.path === "/instances" && locals.status === "pending",
+                            ],
+                            [
+                                `/progress${participantName ? `?participant=${participantName}` : ""}`,
+                                "Progress",
+                                locals.path === "/progress",
+                            ],
                         ];
-                        links.forEach((link) => {
-                            const name = link.charAt(1).toUpperCase() + link.substring(2);
-                            const classes = link === locals.path ? "nav-link active" : "nav-link";
+                        links.forEach(([ link, name, active ]) => {
+                            const classes = active ? "nav-link active" : "nav-link";
                     %>
                         <li class="nav-item">
                             <a class="<%- classes %>" href="<%- link %>"><%- name %></a>
@@ -38,24 +50,10 @@
                         });
                     %>
                 </ul>
-                <% if (!!locals.reviewer) { %>
+                <% if (!!locals.participant) { %>
                     <div class="py-2 ms-lg-auto">
                         <i class="bi bi-person-fill"></i>
-                        <span><%- locals.reviewer.name %></span>
-                    </div>
-                    <div class="vr d-none d-lg-inline-block mx-lg-2"></div>
-                    <div class="py-2">
-                        <span><i class="bi bi-eye-fill" title="Reviewed Instances"></i></span>
-                        <span class="font-monospace">
-                            <%- locals.reviewer.review_progress || 0 %>
-                        </span>
-                    </div>
-                    <div class="vr d-none d-lg-inline-block mx-lg-2"></div>
-                    <div class="py-2">
-                        <span><i class="bi bi-trash-fill" title="Discarded Instances"></i></span>
-                        <span class="font-monospace">
-                            <%- locals.reviewer.discard_progress || 0 %>
-                        </span>
+                        <span><%- locals.participant.name %></span>
                     </div>
                 <% } %>
             </div>

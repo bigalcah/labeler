@@ -253,6 +253,5 @@ dist
 ### Project-specific
 schema/00_init.sql
 instance.*
-label.txt
-reviewer.txt
 docker-compose.*.yml
+!deployment/docker-compose.rollback-readonly.yml

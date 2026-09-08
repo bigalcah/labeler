@@ -1,4 +1,85 @@
-<!--
-    TODO: Edit this file to control the rendering of data for each individual instance
--->
-<pre class="border rounded"><code class="language-json" style="white-space: pre!important; height: 550px!important;"><%= JSON.stringify(data, null, 2) || " " %></code></pre>
+<%
+    const v2 = data.card_v2 || {};
+    const identity = v2.identity || {};
+    const value = name => v2.fields?.[name]?.value ?? "Not available";
+    const availability = name => v2.fields?.[name]?.availability || "EMPTY";
+    const metricLabels = {
+        commit_count: "Commits", changed_file_count: "Changed files", additions: "Additions",
+        deletions: "Deletions", total_changes: "Total changes", review_event_count: "Review events",
+        changes_requested_review_count: "Changes requested", issue_comment_count: "PR comments",
+        review_comment_count: "Inline comments",
+    };
+    const sectionLabels = {
+        files: "Changed files", reviews: "Reviews", issue_comments: "Pull request comments",
+        review_comments: "Inline review comments", timeline: "Timeline", supplementary_activity: "Commits",
+    };
+    const sectionIcons = {files: "bi-file-earmark-code", reviews: "bi-check2-square", issue_comments: "bi-chat-left-text", review_comments: "bi-chat-square-quote", timeline: "bi-clock-history", supplementary_activity: "bi-git-commit"};
+    const statusLabel = state => state === "UNAVAILABLE" ? "Unavailable" : state === "TRUNCATED" ? "Truncated" : state === "EMPTY" ? "Empty" : "Available";
+    const statusClass = state => state === "PRESENT" ? "text-bg-success" : state === "TRUNCATED" ? "text-bg-warning" : state === "UNAVAILABLE" ? "text-bg-secondary" : "text-bg-light border";
+    const normalizedState = String(value("state") || "").toLowerCase();
+    const isMerged = value("merged") === true || Boolean(v2.dates?.merged_at?.value);
+    const status = isMerged ? "MERGED" : normalizedState === "closed" ? "CLOSED" : normalizedState === "open" ? "OPEN" : "STATUS UNAVAILABLE";
+    const metrics = Object.entries(v2.metrics || {}).filter(([, metric]) => metric.value !== null && metric.value !== undefined);
+    const csvEvidence = v2.csv_evidence || {};
+    const evidenceSections = [["description", "Description", csvEvidence.body], ["selected", "Selected CSV evidence", csvEvidence.selected], ["all", "All CSV evidence", csvEvidence.all_text]].filter(([, , text]) => text);
+    const visibleEvidenceSections = Object.entries(v2.github_evidence || {}).filter(([name]) => ["files", "reviews", "issue_comments", "review_comments"].includes(name));
+%>
+<% if (data && identity.source_card_id) { %>
+    <article class="pr-card card border-0 shadow-sm overflow-hidden" aria-labelledby="pr-card-title">
+        <header class="pr-card-header p-4 p-lg-5">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+                <div class="min-w-0">
+                    <div class="pr-card-kicker mb-2">Pull request / <span class="text-break"><%= identity.repository || "Repository unavailable" %></span> #<%= identity.pr_number || "?" %></div>
+                    <h2 class="pr-card-title mb-0" id="pr-card-title"><%= value("title") %></h2>
+                </div>
+                <% if (value("html_url") !== "Not available") { %><a class="btn btn-dark rounded-pill px-3 flex-shrink-0" href="<%= value("html_url") %>" target="_blank" rel="noopener noreferrer">Open on GitHub</a><% } %>
+            </div>
+            <div class="d-flex flex-wrap gap-2 mt-4" aria-label="Pull request status and sources">
+                <span class="pr-status badge rounded-pill"><%= status %></span>
+                <span class="badge rounded-pill text-bg-light border">Sample: CSV</span>
+                <span class="badge rounded-pill text-bg-light border">Evidence: <%= v2.snapshot?.run_id ? "GitHub snapshot" : "CSV only" %></span>
+                <span class="badge rounded-pill pr-language-badge">Dataset language: <%= v2.dataset_language?.value || "Not available" %></span>
+            </div>
+        </header>
+        <div class="card-body p-4 p-lg-5">
+            <div class="pr-meta-grid mb-4">
+                <div class="pr-meta-item"><span class="pr-meta-label">Author</span><strong><%= value("author") %></strong></div>
+                <% for (const [dateName, label] of [["created_at", "Created"], ["closed_at", "Closed"], ["merged_at", "Merged"]]) { %>
+                    <div class="pr-meta-item"><span class="pr-meta-label"><%= label %></span><strong><%= v2.dates?.[dateName]?.value || "Not available" %></strong></div>
+                <% } %>
+            </div>
+            <% if (evidenceSections.length) { %>
+                <section class="pr-section" aria-labelledby="pr-context-title"><div class="pr-section-heading"><div><span class="pr-section-eyebrow">01 / CSV sample</span><h3 class="h4 mb-0" id="pr-context-title">Intention and baseline evidence</h3></div></div><div class="pr-evidence-list"><% evidenceSections.forEach(([key, label, text], index) => { %><details class="pr-evidence-item" <%= index === 0 ? "open" : "" %>><summary><span><%= label %></span><span class="badge rounded-pill text-bg-light border">CSV</span></summary><div class="pr-markdown mt-3"><%- renderSafeMarkdown(text) %></div></details><% }); %></div></section>
+            <% } %>
+            <section class="pr-section" aria-labelledby="pr-metrics-title"><div class="pr-section-heading"><div><span class="pr-section-eyebrow">02 / Signal</span><h3 class="h4 mb-0" id="pr-metrics-title">Metrics</h3></div><span class="badge rounded-pill text-bg-light border">Evidence values</span></div><div class="pr-metrics-grid"><% metrics.forEach(([name, metric]) => { %><div class="pr-metric"><span class="pr-metric-label"><%= metricLabels[name] %></span><strong class="pr-metric-value"><%= metric.value %></strong><small class="text-muted"><%= metric.provenance.source %></small></div><% }); %></div></section>
+            <section class="pr-section" aria-labelledby="pr-evidence-title"><div class="pr-section-heading"><div><span class="pr-section-eyebrow">03 / Snapshot</span><h3 class="h4 mb-0" id="pr-evidence-title">GitHub evidence</h3></div><% if (v2.snapshot?.run_id) { %><span class="badge rounded-pill text-bg-light border">Local snapshot</span><% } %></div>
+                <div class="pr-evidence-list">
+                    <% visibleEvidenceSections.forEach(([name, section]) => { %>
+                        <% const items = name === "reviews" ? section.items?.filter(item => typeof item.body === "string" && item.body.trim() !== "") : section.items; %>
+                        <details class="pr-evidence-item" data-local-section="<%= name %>"><summary><span><i class="bi <%= sectionIcons[name] %> me-2" aria-hidden="true"></i><%= sectionLabels[name] %></span><span class="badge rounded-pill <%= statusClass(section.availability) %>"><%= statusLabel(section.availability) %> · <%= section.captured_count %></span></summary>
+                            <% if (section.availability !== "PRESENT") { %><div class="pr-unavailable-state mt-3"><span><strong><%= statusLabel(section.availability) %>.</strong> <% if (section.reason) { %><%= section.reason %><% } else if (section.availability === "EMPTY") { %>No records were captured.<% } else { %>This evidence is not available in the local snapshot.<% } %></span></div><% } %>
+                            <% if (items?.length) { %><div class="pr-event-list mt-3" data-page-size="10"><% items.forEach((item, index) => { %><div class="pr-event-item" data-local-item="<%= index %>"><div class="d-flex flex-wrap justify-content-between gap-2"><strong><%= item.author || "Author unavailable" %></strong><span class="badge rounded-pill <%= item.state === "CHANGES_REQUESTED" ? "text-bg-warning" : "text-bg-light border" %>"><%= item.state || "Event" %></span></div><% if (item.created_at) { %><small class="text-muted"><%= item.created_at %></small><% } %><% if (item.path) { %><code class="d-block mt-2"><%= item.path %><%= item.line ? ":" + item.line : "" %></code><% } %><% if (item.body) { %><div class="pr-markdown mt-2"><%- renderSafeMarkdown(item.body) %></div><% } %></div><% }); %></div><% } %>
+                        </details>
+                    <% }); %>
+                </div>
+                <% if (value("html_url") !== "Not available") { %><p class="small mt-3 mb-0"><a href="<%= value("html_url") %>" target="_blank" rel="noopener noreferrer">View full diff and deeper GitHub details</a></p><% } %>
+            </section>
+        </div>
+    </article>
+<% } %>
+<script>
+    document.querySelectorAll("[data-local-section]").forEach(section => {
+        const items = [...section.querySelectorAll("[data-local-item]")];
+        if (items.length <= 10) return;
+        items.slice(10).forEach(item => item.hidden = true);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn btn-sm btn-outline-secondary mt-3";
+        button.textContent = `Show ${items.length - 10} more locally`;
+        button.addEventListener("click", () => {
+            items.forEach(item => item.hidden = false);
+            button.remove();
+        });
+        section.querySelector(".pr-event-list")?.append(button);
+    });
+</script>

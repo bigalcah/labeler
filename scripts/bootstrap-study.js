@@ -1,0 +1,32 @@
+import pool from "../util/pg-pool.js";
+import {readPullRequestCards} from "../util/csv-pr-provider.js";
+import {bootstrapStudy} from "../util/study-bootstrap.js";
+import {readStudyConfig} from "../util/study-config.js";
+import {readCredentialManifest} from "../util/credential-manifest.js";
+
+const [ csvPath, configInput = process.env.STUDY_CONFIG ] = process.argv.slice(2);
+
+if (!csvPath) {
+    console.error("Usage: node scripts/bootstrap-study.js <input.csv> [config-json-or-path]");
+    process.exitCode = 1;
+} else {
+    try {
+        const config = await readStudyConfig(configInput);
+        const credentialManifest = await readCredentialManifest({
+            file: process.env.STUDY_ACCOUNT_MANIFEST_FILE,
+            fd: process.env.STUDY_ACCOUNT_MANIFEST_FD === undefined
+                ? undefined
+                : Number(process.env.STUDY_ACCOUNT_MANIFEST_FD),
+        }, config);
+        const {cards, errors, sourceChecksum} = await readPullRequestCards(csvPath, {
+            expectedCardCount: config.expectedCardCount,
+        });
+        if (errors.length > 0) {
+            throw new Error(`CSV validation failed:\n${JSON.stringify(errors, null, 2)}`);
+        }
+        const study = await bootstrapStudy({pool, config, cards, sourceChecksum, credentialManifest});
+        console.log(`Study ${config.studyKey} is ${study.bootstrap_state}`);
+    } finally {
+        await pool.end();
+    }
+}

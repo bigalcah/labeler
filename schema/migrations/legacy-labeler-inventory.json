@@ -1,0 +1,155 @@
+{
+  "inventoryVersion": 1,
+  "inventorySha256": "9435fb778e2b45944b0e1519672b69b008a9fe35024ac511e7e2fb736c55a99d",
+  "inventory": {
+    "database": {
+      "sources": [
+        "schema/01_definitions_schema.sql",
+        "schema/02_definitions_function.sql",
+        "schema/03_definitions_procedure.sql",
+        "schema/04_definitions_view.sql",
+        "schema/05_implementations_function.sql",
+        "schema/06_implementations_procedure.sql"
+      ],
+      "types": [
+        "conflict"
+      ],
+      "tables": [
+        "instance",
+        "label",
+        "instance_review",
+        "instance_discard",
+        "instance_review_label",
+        "instance_review_conflict_resolution"
+      ],
+      "functions": [
+        "instance_review_bucket_threshold",
+        "next_instance",
+        "instance_review_details",
+        "instance_discard_details",
+        "label_distribution_category",
+        "label_distribution_reviewer"
+      ],
+      "procedures": [
+        "label_remove",
+        "label_rename",
+        "label_merge",
+        "conflict_resolution_discard",
+        "conflict_resolution_review"
+      ],
+      "views": [
+        "categories",
+        "instance_review_candidate",
+        "instance_review_finished",
+        "instance_review_bucket",
+        "instance_review_bucket_filled",
+        "reviewer_review_progress",
+        "reviewer_discard_progress",
+        "reviewer_progress",
+        "instance_review_conflict_label",
+        "instance_review_conflict_outcome",
+        "instance_review_conflict",
+        "instance_discard_export",
+        "instance_review_finished_export",
+        "instance_review_conflict_resolution_export"
+      ]
+    },
+    "runtime": {
+      "retiredRoutes": [
+        "routes/labels/index.js",
+        "routes/labels/[id]/index.js",
+        "routes/labels/merge/index.js",
+        "routes/labels/rename/index.js",
+        "routes/conflicts/index.js",
+        "routes/conflicts/[id]/index.js",
+        "routes/conflicts/[id]/discard/index.js",
+        "routes/conflicts/[id]/review/index.js",
+        "routes/discards/remarks/index.js",
+        "routes/instances/[id]/discard/index.js",
+        "routes/instances/[id]/review/index.js",
+        "routes/export/index.js",
+        "routes/export/[target]/index.js"
+      ],
+      "retiredViews": [
+        "views/export.ejs",
+        "views/conflict.ejs",
+        "views/conflicts.ejs",
+        "views/label.ejs",
+        "views/labels.ejs"
+      ],
+      "retiredServerIntegrations": [
+        "index.js"
+      ],
+      "retiredPackageDependencies": [
+        "socket.io"
+      ],
+      "retiredClientModules": [
+        "socket.io-client"
+      ],
+      "retiredEvents": [
+        "label_added",
+        "label_removed",
+        "label_renamed"
+      ],
+      "remainingLegacyAssets": [
+        {
+          "path": "public/css/main.css",
+          "selectors": [
+            "#label-offcanvas",
+            "#discard-offcanvas"
+          ]
+        }
+      ]
+    },
+    "deployment": {
+      "initializer": "scripts/init-data.sh",
+      "databaseImage": "deployment/database/Dockerfile",
+      "composeFile": "deployment/docker-compose.yml",
+      "legacyFixtureMounts": [
+        "test-data/label.txt",
+        "test-data/reviewer.txt",
+        "test-data/instance.tsv"
+      ]
+    },
+    "backup": {
+      "format": "custom",
+      "dataOnly": true,
+      "tables": [
+        "instance",
+        "label",
+        "instance_review",
+        "instance_discard",
+        "instance_review_label",
+        "instance_review_conflict_resolution"
+      ]
+    },
+    "migration": {
+      "id": "002_retire_legacy_labeler",
+      "ledgerTable": "labeler_migration",
+      "advisoryLockKey": "labeler:retire-legacy-labeler"
+    },
+    "protected": {
+      "tables": [
+        "reviewer",
+        "pr_cards",
+        "study",
+        "study_participant",
+        "study_card",
+        "participant_category",
+        "pr_classification"
+      ],
+      "runtimePaths": [
+        "routes/instances/index.js",
+        "routes/instances/[id]/index.js",
+        "routes/[name]/queue/index.js",
+        "routes/[name]/queue/[id]/classify/index.js",
+        "routes/[name]/categories/index.js",
+        "routes/progress/index.js",
+        "views/instances.ejs",
+        "views/instance.ejs",
+        "views/review.ejs",
+        "views/progress.ejs"
+      ]
+    }
+  }
+}

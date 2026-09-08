@@ -19,6 +19,44 @@ services:
       POSTGRES_PASSWORD: ${DATABASE_PASS}
     restart: always
 
+  labeling-study-prepare:
+    image: seart/labeling-server:latest
+    build:
+      context: ../
+      dockerfile: deployment/server/Dockerfile
+    command: [ "sh", "scripts/prepare-study-deployment.sh" ]
+    networks: [ default ]
+    volumes:
+      - ../plans/merged_after_rework_cards_seed_20260510.csv:/labeling/plans/prs.csv:ro
+      - ${LEGACY_BACKUP_DIRECTORY:-/tmp/labeler-no-legacy-backup}:/legacy-backup:ro
+    environment:
+      DATABASE_HOST: labeling-database
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${DATABASE_NAME}
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASS: ${DATABASE_PASS}
+      STUDY_DATABASE_MODE: ${STUDY_DATABASE_MODE:-clean}
+      STUDY_CSV_PATH: /labeling/plans/prs.csv
+      STUDY_CONFIG_INPUT: ${STUDY_CONFIG_INPUT:-}
+      LEGACY_RETIREMENT_CONFIRM: ${LEGACY_RETIREMENT_CONFIRM:-}
+      LEGACY_BACKUP_ARCHIVE: /legacy-backup/${LEGACY_BACKUP_ARCHIVE_FILE:-legacy.dump}
+      LEGACY_BACKUP_MANIFEST: /legacy-backup/${LEGACY_BACKUP_MANIFEST_FILE:-legacy.manifest.json}
+      PGHOST: labeling-database
+      PGPORT: 5432
+      PGDATABASE: ${DATABASE_NAME}
+      PGUSER: ${DATABASE_USER}
+      PGPASSWORD: ${DATABASE_PASS}
+      GITHUB_ENRICHMENT_ENABLED: ${GITHUB_ENRICHMENT_ENABLED:-false}
+      GITHUB_API_BASE: ${GITHUB_API_BASE:-https://api.github.com}
+      GITHUB_API_VERSION: ${GITHUB_API_VERSION:-2022-11-28}
+      GITHUB_CREDENTIAL_ALIASES: ${GITHUB_CREDENTIAL_ALIASES:-{"default":{"tokenEnv":"GITHUB_TOKEN","permissions":["metadata","pulls","contents","issues"]}}}
+      GITHUB_DEFAULT_ALIAS: ${GITHUB_DEFAULT_ALIAS:-default}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    depends_on:
+      labeling-database:
+        condition: service_healthy
+    restart: "no"
+
   labeling-server:
     container_name: labeling-server
     hostname: labeling-server
@@ -34,8 +72,8 @@ services:
       DATABASE_USER: ${DATABASE_USER}
       DATABASE_PASS: ${DATABASE_PASS}
     depends_on:
-      labeling-database:
-        condition: service_healthy
+      labeling-study-prepare:
+        condition: service_completed_successfully
     deploy:
       restart_policy:
         condition: on-failure
