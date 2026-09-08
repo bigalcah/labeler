@@ -21,6 +21,10 @@ const managedMigrations = Object.freeze([
         id: "006_github_api_telemetry",
         url: new URL("../schema/migrations/006_github_api_telemetry.sql", import.meta.url),
     },
+    {
+        id: "007_local_accounts_sessions",
+        url: new URL("../schema/migrations/007_local_accounts_sessions.sql", import.meta.url),
+    },
 ]);
 const knownExternalMigrationIds = new Set([ "002_retire_legacy_labeler" ]);
 const advisoryLockKey = "labeler:study-schema";
@@ -74,7 +78,7 @@ const assertLedgerState = ledgerIds => {
     if (externalIndex !== -1) {
         const foundationIndex = ledgerIds.indexOf("001_study_foundation");
         const discardIndex = ledgerIds.indexOf("003_private_pr_discard");
-        if (externalIndex < foundationIndex || (discardIndex !== -1 && externalIndex > discardIndex)) {
+        if (foundationIndex === -1 || externalIndex < foundationIndex || (discardIndex !== -1 && externalIndex > discardIndex)) {
             throw new Error("Migration ledger is out of order at 002_retire_legacy_labeler");
         }
     }

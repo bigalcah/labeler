@@ -8,6 +8,7 @@ const root = path.resolve(new URL("..", import.meta.url).pathname);
 const foundationPath = path.join(root, "schema/migrations/001_study_foundation.sql");
 const retirementPath = path.join(root, "schema/migrations/002_retire_legacy_labeler.sql");
 const enrichmentPath = path.join(root, "schema/migrations/004_github_pr_api_enrichment.sql");
+const accountsSessionsPath = path.join(root, "schema/migrations/007_local_accounts_sessions.sql");
 const databaseDockerfilePath = path.join(root, "deployment/database/Dockerfile");
 
 const normalize = value => value.replace(/\s+/g, " ").trim();
@@ -71,9 +72,10 @@ test("GitHub enrichment backfill aggregates UUID memberships without MIN(uuid)",
 });
 
 test("retirement migration drops exactly the inventory allowlist with explicit qualified statements", async () => {
-    const [ migration, inventory ] = await Promise.all([
+    const [ migration, inventory, accountsSessions ] = await Promise.all([
         readFile(retirementPath, "utf8"),
         readLegacyInventory(),
+        readFile(accountsSessionsPath, "utf8"),
     ]);
     const relationDrops = [...migration.matchAll(/DROP (TABLE|VIEW|TYPE) public\."([^"]+)";/g)];
     const routineDrops = [...migration.matchAll(/DROP (FUNCTION|PROCEDURE) public\."([^"]+)"\(([^;]*)\);/g)];
@@ -89,6 +91,15 @@ test("retirement migration drops exactly the inventory allowlist with explicit q
     assert.doesNotMatch(migration, /\bCASCADE\b/i);
     assert.doesNotMatch(migration, /DROP\s+(?:TABLE|VIEW|TYPE|FUNCTION|PROCEDURE)\s+IF EXISTS/i);
     assert.doesNotMatch(migration, /DROP\s+(?:TABLE|VIEW|TYPE|FUNCTION|PROCEDURE)\s+(?!public\.)/i);
+
+    const accountsSessionTables = new Set(Array.from(
+        accountsSessions.matchAll(/CREATE TABLE IF NOT EXISTS "([^"]+)"/g),
+        match => match[1],
+    ));
+    const droppedRelationNames = new Set(relationDrops.map(match => match[2]));
+    for (const table of accountsSessionTables) {
+        assert.equal(droppedRelationNames.has(table), false, `002 must not drop 007 table ${table}`);
+    }
 
     const droppedNames = new Set([ ...relationDrops, ...routineDrops ].map(match => match[2]));
     for (const protectedTable of inventory.inventory.protected.tables) {

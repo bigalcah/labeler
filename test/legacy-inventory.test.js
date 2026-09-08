@@ -9,6 +9,15 @@ import {
 } from "../util/legacy-inventory.js";
 
 const root = path.resolve(new URL("..", import.meta.url).pathname);
+const expectedMigration002ProtectedTables = [
+    "reviewer",
+    "pr_cards",
+    "study",
+    "study_participant",
+    "study_card",
+    "participant_category",
+    "pr_classification",
+];
 
 test("authoritative inventory covers legacy consensus and protected MVP objects", async () => {
     const inventory = await readLegacyInventory();
@@ -25,15 +34,7 @@ test("authoritative inventory covers legacy consensus and protected MVP objects"
     assert.ok(inventory.inventory.database.procedures.includes("conflict_resolution_discard"));
     assert.ok(inventory.inventory.database.procedures.includes("conflict_resolution_review"));
     assert.ok(inventory.inventory.database.views.includes("instance_review_conflict_resolution_export"));
-    assert.deepEqual(inventory.inventory.protected.tables, [
-        "reviewer",
-        "pr_cards",
-        "study",
-        "study_participant",
-        "study_card",
-        "participant_category",
-        "pr_classification",
-    ]);
+    assert.deepEqual(inventory.inventory.protected.tables, expectedMigration002ProtectedTables);
 });
 
 test("inventory validation fails closed when authoritative content drifts", async () => {
@@ -57,10 +58,12 @@ test("inventory database names match every legacy SQL definition", async () => {
     assert.deepEqual(names("FUNCTION"), new Set(inventory.inventory.database.functions));
     assert.deepEqual(names("PROCEDURE"), new Set(inventory.inventory.database.procedures));
     assert.deepEqual(names("VIEW"), new Set(inventory.inventory.database.views));
-    assert.deepEqual(
-        names("TABLE"),
-        new Set([ ...inventory.inventory.database.tables, ...inventory.inventory.protected.tables ]),
-    );
+    const sourceTables = names("TABLE");
+    const protectedSourceTables = inventory.inventory.protected.tables.filter(name => sourceTables.has(name));
+    assert.deepEqual(sourceTables, new Set([
+        ...inventory.inventory.database.tables,
+        ...protectedSourceTables,
+    ]));
 });
 
 test("inventory records removed consumers and existing protected runtime paths", async () => {

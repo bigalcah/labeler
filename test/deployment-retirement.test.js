@@ -26,6 +26,19 @@ test("server image contains the guarded migration and bootstrap inputs", async (
 
 test("deployment preparation selects a guarded database path before bootstrap", async () => {
     const script = await readRepositoryFile("scripts/prepare-study-deployment.sh");
+    const existingBlock = script.match(/existing\)[\s\S]*?\n\s*;;/)?.[0];
+    assert.ok(existingBlock);
+    const existingCommands = existingBlock.match(/^\s*npm run .*$/gm)?.map(command => command.trim());
+    const bootstrapCommand = script.match(/^\s*npm run bootstrap:study .*$/m)?.[0].trim();
+    assert.deepEqual(
+        [ ...existingCommands, bootstrapCommand ],
+        [
+            "npm run migrate:study -- --through 001_study_foundation",
+            "npm run retire:legacy:apply",
+            "npm run migrate:study",
+            "npm run bootstrap:study -- \"${STUDY_CSV_PATH}\" \"${STUDY_CONFIG_INPUT}\"",
+        ],
+    );
     const foundationPosition = script.indexOf("migrate:study");
     const cleanCheckPosition = script.indexOf("retire:legacy:clean-check");
     const retirementPosition = script.indexOf("retire:legacy:apply");

@@ -25,26 +25,41 @@ test("migration ledger accepts only ordered managed migrations and external reti
         "004_github_pr_api_enrichment",
         "005_github_enrichment_checkpoints",
         "006_github_api_telemetry",
+        "007_local_accounts_sessions",
     ]);
     assert.doesNotThrow(() => assertLedgerState([]));
     assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation" ]));
     assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation", "002_retire_legacy_labeler" ]));
     assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation", "002_retire_legacy_labeler", "003_private_pr_discard" ]));
-    assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation", "003_private_pr_discard", "004_github_pr_api_enrichment", "005_github_enrichment_checkpoints", "006_github_api_telemetry" ]));
-    assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation", "002_retire_legacy_labeler", "003_private_pr_discard", "004_github_pr_api_enrichment", "005_github_enrichment_checkpoints", "006_github_api_telemetry" ]));
+    assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation", "003_private_pr_discard", "004_github_pr_api_enrichment", "005_github_enrichment_checkpoints", "006_github_api_telemetry", "007_local_accounts_sessions" ]));
+    assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation", "002_retire_legacy_labeler", "003_private_pr_discard", "004_github_pr_api_enrichment", "005_github_enrichment_checkpoints", "006_github_api_telemetry", "007_local_accounts_sessions" ]));
     assert.throws(() => assertLedgerState([ "003_private_pr_discard" ]), /out of order/);
+    assert.throws(() => assertLedgerState([ "002_retire_legacy_labeler" ]), /out of order/);
+    assert.throws(() => assertLedgerState([ "001_study_foundation", "003_private_pr_discard", "004_github_pr_api_enrichment", "005_github_enrichment_checkpoints", "007_local_accounts_sessions" ]), /out of order at 007_local_accounts_sessions/);
+    assert.throws(() => assertLedgerState([ "001_study_foundation", "003_private_pr_discard", "004_github_pr_api_enrichment", "006_github_api_telemetry" ]), /out of order at 006_github_api_telemetry/);
     assert.throws(() => assertLedgerState([ "001_study_foundation", "003_private_pr_discard", "002_retire_legacy_labeler" ]), /out of order/);
     assert.throws(() => assertLedgerState([ "unexpected" ]), /Unknown migration ID/);
 });
 
 test("migration runner is idempotent, ordered, and never executes external retirement", async () => {
     const commands = [];
+    const ledgerIds = [
+        "001_study_foundation",
+        "003_private_pr_discard",
+        "004_github_pr_api_enrichment",
+        "005_github_enrichment_checkpoints",
+    ];
+    const executedMigrations = [];
     const client = {
         query: async (sql, parameters) => {
             commands.push([ sql, parameters ]);
             if (sql.startsWith("SELECT migration_id")) {
-                return {rows: commands.filter(([query]) => query.includes("003_private_pr_discard.sql"))
-                    .map(() => ({migration_id: "001_study_foundation"}))};
+                return {rows: ledgerIds.map(migration_id => ({migration_id}))};
+            }
+            const executed = managedMigrations.find(migration => sql.includes(`VALUES ('${migration.id}')`));
+            if (executed) {
+                executedMigrations.push(executed.id);
+                ledgerIds.push(executed.id);
             }
             return {rows: []};
         },
@@ -52,9 +67,13 @@ test("migration runner is idempotent, ordered, and never executes external retir
     };
     const pool = {connect: async () => client};
 
-    await runStudyMigrations(pool, "001_study_foundation");
+    await runStudyMigrations(pool, "006_github_api_telemetry");
+    assert.deepEqual(executedMigrations, [ "006_github_api_telemetry" ]);
+    assert.equal(executedMigrations.includes("007_local_accounts_sessions"), false);
+    await runStudyMigrations(pool, "007_local_accounts_sessions");
+    await runStudyMigrations(pool, "007_local_accounts_sessions");
+    assert.deepEqual(executedMigrations, [ "006_github_api_telemetry", "007_local_accounts_sessions" ]);
     assert.equal(commands.some(([sql]) => sql.includes("002_retire_legacy_labeler")), false);
-    assert.equal(commands.filter(([sql]) => sql.includes("CREATE TABLE")).length, 1);
     assert.match(commands[0][0], /pg_advisory_lock/);
     assert.match(commands.at(-1)[0], /pg_advisory_unlock/);
 });
@@ -157,18 +176,24 @@ test("rollback runbook requires a separate pre-discard backup for writes", async
     assert.match(runbook, /down -v/);
 });
 
-test("bootstrap requires both managed migrations before any write", async () => {
+test("bootstrap requires all managed migrations before any write", async () => {
     const queries = [];
     const incompletePool = {
         query: async (sql) => {
             queries.push(sql);
-            return {rows: [ {migration_id: "001_study_foundation"} ]};
+            return {rows: [
+                {migration_id: "001_study_foundation"},
+                {migration_id: "003_private_pr_discard"},
+                {migration_id: "004_github_pr_api_enrichment"},
+                {migration_id: "005_github_enrichment_checkpoints"},
+                {migration_id: "006_github_api_telemetry"},
+            ]};
         },
     };
 
     await assert.rejects(
         () => assertStudySchemaReady(incompletePool),
-        /requires migrations 001_study_foundation, 003_private_pr_discard, and 004_github_pr_api_enrichment/,
+        /requires migrations 001_study_foundation, 003_private_pr_discard, 004_github_pr_api_enrichment, 005_github_enrichment_checkpoints, 006_github_api_telemetry, 007_local_accounts_sessions/,
     );
     assert.equal(queries.length, 1);
 
@@ -178,6 +203,9 @@ test("bootstrap requires both managed migrations before any write", async () => 
                 {migration_id: "001_study_foundation"},
                 {migration_id: "003_private_pr_discard"},
                 {migration_id: "004_github_pr_api_enrichment"},
+                {migration_id: "005_github_enrichment_checkpoints"},
+                {migration_id: "006_github_api_telemetry"},
+                {migration_id: "007_local_accounts_sessions"},
             ],
         }),
     };
@@ -187,7 +215,13 @@ test("bootstrap requires both managed migrations before any write", async () => 
 test("bootstrap readiness failure happens before opening a write transaction", async () => {
     let connectCalls = 0;
     const pool = {
-        query: async () => ({rows: [ {migration_id: "001_study_foundation"} ]}),
+        query: async () => ({rows: [
+            {migration_id: "001_study_foundation"},
+            {migration_id: "003_private_pr_discard"},
+            {migration_id: "004_github_pr_api_enrichment"},
+            {migration_id: "005_github_enrichment_checkpoints"},
+            {migration_id: "006_github_api_telemetry"},
+        ]}),
         connect: async () => {
             connectCalls += 1;
             throw new Error("write transaction must not start");
@@ -201,7 +235,7 @@ test("bootstrap readiness failure happens before opening a write transaction", a
             cards: [],
             sourceChecksum: "checksum",
         }),
-        /requires migrations 001_study_foundation, 003_private_pr_discard, and 004_github_pr_api_enrichment/,
+        /requires migrations 001_study_foundation, 003_private_pr_discard, 004_github_pr_api_enrichment, 005_github_enrichment_checkpoints, 006_github_api_telemetry, 007_local_accounts_sessions/,
     );
     assert.equal(connectCalls, 0);
 });
@@ -269,4 +303,156 @@ test("categories, classifications, and discards remain private for three partici
     assert.match(cardQueries[0][0], /classification\.participant_id = \$2/);
     assert.match(cardQueries[0][0], /discard\.participant_id = \$2/);
     assert.match(cardQueries[0][0], /category\.participant_id = \$2/);
+});
+
+test("managedMigrations eventually includes 007_local_accounts_sessions after 006", () => {
+    const ids = managedMigrations.map(m => m.id);
+    assert.ok(ids.includes("007_local_accounts_sessions"), "007 should be in managedMigrations");
+    const sixIndex = ids.indexOf("006_github_api_telemetry");
+    const sevenIndex = ids.indexOf("007_local_accounts_sessions");
+    assert(sevenIndex > sixIndex, "007 should be registered after 006");
+});
+
+test("SQL migration file 007_local_accounts_sessions is expected", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.ok(migration.length > 0, "migration SQL file should exist");
+});
+
+test("participant_account table has study_id UUID column", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /"study_id" UUID/);
+});
+
+test("participant_account table has reviewer_id INTEGER column", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /"reviewer_id" INTEGER/);
+});
+
+test("participant_account table has normalized_username TEXT column", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /"normalized_username" TEXT/);
+});
+
+test("participant_account table has password_hash TEXT column", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /"password_hash" TEXT/);
+});
+
+test("participant_account table has enabled BOOLEAN column", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /"enabled" BOOLEAN/);
+});
+
+test("participant_account table has credential_version INTEGER column", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /"credential_version" INTEGER/);
+});
+
+test("participant_account table has created_at TIMESTAMPTZ column", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /"created_at" TIMESTAMPTZ/);
+});
+
+test("participant_account table has updated_at TIMESTAMPTZ column", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /"updated_at" TIMESTAMPTZ/);
+});
+
+test("participant_account has a UUID primary key", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /"id" UUID[^,]*PRIMARY KEY/);
+});
+
+test("participant_account has FK REFERENCES study_participant (study_id, reviewer_id)", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /REFERENCES "study_participant" \("study_id", "reviewer_id"\)/);
+});
+
+test("participant_account has UNIQUE constraint on (study_id, reviewer_id)", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /UNIQUE \("study_id", "reviewer_id"\)/);
+});
+
+test("participant_account has UNIQUE constraint on (study_id, normalized_username)", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /UNIQUE \("study_id", "normalized_username"\)/);
+});
+
+test("participant_account exposes composite identity for membership-bound sessions", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /UNIQUE \("id", "study_id", "reviewer_id"\)/);
+});
+
+test("app_session table has a text opaque session identifier column", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /"session_id" TEXT[^,]*PRIMARY KEY/);
+});
+
+test("app_session table has study_id UUID FK column", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /"study_id" UUID/);
+});
+
+test("app_session table has reviewer_id INTEGER FK column", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /"reviewer_id" INTEGER/);
+});
+
+test("app_session has last_activity_at TIMESTAMPTZ column", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /"last_activity_at" TIMESTAMPTZ/);
+});
+
+test("app_session has idle and absolute expiry timestamps", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /"expires_at" TIMESTAMPTZ/);
+    assert.match(migration, /"absolute_expires_at" TIMESTAMPTZ/);
+});
+
+test("app_session has an explicit FK to its study membership", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(
+        migration,
+        /FOREIGN KEY \("study_id", "reviewer_id"\)\s+REFERENCES "study_participant" \("study_id", "reviewer_id"\)/,
+    );
+});
+
+test("app_session has a composite FK to the account in the same membership", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(
+        migration,
+        /FOREIGN KEY \("account_id", "study_id", "reviewer_id"\)\s+REFERENCES "participant_account" \("id", "study_id", "reviewer_id"\)/,
+    );
+});
+
+test("CREATE INDEX on app_session expires_at for expiry index", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /CREATE INDEX.*expiry|expiry_index|idx.*expires_at/);
+});
+
+test("no password column in reviewer table within migration 007", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.doesNotMatch(migration, /ALTER TABLE "reviewer"[\s\S]*?"password"/i, "migration 007 must not add a password column to reviewer");
+});
+
+test("no credential column in reviewer table within migration 007", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.doesNotMatch(migration, /ALTER TABLE "reviewer"[\s\S]*?credential/i, "migration 007 must not add credential data to reviewer");
+});
+
+test("migration 007 uses transactional pattern BEGIN/COMMIT", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /^BEGIN;/, "migration must begin transaction");
+    assert.match(migration, /COMMIT;\s*$/, "migration must commit transaction");
+});
+
+test("migration 007 requires 006 and records its own ledger entry", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.match(migration, /006_github_api_telemetry/);
+    assert.match(migration, /INSERT INTO "labeler_migration" \("migration_id"\)[\s\S]*007_local_accounts_sessions/);
+});
+
+test("migration 007 does not include session middleware/cookies/CSRF/Argon2", async () => {
+    const migration = await readRepositoryFile("schema/migrations/007_local_accounts_sessions.sql");
+    assert.doesNotMatch(migration, /middleware|cookies|CSRF|Argon2/i, "migration 007 must not include session middleware/cookies/CSRF/Argon2");
 });
