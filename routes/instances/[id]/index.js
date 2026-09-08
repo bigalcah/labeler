@@ -1,4 +1,3 @@
-import pool from "../../../util/pg-pool.js";
 import HTTPStatus from "../../../util/http-status.js";
 import {
     addCardDates,
@@ -10,6 +9,7 @@ import {
 } from "../../../util/study-runtime.js";
 
 export const get = async (req, res) => {
+    const pool = req.app.locals.dependencies.pool;
     try {
         if (!req.query.participant) {
             await resolveReadyStudy(pool);

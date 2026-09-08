@@ -1,4 +1,3 @@
-import pool from "../../../util/pg-pool.js";
 import HTTPStatus from "../../../util/http-status.js";
 import {
     findFirstPendingCard,
@@ -8,6 +7,7 @@ import {
 } from "../../../util/study-runtime.js";
 
 export const get = async (req, res) => {
+    const pool = req.app.locals.dependencies.pool;
     try {
         const {study, participant} = await resolveStudyParticipant(pool, req.params.name);
         const cardId = await findFirstPendingCard(pool, study.id, participant.id);

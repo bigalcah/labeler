@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {randomBytes} from "node:crypto";
+import {createPasswordHash} from "../util/credential-policy.js";
 import {
     bootstrapStudy,
 } from "../util/study-bootstrap.js";
@@ -24,9 +26,18 @@ const buildCard = (sourceCardId, title = "Card title") => ({
 });
 
 const buildBootstrapCards = () => Array.from({length: 300}, (_, index) => buildCard(`card-${index}`, `Title ${index}`));
+const buildCredentialManifest = async config => ({
+    manifestVersion: 1,
+    studyKey: config.studyKey,
+    accounts: await Promise.all(config.participants.map(async participantKey => ({
+        participantKey,
+        normalizedUsername: participantKey,
+        passwordHash: await createPasswordHash(randomBytes(32).toString("base64url")),
+    }))),
+});
 
 const createBootstrapPool = () => {
-    const state = {cards: new Map(), study: null, studyCards: [], participants: []};
+    const state = {accounts: [], cards: new Map(), study: null, studyCards: [], participants: []};
     let nextCardId = 1;
     let nextParticipantId = 1;
     const query = async (sql, parameters = []) => {
@@ -35,6 +46,9 @@ const createBootstrapPool = () => {
                 {migration_id: "001_study_foundation"},
                 {migration_id: "003_private_pr_discard"},
                 {migration_id: "004_github_pr_api_enrichment"},
+                {migration_id: "005_github_enrichment_checkpoints"},
+                {migration_id: "006_github_api_telemetry"},
+                {migration_id: "007_local_accounts_sessions"},
             ]};
         }
         if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK"
@@ -51,12 +65,27 @@ const createBootstrapPool = () => {
             };
             return {rows: [ state.study ]};
         }
-        if (sql.includes("FROM study_participant")) return {rows: state.participants};
+        if (sql.includes("FROM study_participant") && !sql.includes("reviewer_id, participant_key")) {
+            return {rows: state.participants};
+        }
         if (sql.startsWith("INSERT INTO reviewer")) return {rows: [ {id: nextParticipantId++} ]};
         if (sql.startsWith("INSERT INTO study_participant")) {
-            state.participants.push({participant_key: parameters[2], ordinal: parameters[3]});
+            state.participants.push({reviewer_id: parameters[1], participant_key: parameters[2], ordinal: parameters[3]});
             return {rows: []};
         }
+        if (sql.includes("FROM study_participant") && sql.includes("reviewer_id, participant_key")) {
+            return {rows: state.participants};
+        }
+        if (sql.startsWith("INSERT INTO participant_account")) {
+            if (!state.accounts.some(account => account.reviewer_id === parameters[1])) {
+                state.accounts.push({
+                    reviewer_id: parameters[1], participant_key: state.participants.find(participant => participant.reviewer_id === parameters[1]).participant_key,
+                    normalized_username: parameters[2], password_hash: parameters[3], enabled: true, credential_version: 1,
+                });
+            }
+            return {rows: []};
+        }
+        if (sql.includes("FROM participant_account account")) return {rows: state.accounts};
         if (sql.startsWith("SELECT id, source_card_id")) {
             return {rows: parameters[0].map(sourceCardId => state.cards.get(sourceCardId)).filter(Boolean)};
         }
@@ -91,11 +120,13 @@ test("bootstrap persists exactly 300 cards and reimport preserves membership and
     const pool = createBootstrapPool();
     const config = {studyKey: "study-key", expectedCardCount: 300, participants: [ "one", "two", "three" ]};
     const cards = buildBootstrapCards();
-    await bootstrapStudy({pool, config, cards, sourceChecksum: "csv-checksum"});
+    const credentialManifest = await buildCredentialManifest(config);
+    await bootstrapStudy({pool, config, cards, sourceChecksum: "csv-checksum", credentialManifest});
     const before = pool.state.studyCards.map(row => ({...row}));
-    await bootstrapStudy({pool, config, cards, sourceChecksum: "csv-checksum"});
+    await bootstrapStudy({pool, config, cards, sourceChecksum: "csv-checksum", credentialManifest});
     assert.equal(pool.state.study.bootstrap_state, "READY");
     assert.equal(pool.state.studyCards.length, 300);
+    assert.equal(pool.state.accounts.length, 3);
     assert.deepEqual(pool.state.studyCards, before);
     assert.equal(pool.state.study.source_checksum, "csv-checksum");
 });
@@ -104,11 +135,12 @@ test("bootstrap rejects membership checksum drift without changing the persisted
     const pool = createBootstrapPool();
     const config = {studyKey: "study-key", expectedCardCount: 300, participants: [ "one", "two", "three" ]};
     const cards = buildBootstrapCards();
-    await bootstrapStudy({pool, config, cards, sourceChecksum: "csv-checksum"});
+    const credentialManifest = await buildCredentialManifest(config);
+    await bootstrapStudy({pool, config, cards, sourceChecksum: "csv-checksum", credentialManifest});
     const before = pool.state.studyCards.map(row => ({...row}));
     pool.state.studyCards[17].source_checksum = "different-checksum";
     await assert.rejects(
-        () => bootstrapStudy({pool, config, cards, sourceChecksum: "csv-checksum"}),
+        () => bootstrapStudy({pool, config, cards, sourceChecksum: "csv-checksum", credentialManifest}),
         /Card membership drift/,
     );
     assert.equal(pool.state.studyCards.length, 300);

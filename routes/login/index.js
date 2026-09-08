@@ -1,8 +1,8 @@
-import pool from "../../util/pg-pool.js";
 import HTTPStatus from "../../util/http-status.js";
 import {respondWithStudyRuntimeError, resolveReadyStudy} from "../../util/study-runtime.js";
 
-export const get = async (_, res) => {
+export const get = async (req, res) => {
+    const pool = req.app.locals.dependencies.pool;
     try {
         const study = await resolveReadyStudy(pool);
         const {rows: reviewers} = await pool.query(
@@ -20,6 +20,7 @@ export const get = async (_, res) => {
 };
 
 export const post = async (req, res) => {
+    const pool = req.app.locals.dependencies.pool;
     try {
         const study = await resolveReadyStudy(pool);
         const {rows: [ participant ]} = await pool.query(

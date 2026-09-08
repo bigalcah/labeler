@@ -1,4 +1,3 @@
-import pool from "../../util/pg-pool.js";
 import {loadStudyProgress, resolveReadyStudy, resolveStudyParticipant, respondWithStudyRuntimeError} from "../../util/study-runtime.js";
 
 const withPercentage = progress => ({
@@ -10,6 +9,7 @@ const withPercentage = progress => ({
 });
 
 export const get = async (req, res) => {
+    const pool = req.app.locals.dependencies.pool;
     try {
         if (!req.query.participant) {
             await resolveReadyStudy(pool);

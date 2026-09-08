@@ -1,4 +1,3 @@
-import pool from "../../../../../util/pg-pool.js";
 import HTTPStatus from "../../../../../util/http-status.js";
 import {withTransaction} from "../../../../../util/transaction.js";
 import {
@@ -20,6 +19,7 @@ const continuationPath = (participantName, cardId) => cardId
     : `/${encodeURIComponent(participantName)}/queue`;
 
 export const post = async (req, res) => {
+    const pool = req.app.locals.dependencies.pool;
     const cardId = req.params.id;
     if (!isUuid(cardId)) {
         res.status(HTTPStatus.BAD_REQUEST).end();

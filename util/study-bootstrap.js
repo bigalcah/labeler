@@ -1,6 +1,9 @@
 import {persistCards} from "./pr-card-persistence.js";
 import {resolveAuthoritativeStudyConfig} from "./study-config.js";
+import {managedMigrations} from "./study-schema.js";
 import {withTransaction} from "./transaction.js";
+import {provisionParticipantAccounts} from "./credential-accounts.js";
+import {validateCredentialManifest} from "./credential-manifest.js";
 
 class StudyBootstrapConflictError extends Error {
     constructor(message) {
@@ -19,12 +22,14 @@ const assertBootstrapCards = (cards, expectedCardCount) => {
 };
 
 const assertStudySchemaReady = async pool => {
+    const prerequisiteMigrationIds = managedMigrations.map(migration => migration.id);
     let rows;
     try {
         ({rows} = await pool.query(
             `SELECT migration_id
              FROM labeler_migration
-             WHERE migration_id IN ('001_study_foundation', '003_private_pr_discard', '004_github_pr_api_enrichment')`,
+             WHERE migration_id = ANY($1::text[])`,
+            [ prerequisiteMigrationIds ],
         ));
     } catch (error) {
         if (error.code === "42P01") {
@@ -33,9 +38,9 @@ const assertStudySchemaReady = async pool => {
         throw error;
     }
     const applied = new Set(rows.map(row => row.migration_id));
-    if (applied.size !== 3) {
+    if (prerequisiteMigrationIds.some(migrationId => !applied.has(migrationId))) {
         throw new StudyBootstrapConflictError(
-            "Bootstrap requires migrations 001_study_foundation, 003_private_pr_discard, and 004_github_pr_api_enrichment",
+            `Bootstrap requires migrations ${prerequisiteMigrationIds.join(", ")}`,
         );
     }
 };
@@ -153,9 +158,10 @@ const persistStudyCards = async options => {
 };
 
 const bootstrapStudy = async options => {
-    const {pool, config, cards, sourceChecksum} = options;
+    const {pool, config, cards, sourceChecksum, credentialManifest} = options;
     await assertStudySchemaReady(pool);
     assertBootstrapCards(cards, config.expectedCardCount);
+    const manifest = validateCredentialManifest(credentialManifest, config);
     return withTransaction(pool, async client => {
         const study = await findOrCreateStudy(client, config, sourceChecksum);
         await persistParticipants({
@@ -163,6 +169,12 @@ const bootstrapStudy = async options => {
             studyId: study.id,
             participants: config.participants,
             allowCreate: study.created,
+        });
+        await provisionParticipantAccounts({
+            client,
+            studyId: study.id,
+            config,
+            manifest,
         });
         const persistedCards = await persistCards(client, cards, sourceChecksum);
         await persistStudyCards({

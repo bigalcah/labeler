@@ -1,4 +1,3 @@
-import pool from "../../util/pg-pool.js";
 import {loadStudyProgress, resolveReadyStudy, resolveStudyParticipant, respondWithStudyRuntimeError} from "../../util/study-runtime.js";
 
 const toPositiveInteger = (value, fallback) => {
@@ -11,6 +10,7 @@ const allowedStatuses = new Set([ "all", "pending", "classified", "discarded" ])
 const emptyPagination = {items: 0, pages: 0, current: 1, limit: 20, id: 1};
 
 export const get = async (req, res) => {
+    const pool = req.app.locals.dependencies.pool;
     const current = toPositiveInteger(req.query.page, 1);
     const limit = Math.min(toPositiveInteger(req.query.limit, 20), 100);
     const direction = Number(req.query.id) < 0 ? "DESC" : "ASC";

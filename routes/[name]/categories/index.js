@@ -1,10 +1,10 @@
-import pool from "../../../util/pg-pool.js";
 import HTTPStatus from "../../../util/http-status.js";
 import {respondWithStudyRuntimeError, resolveStudyParticipant} from "../../../util/study-runtime.js";
 
 const normalize = value => value.trim().toLowerCase().replace(/\s+/g, " ");
 
 export const post = async (req, res) => {
+    const pool = req.app.locals.dependencies.pool;
     try {
         const {participant} = await resolveStudyParticipant(pool, req.params.name);
         const rawName = typeof req.body?.name === "string" ? req.body.name.trim() : "";
