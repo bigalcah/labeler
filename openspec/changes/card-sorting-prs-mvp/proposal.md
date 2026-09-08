@@ -14,7 +14,7 @@ El MVP necesita una muestra histórica reproducible y una frontera clara entre l
 - Usar cuentas locales preprovisionadas con hashes de contraseñas Argon2id. No habrá autorregistro ni MFA.
 - Mantener la identidad del participante solo cuando provenga de una sesión validada. Las sesiones opacas se almacenan en PostgreSQL y caducan tras ocho horas de inactividad o 24 horas de vida absoluta.
 - Exigir CSRF para las mutaciones y mantener las categorías planas privadas entre participantes.
-- Mantener categorías planas privadas y exactamente una clasificación por PR y participante. Las categorías y clasificaciones no se crean durante el bootstrap.
+- Mantener categorías planas privadas y como máximo una clasificación por PR y participante; solo el estado terminal `CLASSIFIED` tiene exactamente una categoría privada, mientras `DISCARDED` no tiene clasificación. Las categorías, clasificaciones y descartes no se crean durante el bootstrap.
 - Mantener la frontera offline de snapshots de GitHub: la muestra se selecciona solo del CSV local y cualquier enriquecimiento de GitHub ocurre fuera del flujo interactivo del estudio. No habrá webhooks.
 - Publicar únicamente mediante Caddy en los puertos 80 y 443. La aplicación y PostgreSQL permanecerán en la red interna.
 - Documentar la retirada escalonada del flujo legacy sin eliminar sus objetos en este cambio.
@@ -23,14 +23,14 @@ El MVP necesita una muestra histórica reproducible y una frontera clara entre l
 
 ### New Capabilities
 
-- `github-pr-ingestion`: validación completa, importación conflict-safe y bootstrap de la muestra CSV.
-- `github-pr-explorer`: visualización local de la tarjeta de PR y evidencia disponible en el CSV.
-- `study-management`: configuración persistida, bootstrap, participantes y membresía de las 300 tarjetas.
-- `private-open-card-sorting`: categorías planas privadas y una clasificación por PR y participante.
+- No existen capacidades completamente nuevas.
 
 ### Modified Capabilities
 
-No existen capacidades OpenSpec previas que deban modificarse.
+- `github-pr-ingestion`: validación completa, importación conflict-safe y bootstrap de la muestra CSV.
+- `github-pr-explorer`: visualización local de la tarjeta de PR y evidencia disponible en el CSV.
+- `study-management`: configuración persistida, bootstrap, participantes y membresía de las 300 tarjetas.
+- `private-open-card-sorting`: categorías planas privadas y estados terminales personales `CLASSIFIED` o `DISCARDED`, con exactamente una categoría solo para `CLASSIFIED`.
 
 ## Impact
 

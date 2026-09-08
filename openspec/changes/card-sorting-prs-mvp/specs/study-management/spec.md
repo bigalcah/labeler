@@ -1,10 +1,6 @@
-## Purpose
+## MODIFIED Requirements
 
-Gestionar un estudio local reproducible con configuración JSON, tres participantes por defecto, membresía persistida de las mismas 300 tarjetas y bootstrap seguro sin implementar todavía administración completa.
-
-## ADDED Requirements
-
-### Requirement: Configuración JSON y precedencia
+### Requirement: Estudio local configurable
 
 El sistema SHALL aceptar una configuración JSON con `studyKey`, `expectedCardCount` igual a 300 y `participants`. Si no existe configuración explícita, SHALL usar un fallback local de tres participantes. Un estudio activo existente es autoritativo; una configuración explícita solo crea un estudio nuevo y cualquier drift falla sin borrar participantes o tarjetas.
 
@@ -22,15 +18,17 @@ El sistema MUST persistir `study_card` como membresía canónica y asociar las m
 
 #### Scenario: Cobertura completa
 - **WHEN** los tres participantes recorren sus colas
-- **THEN** cada uno recibe cada PR una vez como pendiente hasta clasificarlo
+- **THEN** cada uno recibe cada PR una vez como pendiente hasta clasificarlo o descartarlo
 
-### Requirement: Progreso independiente
+### Requirement: Preparación para fuente GitHub
 
-El sistema SHALL mostrar el avance del participante actual sin mostrar categorías ni respuestas de los demás.
+El CSV SHALL ser la única fuente de selección de la muestra. El sistema SHALL conservar el origen y snapshot de cada tarjeta y permitir que una futura importación GitHub sustituya el proveedor CSV sin cambiar el flujo del estudio. El runtime de clasificación SHALL usar snapshots locales y no realizar llamadas GitHub.
 
-#### Scenario: Avance parcial
-- **WHEN** un participante ha completado 25 tarjetas
-- **THEN** ve 25 completadas y las restantes pendientes, sin revelar el avance de otra persona
+#### Scenario: Origen CSV
+- **WHEN** el estudio se crea desde el CSV
+- **THEN** cada tarjeta registra `CSV` como fuente y queda disponible para el proveedor futuro
+
+## ADDED Requirements
 
 ### Requirement: Cuentas locales provisionadas antes de readiness pública
 
@@ -87,14 +85,6 @@ El bootstrap SHALL funcionar tanto en un volumen limpio como en uno existente, p
 #### Scenario: Volumen existente
 - **WHEN** el estudio ya tiene tarjetas o clasificaciones
 - **THEN** se reutiliza el estado compatible y se rechazan conflictos sin sobrescribirlo
-
-### Requirement: Preparación para fuente GitHub
-
-El CSV SHALL ser la única fuente de selección de la muestra. El sistema SHALL conservar el origen y snapshot de cada tarjeta y permitir que una futura importación GitHub sustituya el proveedor CSV sin cambiar el flujo del estudio. El runtime de clasificación SHALL usar snapshots locales y no realizar llamadas GitHub.
-
-#### Scenario: Origen CSV
-- **WHEN** el estudio se crea desde el CSV
-- **THEN** cada tarjeta registra `CSV` como fuente y queda disponible para el proveedor futuro
 
 ### Requirement: Preservación y drift durante el bootstrap
 

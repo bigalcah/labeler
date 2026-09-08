@@ -1,6 +1,32 @@
-## Purpose
+## MODIFIED Requirements
 
-Importar de forma reproducible la muestra histórica local de 300 Pull Requests, proteger tarjetas existentes contra cambios de fuente y dejar un contrato preparado para una fuente GitHub posterior sin activarla.
+### Requirement: Importación robusta del CSV
+
+El sistema SHALL importar registros lógicos desde un CSV con encabezado, campos entrecomillados, comas internas, saltos de línea y JSON incrustado, sin confundir líneas físicas con registros.
+
+#### Scenario: Importación de la muestra
+- **WHEN** el investigador importa el CSV real con 300 registros válidos
+- **THEN** el sistema crea exactamente 300 tarjetas y muestra un resumen de importación
+
+#### Scenario: Fila inválida
+- **WHEN** una fila tiene JSON inválido o carece de `card_id` y URL suficientes
+- **THEN** el sistema registra el error de esa fila y no crea una tarjeta parcial silenciosamente
+
+### Requirement: Importación idempotente
+
+El sistema MUST reutilizar una tarjeta existente solo cuando `source_card_id` y el contenido canónico coinciden. Un cambio de contenido o checksum para un ID existente MUST fallar sin actualizar, borrar ni sobrescribir la tarjeta o sus clasificaciones.
+
+#### Scenario: Reimportación idéntica
+- **WHEN** se ejecuta de nuevo el bootstrap con el mismo CSV
+- **THEN** conserva una sola tarjeta por `source_card_id`, conserva sus clasificaciones y deja la membresía sin duplicados
+
+#### Scenario: Reimportación
+- **WHEN** se importa dos veces el mismo CSV sin cambios en su contenido canónico
+- **THEN** el sistema conserva una sola tarjeta por `source_card_id` y no actualiza, borra ni reemplaza su procedencia o sus clasificaciones
+
+#### Scenario: Conflicto canónico
+- **WHEN** cambia el contenido de una fila con un `source_card_id` ya persistido
+- **THEN** falla con un conflicto explícito y no ejecuta `UPDATE`, borrado ni reemplazo de datos clasificados
 
 ## ADDED Requirements
 
@@ -15,26 +41,6 @@ El sistema MUST leer y validar todo el CSV antes de iniciar cualquier escritura.
 #### Scenario: Conteo incorrecto
 - **WHEN** el CSV contiene menos o más de 300 IDs únicos
 - **THEN** el bootstrap falla antes de escribir tarjetas o membresías y la web no queda lista
-
-### Requirement: Importación robusta del CSV
-
-El sistema SHALL importar registros lógicos desde un CSV con encabezado, campos entrecomillados, comas internas, saltos de línea y JSON incrustado, sin confundir líneas físicas con registros.
-
-#### Scenario: Fila inválida
-- **WHEN** una fila tiene JSON inválido o carece de `card_id` y URL suficientes
-- **THEN** el sistema registra el error de esa fila y no crea una tarjeta parcial silenciosamente
-
-### Requirement: Reimportación protegida por checksum
-
-El sistema MUST reutilizar una tarjeta existente solo cuando `source_card_id` y el contenido canónico coinciden. Un cambio de contenido o checksum para un ID existente MUST fallar sin actualizar, borrar ni sobrescribir la tarjeta o sus clasificaciones.
-
-#### Scenario: Reimportación idéntica
-- **WHEN** se ejecuta de nuevo el bootstrap con el mismo CSV
-- **THEN** conserva una sola tarjeta por `source_card_id`, conserva sus clasificaciones y deja la membresía sin duplicados
-
-#### Scenario: Conflicto canónico
-- **WHEN** cambia el contenido de una fila con un `source_card_id` ya persistido
-- **THEN** falla con un conflicto explícito y no ejecuta `UPDATE`, borrado ni reemplazo de datos clasificados
 
 ### Requirement: Bootstrap transaccional
 
@@ -59,38 +65,6 @@ El sistema MUST validar completamente el CSV y el manifiesto de cuentas antes de
 #### Scenario: Reejecución sin reimportación destructiva
 - **WHEN** se repite la preparación con datos compatibles
 - **THEN** conserva cuentas, hashes, versiones, tarjetas, membresías y clasificaciones existentes sin borrado, sobrescritura ni reset implícito
-
-### Requirement: Contrato de proveedor de tarjetas
-
-El sistema SHALL transformar cualquier fuente aceptada a un contrato de tarjeta que incluya resumen, evidencia, lenguaje, métricas disponibles, URL y procedencia.
-
-#### Scenario: Proveedor CSV activo
-- **WHEN** la tarjeta se crea desde el CSV
-- **THEN** su `source_type` indica `CSV` y el payload original queda conservado
-
-#### Scenario: Proveedor GitHub futuro
-- **WHEN** una futura fuente GitHub produce una tarjeta con el mismo contrato
-- **THEN** el explorador puede consumirla sin cambiar la estructura de la vista
-
-### Requirement: Fuente GitHub inactiva durante el MVP
-
-El sistema MUST realizar la demostración únicamente con datos locales y no debe consultar GitHub desde el navegador ni exigir credenciales GitHub para importar el CSV.
-
-#### Scenario: Clasificación sin red externa
-- **WHEN** un participante navega y clasifica una tarjeta importada
-- **THEN** la aplicación usa los datos persistidos y no realiza una solicitud GitHub
-
-### Requirement: Lenguaje informado por la fuente
-
-El sistema SHALL conservar y mostrar el campo `language` del CSV, identificándolo como lenguaje informado por la fuente y sin calcular todavía una distribución por archivos.
-
-#### Scenario: Lenguaje disponible
-- **WHEN** una fila contiene `language = Go`
-- **THEN** la tarjeta muestra `Go` como lenguaje del dataset
-
-#### Scenario: Lenguaje ausente
-- **WHEN** una fila no contiene lenguaje
-- **THEN** la tarjeta muestra un estado de dato no disponible y no inventa un valor
 
 ### Requirement: Propiedad del bootstrap
 

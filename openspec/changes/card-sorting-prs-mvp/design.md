@@ -60,8 +60,9 @@ study_card
 pr_cards
 participant_account
 app_session
-participant_categories
-pr_classifications
+participant_category
+pr_classification
+pr_discard
 ```
 
 `study` conserva `study_key`, configuración, checksum de fuente, cantidad esperada y estado de bootstrap. `study_participant` relaciona el estudio con el participante, su clave visible de configuración y su orden estable. `study_card` es la membresía canónica del estudio y garantiza una sola entrada por `source_card_id`.
@@ -72,7 +73,7 @@ pr_classifications
 
 `app_session` guarda en PostgreSQL el identificador opaco, la cuenta y membresía asociadas, la versión de credenciales, creación, última actividad y expiración. La cookie solo contiene el identificador firmado de sesión, con atributos Secure, HttpOnly, SameSite=Lax y Path=/, sin Domain.
 
-Las categorías son planas, privadas y propiedad del participante autenticado. Una clasificación referencia una categoría propia y tiene unicidad `(pr_card_id, participant_id)`. No se difunden categorías ni clasificaciones por Socket.io.
+Las categorías son planas, privadas y propiedad del participante autenticado. Una clasificación referencia una categoría propia y tiene unicidad `(pr_card_id, participant_id)`. `pr_discard` conserva como máximo un descarte privado por `(pr_card_id, participant_id)`, con motivo opcional. Cada tarjeta y participante deriva exactamente uno de los estados `PENDING`, `CLASSIFIED` o `DISCARDED`: solo se permiten `PENDING -> CLASSIFIED` y `PENDING -> DISCARDED`, sin transiciones entre estados terminales. El replay idéntico de un descarte es idempotente y un motivo diferente entra en conflicto. La cola y los conteos son privados por participante. No se difunden categorías, clasificaciones ni descartes por Socket.io.
 
 ### 4. Acceso y ciclo de sesión
 
@@ -83,6 +84,8 @@ El login acepta solo username y contraseña. Para cuentas inexistentes se ejecut
 Al autenticarse se regenera el identificador de sesión y se guarda la nueva sesión en PostgreSQL. Cada solicitud protegida vuelve a validar cuenta, membresía, versión de credenciales, expiración por inactividad de ocho horas y expiración absoluta de 24 horas. Un fallo del store se trata como no autenticado. Logout es una mutación POST protegida por CSRF, destruye la sesión y limpia la cookie.
 
 La identidad de dominio, `study_id` y `participant_id` se derivan exclusivamente de la sesión validada. Las rutas canónicas no incluyen identificadores de participante en path, query string ni formularios. Las rutas antiguas con nombre de participante no se conservan como compatibilidad silenciosa.
+
+La navegación canónica usa rutas direccionables derivadas de la sesión, sin `:participant`, para la cola, la tarjeta actual y sus vecinos por `study_card.ordinal`. La cola excluye las tarjetas que el participante actual ya clasificó o descartó. Tras clasificar o descartar, la respuesta `303` conduce a la siguiente tarjeta pendiente, con vuelta al primer pendiente o una cola vacía `200` cuando no queda ninguna. El cambio histórico `navigate-pr-cards-private-discard` conserva evidencia útil de implementación para descarte, ordinales y estados, pero sus rutas `/:participant/queue` y `/:participant/queue/:cardId` quedan supersedidas por estas rutas canónicas derivadas de la sesión.
 
 ### 5. CSRF y mutaciones
 
