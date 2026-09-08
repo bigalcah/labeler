@@ -36,13 +36,13 @@ El worktree verifica existencia; `AGENTS.md` gobierna proceso y baseline; OpenSp
 
 ### Allowlist y responsabilidades
 
-El apply puede crear o reemplazar exactamente `docs/ARCHITECTURE.md`, `docs/STUDY-WORKFLOW.md`, `docs/DEVELOPMENT.md`, `docs/OPERATIONS.md`, `docs/TROUBLESHOOTING.md`, `docs/MAINTENANCE.md`, `docs/JAVASCRIPT-API.md`, `CONTRIBUTING.md` y `SECURITY.md`. Puede modificar `README.md` solo para navegación/estado/credenciales y `deployment/GITHUB-ENRICHMENT.md` solo para alias/placeholders. No copia `deployment/ROLLBACK.md`.
+El apply puede crear o reemplazar exactamente `docs/ARCHITECTURE.md`, `docs/STUDY-WORKFLOW.md`, `docs/DEVELOPMENT.md`, `docs/OPERATIONS.md`, `docs/TROUBLESHOOTING.md`, `docs/MAINTENANCE.md`, `docs/JAVASCRIPT-API.md`, `CONTRIBUTING.md` y `SECURITY.md`. Puede modificar `README.md` solo para navegación/estado/credenciales y `deployment/GITHUB-ENRICHMENT.md` solo para el perfil neutral `default` y placeholders. No copia `deployment/ROLLBACK.md`.
 
 - `ARCHITECTURE`: módulos, rutas, EJS, PostgreSQL, Socket.io y fronteras legacy/prepare/runtime.
 - `STUDY-WORKFLOW`: CSV, 300 tarjetas, participantes, privacidad, clasificación, descarte y enriquecimiento.
 - `DEVELOPMENT`: instalación, cwd, scripts reales, lint y pruebas.
 - `OPERATIONS`: índice y precondiciones que enlaza los runbooks.
-- `TROUBLESHOOTING`: cwd, `.env`, aliases, readiness, `PGDATA`, migraciones, servicios y logs.
+- `TROUBLESHOOTING`: cwd, `.env`, configuración de perfiles de credenciales GitHub, readiness, `PGDATA`, migraciones, servicios y logs.
 - `MAINTENANCE`: fuentes, drift, evidencia y actualización de estados.
 - `JAVASCRIPT-API`: referencia de funciones exportadas, handlers de rutas, clases, métodos públicos y funciones con efectos importantes.
 - `CONTRIBUTING`: estilo, OpenSpec, ramas, revisión y commits.
@@ -60,18 +60,18 @@ Solo se documentan scripts existentes en `package.json`: `dev`, `start`, `lint`,
 
 ### Runbooks y seguridad
 
-`docs/OPERATIONS.md` enlaza `deployment/GITHUB-ENRICHMENT.md` y `deployment/ROLLBACK.md` sin copiar procedimientos. El ejemplo GitHub debe usar routing exacto y placeholders inequívocos:
+`docs/OPERATIONS.md` enlaza `deployment/GITHUB-ENRICHMENT.md` y `deployment/ROLLBACK.md` sin copiar procedimientos. El ejemplo GitHub debe usar el perfil neutral único `default` y placeholders inequívocos:
 
 ```dotenv
 GITHUB_ENRICHMENT_ENABLED=true
 GITHUB_API_BASE=https://api.github.com
 GITHUB_API_VERSION=2022-11-28
-GITHUB_CREDENTIAL_ALIASES={"octo-org/example-repo":{"tokenEnv":"GITHUB_TOKEN","permissions":["metadata","pulls","contents","issues"]}}
-GITHUB_DEFAULT_ALIAS=
+GITHUB_DEFAULT_ALIAS=default
+GITHUB_CREDENTIAL_ALIASES={"default":{"tokenEnv":"GITHUB_TOKEN","permissions":["metadata","pulls","contents","issues"]}}
 GITHUB_TOKEN=<read-only-token-from-secret-store>
 ```
 
-Si se documenta un default, debe coincidir con una clave existente del mapa. El README usa `DATABASE_PASS=<set-a-unique-local-password>`. `SECURITY.md` declara que elegir reviewer no autentica identidades y que no existen sesiones, autorización ni CSRF; el aislamiento lógico no se presenta como frontera de seguridad.
+No existe routing por repositorio ni se aceptan claves `owner/name`, perfiles adicionales, prefijos o comodines. El README usa `DATABASE_PASS=<set-a-unique-local-password>`. `SECURITY.md` declara que elegir reviewer no autentica identidades y que no existen sesiones, autorización ni CSRF; el aislamiento lógico no se presenta como frontera de seguridad.
 
 ### Diagramas y aceptación
 

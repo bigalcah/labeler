@@ -8,9 +8,9 @@ El MVP de card sorting ya usa tarjetas `pr_cards`, categorias privadas por parti
 - Retirar las rutas y vistas dedicadas exclusivamente a labels globales, merge/rename legacy y resolucion de conflictos legacy.
 - Retirar las tablas, funciones, procedimientos, vistas y tipos SQL que solo soportan `instance`, `label`, reviews, discards y conflictos legacy.
 - Dejar de montar y cargar `label.txt`, `reviewer.txt` e `instance.tsv` como fixtures de inicializacion; los participantes y las tarjetas pertenecen al bootstrap del estudio MVP.
-- Mantener `reviewer` mientras sea la identidad temporal referenciada por `study_participant`, `participant_category` y `pr_classification`.
+- Mantener protegido `reviewer` mientras existan referencias estructurales desde membresías de estudio, categorías, clasificaciones o cuentas; no retirarlo como si fuera solo una identidad temporal.
 - Mantener las rutas y vistas que el MVP reutiliza para explorar y clasificar `pr_cards`, aunque con nombres legacy, hasta que exista una sustitucion posterior.
-- Respaldar o exportar los datos legacy antes de eliminar objetos persistentes; la migracion debe fallar si no puede preservar datos requeridos.
+- Respaldar o exportar los datos legacy antes de eliminar objetos persistentes mediante el archivo externo compatible con `pg_dump` y el contrato de manifiesto JSON y checksum definido por el runbook canónico; la migración debe fallar si no puede preservar datos requeridos.
 - **BREAKING**: dejaran de existir las APIs, pantallas y tablas legacy de labels globales, reviews/discards y resolucion de conflictos.
 
 ## Capabilities

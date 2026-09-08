@@ -17,7 +17,7 @@
 - [x] 3.1 Crear `docs/DEVELOPMENT.md` usando exclusivamente scripts actuales de `package.json`.
 - [x] 3.2 Documentar que no existen `npm test`, `npm run build` ni compilación EJS separada.
 - [x] 3.3 Documentar limitaciones de `lint:md`, `lint`, `test:study-concurrency` y comandos minify.
-- [x] 3.4 Crear `docs/TROUBLESHOOTING.md` para cwd, `.env`, aliases, readiness, `PGDATA`, migraciones, servicios y logs.
+- [x] 3.4 Crear `docs/TROUBLESHOOTING.md` para cwd, `.env`, configuración del perfil de credenciales GitHub, readiness, `PGDATA`, migraciones, servicios y logs.
 - [x] 3.5 Crear `docs/MAINTENANCE.md` con fuentes, drift, evidencia y actualización de estados.
 - [x] 3.6 Crear `docs/JAVASCRIPT-API.md` con un ledger de una fila por módulo coincidente y por cada export, handler de ruta, clase/método, callable público devuelto por factory exportada, entrypoint de script y coordinador interno relevante.
 - [x] 3.7 Documentar cada entrada con módulo/ubicación, propósito, parámetros, retorno, errores, efectos secundarios, dependencias, estado y ejemplos seguros cuando aporten valor.
@@ -26,7 +26,7 @@
 ## 4. Operación
 
 - [x] 4.1 Crear `docs/OPERATIONS.md` como índice operativo sin duplicar runbooks.
-- [x] 4.2 Corregir en `deployment/GITHUB-ENRICHMENT.md` el default inexistente y usar routing exacto `owner/name`.
+- [x] 4.2 Alinear la documentación con el perfil neutral único `default` de `deployment/GITHUB-ENRICHMENT.md` y declarar rechazados el routing por repositorio y los perfiles adicionales.
 - [x] 4.3 Sustituir el token de ejemplo por `GITHUB_TOKEN=<read-only-token-from-secret-store>`.
 - [x] 4.4 Verificar que rollback, restauración y prohibiciones sobre `labeling-data` remiten a `deployment/ROLLBACK.md`.
 

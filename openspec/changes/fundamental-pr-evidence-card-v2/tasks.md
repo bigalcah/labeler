@@ -42,7 +42,7 @@
 - [x] 6.2 Implementar la barrera transaccional de pausa y checkpoint: confirmar FINISHED, PAUSE_COMMITTED, páginas, cuota y checkpoint juntos; conservar el orden `run_card -> checkpoint` y bloquear promoción de runs instrumentados incompletos.
 - [x] 6.3 Implementar resume seguro: cero fetch antes de `retry_at`, `RESUME_STARTED` al continuar, mismo run/checksum/configuración/versiones compatibles y no repetición de tarjetas confirmadas.
 - [x] 6.4 Actualizar documentación operativa sobre clasificación HTTP, cobertura, ledger, límites API, rollback read-only y la imposibilidad de certificar telemetría histórica ausente.
-- [x] 6.5 Ejecutar una captura controlada futura y guardar su reporte de cobertura y ledger sanitizado como evidencia verificable, sin incluir credenciales ni respuestas crudas.
+- [x] 6.5 Definir y documentar el contrato y los criterios de evidencia sanitizada para una futura captura controlada, verificándolos de forma determinista con fixtures y sin incluir credenciales ni respuestas crudas; la ejecución de la captura viva de las 300/300 tarjetas corresponde a la tarea 10.7 de `github-pr-api-enrichment`.
 
 ## 7. Verificación final
 

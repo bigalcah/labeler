@@ -17,7 +17,7 @@ El repositorio contiene una contradicción entre `AGENTS.md`, que identifica la 
   - `SECURITY.md`
 - Actualizar `README.md` como índice y retirar ejemplos de credenciales realistas.
 - Mantener `deployment/GITHUB-ENRICHMENT.md` y `deployment/ROLLBACK.md` como runbooks canónicos, enlazándolos sin duplicar sus procedimientos.
-- Corregir el ejemplo de alias GitHub inconsistente.
+- Alinear el ejemplo de credenciales GitHub con el perfil neutral único `default`.
 - Documentar solo comandos existentes y aclarar que no existen `npm test`, `npm run build` ni una compilación EJS separada.
 - Documentar las limitaciones actuales: seleccionar un reviewer no es autenticación y no existen sesiones, autorización ni CSRF.
 - Documentar funciones exportadas, handlers de rutas, clases y métodos públicos o con efectos importantes sin añadir comentarios al código fuente.
@@ -44,7 +44,7 @@ La allowlist de escritura durante `/opsx-apply` queda limitada a:
 - `CONTRIBUTING.md`
 - `SECURITY.md`
 - Los siete archivos `docs/*.md` indicados arriba
-- `deployment/GITHUB-ENRICHMENT.md`, únicamente para corregir aliases y placeholders
+- `deployment/GITHUB-ENRICHMENT.md`, únicamente para alinear el perfil neutral `default` y los placeholders
 
 `deployment/ROLLBACK.md` permanece como referencia canónica y no se modifica; cualquier enlace roto preexistente queda fuera de alcance.
 
