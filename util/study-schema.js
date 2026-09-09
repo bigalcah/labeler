@@ -25,6 +25,14 @@ const managedMigrations = Object.freeze([
         id: "007_local_accounts_sessions",
         url: new URL("../schema/migrations/007_local_accounts_sessions.sql", import.meta.url),
     },
+    {
+        id: "008_login_rate_limits",
+        url: new URL("../schema/migrations/008_login_rate_limits.sql", import.meta.url),
+    },
+    {
+        id: "009_csrf_contexts",
+        url: new URL("../schema/migrations/009_csrf_contexts.sql", import.meta.url),
+    },
 ]);
 const knownExternalMigrationIds = new Set([ "002_retire_legacy_labeler" ]);
 const advisoryLockKey = "labeler:study-schema";

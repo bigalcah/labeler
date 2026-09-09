@@ -26,13 +26,15 @@ test("migration ledger accepts only ordered managed migrations and external reti
         "005_github_enrichment_checkpoints",
         "006_github_api_telemetry",
         "007_local_accounts_sessions",
+        "008_login_rate_limits",
+        "009_csrf_contexts",
     ]);
     assert.doesNotThrow(() => assertLedgerState([]));
     assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation" ]));
     assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation", "002_retire_legacy_labeler" ]));
     assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation", "002_retire_legacy_labeler", "003_private_pr_discard" ]));
-    assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation", "003_private_pr_discard", "004_github_pr_api_enrichment", "005_github_enrichment_checkpoints", "006_github_api_telemetry", "007_local_accounts_sessions" ]));
-    assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation", "002_retire_legacy_labeler", "003_private_pr_discard", "004_github_pr_api_enrichment", "005_github_enrichment_checkpoints", "006_github_api_telemetry", "007_local_accounts_sessions" ]));
+    assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation", "003_private_pr_discard", "004_github_pr_api_enrichment", "005_github_enrichment_checkpoints", "006_github_api_telemetry", "007_local_accounts_sessions", "008_login_rate_limits", "009_csrf_contexts" ]));
+    assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation", "002_retire_legacy_labeler", "003_private_pr_discard", "004_github_pr_api_enrichment", "005_github_enrichment_checkpoints", "006_github_api_telemetry", "007_local_accounts_sessions", "008_login_rate_limits", "009_csrf_contexts" ]));
     assert.throws(() => assertLedgerState([ "003_private_pr_discard" ]), /out of order/);
     assert.throws(() => assertLedgerState([ "002_retire_legacy_labeler" ]), /out of order/);
     assert.throws(() => assertLedgerState([ "001_study_foundation", "003_private_pr_discard", "004_github_pr_api_enrichment", "005_github_enrichment_checkpoints", "007_local_accounts_sessions" ]), /out of order at 007_local_accounts_sessions/);
@@ -73,6 +75,8 @@ test("migration runner is idempotent, ordered, and never executes external retir
     await runStudyMigrations(pool, "007_local_accounts_sessions");
     await runStudyMigrations(pool, "007_local_accounts_sessions");
     assert.deepEqual(executedMigrations, [ "006_github_api_telemetry", "007_local_accounts_sessions" ]);
+    await runStudyMigrations(pool, "008_login_rate_limits");
+    assert.deepEqual(executedMigrations, [ "006_github_api_telemetry", "007_local_accounts_sessions", "008_login_rate_limits" ]);
     assert.equal(commands.some(([sql]) => sql.includes("002_retire_legacy_labeler")), false);
     assert.match(commands[0][0], /pg_advisory_lock/);
     assert.match(commands.at(-1)[0], /pg_advisory_unlock/);
@@ -206,6 +210,8 @@ test("bootstrap requires all managed migrations before any write", async () => {
                 {migration_id: "005_github_enrichment_checkpoints"},
                 {migration_id: "006_github_api_telemetry"},
                 {migration_id: "007_local_accounts_sessions"},
+                {migration_id: "008_login_rate_limits"},
+                {migration_id: "009_csrf_contexts"},
             ],
         }),
     };

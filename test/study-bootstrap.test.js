@@ -49,6 +49,8 @@ const createBootstrapPool = () => {
                 {migration_id: "005_github_enrichment_checkpoints"},
                 {migration_id: "006_github_api_telemetry"},
                 {migration_id: "007_local_accounts_sessions"},
+                {migration_id: "008_login_rate_limits"},
+                {migration_id: "009_csrf_contexts"},
             ]};
         }
         if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK"
