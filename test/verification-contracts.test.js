@@ -165,7 +165,8 @@ test("rollback compose omits preparation and forces read-only PostgreSQL access"
     assert.match(compose, /default_transaction_read_only=on/);
     assert.match(compose, /ROLLBACK_DATABASE_USER:-labeling_readonly/);
     assert.match(compose, /ROLLBACK_DATABASE_PASS/);
-    assert.match(compose, /condition: service_started/);
+    assert.match(compose, /labeling-server:[\s\S]*labeling-database:\s*\n\s*condition: service_healthy/);
+    assert.doesNotMatch(compose, /condition: service_started/);
     assert.doesNotMatch(compose, /condition: service_completed_successfully/);
 });
 

@@ -1,4 +1,4 @@
-FROM node:23.11.0-alpine AS build
+FROM node:22.13.1-alpine AS build
 
 WORKDIR /build
 
@@ -8,20 +8,22 @@ COPY scripts scripts/
 COPY schema/migrations schema/migrations/
 COPY util util/
 COPY views views/
-COPY index.js          \
+COPY app.js            \
+     index.js          \
      package.json      \
      package-lock.json \
      ./
 
 RUN apk update --quiet && \
     apk add --quiet --no-cache \
+        build-base \
         gettext=~0.22.5 \
-        moreutils=~0.69 && \
+        moreutils=~0.69 \
+        python3 && \
     npm ci --quiet && \
-    npm run --silent minify && \
-    rm -rf node_modules
+    npm run --silent minify
 
-FROM node:23.11.0-alpine
+FROM node:22.13.1-alpine
 LABEL maintainer="Ozren Dabić (dabico@usi.ch)"
 
 ENV TZ=UTC \
@@ -36,7 +38,11 @@ RUN apk update --quiet && \
         curl=~8.14 \
         jq=~1.7 \
         postgresql17-client && \
-    npm ci --quiet
+    npm prune --omit=dev --quiet && \
+    mkdir -p /labeling/logs && \
+    chown -R node:node /labeling
+
+USER node
 
 HEALTHCHECK \
   --start-period=15s \

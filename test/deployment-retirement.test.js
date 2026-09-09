@@ -22,6 +22,39 @@ test("server image contains the guarded migration and bootstrap inputs", async (
     assert.match(dockerfile, /COPY schema\/migrations schema\/migrations\//);
     assert.match(dockerfile, /postgresql\d*-client/);
     assert.match(dockerfile, /COPY scripts scripts\//);
+    assert.match(dockerfile, /COPY app\.js/);
+    assert.match(dockerfile, /^FROM node:22\.13\.1-alpine/m);
+    assert.match(dockerfile, /USER node/);
+    assert.doesNotMatch(dockerfile, /^FROM .*:latest/m);
+});
+
+test("compose mounts production manifests and session secrets without mutable images", async () => {
+    const compose = await readRepositoryFile("deployment/docker-compose.yml");
+    const serverBlock = compose.match(/ {2}labeling-server:[\s\S]*?\nvolumes:/)?.[0] || "";
+
+    assert.doesNotMatch(serverBlock, /GITHUB_/);
+    assert.match(serverBlock, /NODE_ENV:\s*production/);
+    assert.match(serverBlock, /APP_ORIGIN:\s*\$\{APP_ORIGIN:\?/);
+    assert.match(serverBlock, /TRUST_PROXY_HOPS:\s*["']1["']/);
+    assert.match(serverBlock, /SESSION_SECRET_FILE:\s*\/run\/secrets\/session-current/);
+    assert.match(serverBlock, /SESSION_SECRET_PREVIOUS_FILE:\s*\/run\/secrets\/session-previous/);
+    assert.match(serverBlock, /\$\{SESSION_SECRET_CURRENT_HOST_PATH:\?[^\n]*\}:\/run\/secrets\/session-current:ro/);
+    assert.match(serverBlock, /\$\{SESSION_SECRET_PREVIOUS_HOST_PATH:\?[^\n]*\}:\/run\/secrets\/session-previous:ro/);
+    assert.doesNotMatch(compose, /image:\s*[^\n]*:latest/);
+});
+
+test("compose requires an account manifest exclusively for study preparation", async () => {
+    const compose = await readRepositoryFile("deployment/docker-compose.yml");
+    const prepareBlock = compose.match(/ {2}labeling-study-prepare:[\s\S]*? {2}labeling-server:/)?.[0] || "";
+    const serverBlock = compose.match(/ {2}labeling-server:[\s\S]*?\nvolumes:/)?.[0] || "";
+
+    assert.match(
+        prepareBlock,
+        /\$\{STUDY_ACCOUNT_MANIFEST_HOST_PATH:\?[^}]+\}:\/run\/secrets\/study-account-manifest\.json:ro/,
+    );
+    assert.match(prepareBlock, /STUDY_ACCOUNT_MANIFEST_FILE:\s*\/run\/secrets\/study-account-manifest\.json/);
+    assert.doesNotMatch(serverBlock, /STUDY_ACCOUNT_MANIFEST_(?:HOST_PATH|FILE)/);
+    assert.doesNotMatch(serverBlock, /\/run\/secrets\/study-account-manifest\.json/);
 });
 
 test("deployment preparation selects a guarded database path before bootstrap", async () => {
@@ -71,4 +104,33 @@ test("retirement apply mode reads the explicit migration only after guarded read
     assert.match(script, /LEGACY_RETIREMENT_CONFIRM/);
     assert.ok(readinessPosition < migrationPosition);
     assert.ok(migrationPosition < applyPosition);
+});
+
+test("Caddy is the only public TLS edge and blocks actuator before proxying", async () => {
+    const [compose, rollbackCompose, caddyfile] = await Promise.all([
+        readRepositoryFile("deployment/docker-compose.yml"),
+        readRepositoryFile("deployment/docker-compose.rollback-readonly.yml"),
+        readRepositoryFile("deployment/Caddyfile"),
+    ]);
+    const caddyBlock = compose.match(/\s{2}labeling-caddy:[\s\S]*?(?=\n\s{2}[a-z]|\nvolumes:)/)?.[0] || "";
+    const rollbackCaddyBlock = rollbackCompose.match(/\s{2}labeling-caddy:[\s\S]*?(?=\n\s{2}[a-z]|\nvolumes:)/)?.[0] || "";
+
+    assert.match(caddyBlock, /image:\s*caddy:2\.8\.4-alpine/);
+    assert.match(caddyBlock, /PUBLIC_HOSTNAME:\s*\$\{PUBLIC_HOSTNAME:\?/);
+    assert.match(caddyBlock, /"80:80"/);
+    assert.match(caddyBlock, /"443:443"/);
+    assert.match(caddyBlock, /labeling-server:\s*\n\s*condition: service_healthy/);
+    assert.match(rollbackCaddyBlock, /labeling-server:\s*\n\s*condition: service_healthy/);
+    assert.match(compose, /labeling-server:[\s\S]*labeling-study-prepare:\s*\n\s*condition: service_completed_successfully/);
+    assert.match(rollbackCompose, /labeling-server:[\s\S]*labeling-database:\s*\n\s*condition: service_healthy/);
+    for (const deployment of [ compose, rollbackCompose ]) {
+        assert.doesNotMatch(deployment, /"(?:7755:3000|3000:3000|5432:5432)"/);
+    }
+    assert.match(caddyfile, /http:\/\/\{\$PUBLIC_HOSTNAME\}/);
+    assert.match(caddyfile, /https:\/\/\{\$PUBLIC_HOSTNAME\}/);
+    assert.match(caddyfile, /redir https:\/\/\{\$PUBLIC_HOSTNAME\}\{uri\} permanent/);
+    assert.match(caddyfile, /@actuator path \/actuator \/actuator\/\*/);
+    assert.match(caddyfile, /respond @actuator 404/);
+    assert.match(caddyfile, /reverse_proxy labeling-server:3000/);
+    assert.doesNotMatch(caddyfile, /(?:SECRET|PASSWORD|TOKEN|COOKIE|CSRF)/i);
 });
