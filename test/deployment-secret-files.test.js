@@ -1,0 +1,30 @@
+import assert from "node:assert/strict";
+import {readFile} from "node:fs/promises";
+import path from "node:path";
+import test from "node:test";
+
+const root = path.resolve(new URL("..", import.meta.url).pathname);
+const readRepositoryFile = relativePath => readFile(path.join(root, relativePath), "utf8");
+
+test("deployment supplies database and GitHub credentials only through read-only secret files", async () => {
+    const [compose, template] = await Promise.all([
+        readRepositoryFile("deployment/docker-compose.yml"),
+        readRepositoryFile("deployment/.env.template"),
+    ]);
+    const databaseBlock = compose.match(/ {2}labeling-database:[\s\S]*?(?=\n {2}[a-z]|\nvolumes:)/)?.[0] || "";
+    const prepareBlock = compose.match(/ {2}labeling-study-prepare:[\s\S]*?(?=\n {2}labeling-server:)/)?.[0] || "";
+    const serverBlock = compose.match(/ {2}labeling-server:[\s\S]*?(?=\n {2}labeling-caddy:)/)?.[0] || "";
+
+    assert.match(databaseBlock, /POSTGRES_PASSWORD_FILE:\s*\/run\/secrets\/database-password/);
+    assert.match(databaseBlock, /\$\{DATABASE_PASSWORD_HOST_PATH:\?[^}]+\}:\/run\/secrets\/database-password:ro/);
+    assert.match(prepareBlock, /DATABASE_PASS_FILE:\s*\/run\/secrets\/database-password/);
+    assert.match(prepareBlock, /\$\{DATABASE_PASSWORD_HOST_PATH:\?[^}]+\}:\/run\/secrets\/database-password:ro/);
+    assert.match(serverBlock, /DATABASE_PASS_FILE:\s*\/run\/secrets\/database-password/);
+    assert.match(serverBlock, /\$\{DATABASE_PASSWORD_HOST_PATH:\?[^}]+\}:\/run\/secrets\/database-password:ro/);
+    assert.match(prepareBlock, /\$\{GITHUB_TOKEN_HOST_PATH:\?[^}]+\}:\/run\/secrets\/github-token:ro/);
+    assert.match(prepareBlock, /tokenFile.*\/run\/secrets\/github-token/);
+    assert.match(template, /^DATABASE_PASSWORD_HOST_PATH=\/absolute\/external\/database-password$/m);
+    assert.match(template, /^GITHUB_TOKEN_HOST_PATH=\/absolute\/external\/github-token$/m);
+    assert.doesNotMatch(compose, /^\s*(?:POSTGRES_PASSWORD|DATABASE_PASS|PGPASSWORD|GITHUB_TOKEN):/m);
+    assert.doesNotMatch(template, /^\s*(?:DATABASE_PASS|PGPASSWORD|GITHUB_TOKEN)=/m);
+});
