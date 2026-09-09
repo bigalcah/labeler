@@ -5,7 +5,7 @@ services:
   labeling-database:
     container_name: labeling-database
     hostname: labeling-database
-    image: seart/labeling-database:latest
+    image: seart/labeling-database:1.0.0
     build:
       context: ../
       dockerfile: deployment/database/Dockerfile
@@ -19,11 +19,24 @@ services:
       POSTGRES_USER: ${DATABASE_USER}
       POSTGRES_PASSWORD_FILE: /run/secrets/database-password
     restart: always
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64mb,mode=1777
+      - /var/run/postgresql:rw,noexec,nosuid,nodev,size=16mb,uid=70,gid=70,mode=0775
+    cap_drop:
+      - ALL
+    pids_limit: 200
+    deploy:
+        resources:
+          limits:
+            cpus: "1.00"
+            memory: 512mb
+            pids: 200
 
   labeling-server:
     container_name: labeling-server
     hostname: labeling-server
-    image: ${ROLLBACK_SERVER_IMAGE:-seart/labeling-server:previous}
+    image: ${ROLLBACK_SERVER_IMAGE:-seart/labeling-server:1.0.0}
     networks: [ default ]
     volumes:
       - ${ROLLBACK_DATABASE_PASSWORD_HOST_PATH:?ROLLBACK_DATABASE_PASSWORD_HOST_PATH must point to the read-only database password}:/run/secrets/rollback-database-password:ro
@@ -36,10 +49,22 @@ services:
     depends_on:
       labeling-database:
         condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64mb,mode=1777
+      - /labeling/logs:rw,noexec,nosuid,nodev,size=32mb,uid=1000,gid=1000,mode=0755
+    cap_drop:
+      - ALL
+    pids_limit: 200
     deploy:
-      restart_policy:
-        condition: on-failure
-        max_attempts: 3
+        restart_policy:
+          condition: on-failure
+          max_attempts: 3
+        resources:
+          limits:
+            cpus: "0.50"
+            memory: 256mb
+            pids: 200
 
   labeling-caddy:
     container_name: labeling-caddy
@@ -58,6 +83,24 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32mb,mode=1777
+    cap_drop:
+      - ALL
+    pids_limit: 100
+    deploy:
+        resources:
+          limits:
+            cpus: "0.25"
+            memory: 128mb
+            pids: 100
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   data:
