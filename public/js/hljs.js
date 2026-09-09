@@ -5,6 +5,13 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll("span.hljs-string").forEach(element => {
         const content = element.textContent;
         const url = content.slice(1, -1);
-        if (/(https?:\/\/)([^ ]+)/.test(url)) element.innerHTML = `<a href="${url}" target="_blank">${content}</a>`;
+        if (/(https?:\/\/)([^ ]+)/.test(url)) {
+            const link = document.createElement("a");
+            link.href = url;
+            link.target = "_blank";
+            if ("rel" in link) link.rel = "noopener noreferrer";
+            link.textContent = content;
+            element.replaceChildren(link);
+        }
     });
 });
