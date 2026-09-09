@@ -99,7 +99,8 @@ const authenticateLogin = async ({
                 [ normalizedUsername ],
             );
         const account = accounts.length === 1 ? accounts[0] : null;
-        const passwordMatches = await passwordVerifier(account?.password_hash || DUMMY_PASSWORD_HASH, password);
+        const passwordValue = typeof password === "string" ? password : "";
+        const passwordMatches = await passwordVerifier(account?.password_hash || DUMMY_PASSWORD_HASH, passwordValue);
         if (!account || !passwordMatches || account.enabled !== true || isLocked({lockedUntil: account.locked_until, now})) {
             if (account && !isLocked({lockedUntil: account.locked_until, now})) {
                 await recordAccountFailure({client, account, now});

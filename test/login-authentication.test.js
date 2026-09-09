@@ -1,10 +1,21 @@
 import assert from "node:assert/strict";
+import {createHmac} from "node:crypto";
 import {once} from "node:events";
 import test from "node:test";
 import {createApp} from "../app.js";
 import {authenticateLogin} from "../util/login-authentication.js";
 
 const now = new Date("2026-01-01T12:00:00.000Z");
+const sessionSecret = Buffer.alloc(32, 3);
+const sessionPolicy = {
+    sessionCookie: {name: "__Host-session", secure: true, httpOnly: true, sameSite: "lax", path: "/"},
+    trustProxyHops: 0,
+    idleTtlMs: 28_800_000,
+    absoluteTtlMs: 86_400_000,
+    getSessionSecrets: () => [sessionSecret],
+};
+
+const signedCookie = sessionId => `${sessionId}.${createHmac("sha256", sessionSecret).update(sessionId, "ascii").digest("base64url")}`;
 
 class LoginPool {
     constructor({account = null, ipAttempts = 0} = {}) {
@@ -130,6 +141,27 @@ test("Given invalid, nonexistent, disabled, or locked credentials When login aut
     assert.equal(cases.every(({pool}) => pool.sessions.length === 0), true);
 });
 
+for (const password of [ undefined, null, 42, {}, [] ]) {
+    test(`Given a non-text password When login authenticates Then it returns a generic failure: ${String(password)}`, async () => {
+        const pool = new LoginPool({account: account()});
+        const result = await authenticateLogin({
+            pool,
+            username: "participant-a",
+            password,
+            clientIp: "127.0.0.1",
+            clock: () => now,
+            passwordVerifier: async (hash, value) => {
+                assert.equal(hash, "stored-password-hash");
+                assert.equal(typeof value, "string");
+                return false;
+            },
+        });
+
+        assert.deepEqual(result, {kind: "invalid"});
+        assert.equal(pool.sessions.length, 0);
+    });
+}
+
 test("Given an absent username When login authenticates Then it uses the equivalent dummy verifier", async () => {
     const pool = new LoginPool();
     const calls = [];
@@ -192,6 +224,7 @@ test("Given credential submissions When the login HTTP route handles them Then i
     const createServer = async pool => {
         const app = await createApp({
             pool,
+            sessionPolicy,
             sessionMiddleware: (_req, _res, next) => next(),
             clock: () => now,
             passwordVerifier: async (hash, value) => hash === "stored-password-hash" && value === "correct",
@@ -212,7 +245,7 @@ test("Given credential submissions When the login HTTP route handles them Then i
     try {
         const valid = await fetch(`http://127.0.0.1:${validServer.address().port}/login`, {
             method: "POST",
-            headers: {"content-type": "application/x-www-form-urlencoded", cookie: `__Host-session=${"b".repeat(43)}`, origin: "http://127.0.0.1"},
+            headers: {"content-type": "application/x-www-form-urlencoded", cookie: `__Host-session=${signedCookie("b".repeat(43))}`, origin: "http://127.0.0.1"},
             body: "username=participant-a&password=correct&csrf_token=" + "c".repeat(43),
             redirect: "manual",
         });
@@ -229,7 +262,8 @@ test("Given credential submissions When the login HTTP route handles them Then i
         });
 
         assert.equal(valid.status, 302);
-        assert.match(valid.headers.get("set-cookie") || "", /^__Host-session=(?!b{43})[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; Secure; SameSite=Lax/);
+        assert.match(valid.headers.get("set-cookie") || "", /^__Host-session=(?!b{43})[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; Secure; SameSite=Lax/);
+        assert.deepEqual(validPool.deletedSessionIds, ["b".repeat(43)]);
         assert.equal(invalid.status, 401);
         assert.match(await invalid.text(), /Invalid username or password\./);
         assert.doesNotMatch(await login.text(), /Select Reviewer|reviewer\.id/);
