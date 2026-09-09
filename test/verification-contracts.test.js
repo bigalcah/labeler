@@ -28,6 +28,7 @@ test("migration ledger accepts only ordered managed migrations and external reti
         "007_local_accounts_sessions",
         "008_login_rate_limits",
         "009_csrf_contexts",
+        "010_study_scoped_participant_categories",
     ]);
     assert.doesNotThrow(() => assertLedgerState([]));
     assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation" ]));
@@ -213,6 +214,7 @@ test("bootstrap requires all managed migrations before any write", async () => {
                 {migration_id: "007_local_accounts_sessions"},
                 {migration_id: "008_login_rate_limits"},
                 {migration_id: "009_csrf_contexts"},
+                {migration_id: "010_study_scoped_participant_categories"},
             ],
         }),
     };
@@ -249,20 +251,25 @@ test("bootstrap readiness failure happens before opening a write transaction", a
 
 test("categories, classifications, and discards remain private for three participants", async () => {
     const participantState = new Map([
-        [ 11, {
+        [ "study-1:11", {
             categories: [ {id: "category-one", raw_name: "One"} ],
             card: {status: "CLASSIFIED", own_category: "One", discard_reason: null},
             progress: {total: 300, classified: 1, discarded: 0, pending: 299},
         } ],
-        [ 22, {
+        [ "study-1:22", {
             categories: [ {id: "category-two", raw_name: "Two"} ],
             card: {status: "DISCARDED", own_category: null, discard_reason: "not relevant"},
             progress: {total: 300, classified: 0, discarded: 1, pending: 299},
         } ],
-        [ 33, {
+        [ "study-1:33", {
             categories: [ {id: "category-three", raw_name: "Three"} ],
             card: {status: "PENDING", own_category: null, discard_reason: null},
             progress: {total: 300, classified: 0, discarded: 0, pending: 300},
+        } ],
+        [ "study-2:11", {
+            categories: [ {id: "category-four", raw_name: "Four"} ],
+            card: {status: "CLASSIFIED", own_category: "Four", discard_reason: null},
+            progress: {total: 300, classified: 1, discarded: 0, pending: 299},
         } ],
     ]);
     const queries = [];
@@ -270,22 +277,24 @@ test("categories, classifications, and discards remain private for three partici
         query: async (sql, parameters = []) => {
             queries.push([sql, parameters]);
             if (sql.includes("FROM participant_category")) {
-                return {rows: participantState.get(parameters[0]).categories};
+                return {rows: participantState.get(`${parameters[0]}:${parameters[1]}`).categories};
             }
             if (sql.includes("COUNT(study_card.pr_card_id)")) {
-                return {rows: [ participantState.get(parameters[1]).progress ]};
+                return {rows: [ participantState.get(`${parameters[0]}:${parameters[1]}`).progress ]};
             }
             if (sql.includes("FROM study_card") && sql.includes("LEFT JOIN pr_classification")) {
-                return {rows: [ participantState.get(parameters[1]).card ]};
+                return {rows: [ participantState.get(`${parameters[0]}:${parameters[1]}`).card ]};
             }
             throw new Error(`Unexpected runtime query: ${sql}`);
         },
     };
 
-    for (const [participantId, state] of participantState) {
-        assert.deepEqual(await loadParticipantCategories(executor, participantId), state.categories);
-        assert.deepEqual(await loadStudyCard(executor, "study-id", participantId, "card-id"), state.card);
-        assert.deepEqual(await loadStudyProgress(executor, "study-id", participantId), {
+    for (const [membership, state] of participantState) {
+        const [studyId, participantId] = membership.split(":");
+        const reviewerId = Number(participantId);
+        assert.deepEqual(await loadParticipantCategories(executor, studyId, reviewerId), state.categories);
+        assert.deepEqual(await loadStudyCard(executor, studyId, reviewerId, "card-id"), state.card);
+        assert.deepEqual(await loadStudyProgress(executor, studyId, reviewerId), {
             ...state.progress,
             completed: state.progress.classified + state.progress.discarded,
         });
@@ -296,16 +305,23 @@ test("categories, classifications, and discards remain private for three partici
         && sql.includes("LEFT JOIN pr_classification")
         && !sql.includes("COUNT(study_card.pr_card_id)"));
     const progressQueries = queries.filter(([sql]) => sql.includes("COUNT(study_card.pr_card_id)"));
-    assert.deepEqual(categoryQueries.map(([, parameters]) => parameters), [ [ 11 ], [ 22 ], [ 33 ] ]);
+    assert.deepEqual(categoryQueries.map(([, parameters]) => parameters), [
+        [ "study-1", 11 ],
+        [ "study-1", 22 ],
+        [ "study-1", 33 ],
+        [ "study-2", 11 ],
+    ]);
     assert.deepEqual(cardQueries.map(([, parameters]) => parameters), [
-        [ "study-id", 11, "card-id" ],
-        [ "study-id", 22, "card-id" ],
-        [ "study-id", 33, "card-id" ],
+        [ "study-1", 11, "card-id" ],
+        [ "study-1", 22, "card-id" ],
+        [ "study-1", 33, "card-id" ],
+        [ "study-2", 11, "card-id" ],
     ]);
     assert.deepEqual(progressQueries.map(([, parameters]) => parameters), [
-        [ "study-id", 11 ],
-        [ "study-id", 22 ],
-        [ "study-id", 33 ],
+        [ "study-1", 11 ],
+        [ "study-1", 22 ],
+        [ "study-1", 33 ],
+        [ "study-2", 11 ],
     ]);
     assert.match(cardQueries[0][0], /classification\.participant_id = \$2/);
     assert.match(cardQueries[0][0], /discard\.participant_id = \$2/);

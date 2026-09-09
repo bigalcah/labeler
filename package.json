@@ -28,7 +28,7 @@
     "test:unit": "node scripts/run-quality-gates.js unit",
     "test:integration": "node scripts/run-quality-gates.js integration",
     "test:e2e": "node scripts/run-quality-gates.js e2e",
-    "test:migrations": "node --test test/verification-contracts.test.js test/schema-retirement.test.js test/legacy-retirement-guard.test.js",
+    "test:migrations": "node --test test/verification-contracts.test.js test/study-category-migration-contract.test.js test/schema-retirement.test.js test/legacy-retirement-guard.test.js",
     "test:study-http": "node scripts/run-quality-gates.js integration",
     "test:study-concurrency": "node scripts/run-quality-gates.js integration",
     "test:rollback-readonly": "node --test test/verification-contracts.test.js",
