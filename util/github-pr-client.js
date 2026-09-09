@@ -1,9 +1,9 @@
-import {readFileSync} from "node:fs";
 import {randomUUID} from "node:crypto";
 import {GithubConfigError, normalizeRepository, resolveCredential} from "./github-pr-config.js";
 import {GithubRequestError} from "./github-pr-errors.js";
 import {buildRunManifest, buildSnapshotManifest, canonicalize, checksum, checksumRaw, checksumRunManifest, checksumSnapshotManifest, isExactPageValidatorMatch} from "./github-pr-manifest.js";
 import {normalizeResponse} from "./github-pr-normalizer.js";
+import {readSecretFile} from "./secret-file.js";
 
 const ENDPOINTS = Object.freeze({
     metadata: {path: (repository, number) => `/repos/${repository}/pulls/${number}`, required: true, method: "GET"},
@@ -275,14 +275,14 @@ const classifySuccess = (endpoint, values, response) => {
     return "COMPLETE";
 };
 
-const createGithubClient = ({config, fetch: fetchImplementation = globalThis.fetch, sleep = async delay => new Promise(resolve => setTimeout(resolve, delay)), now = Date.now, random = Math.random, readSecretFile = path => readFileSync(path, "utf8"), environment = process.env}) => {
+const createGithubClient = ({config, fetch: fetchImplementation = globalThis.fetch, sleep = async delay => new Promise(resolve => setTimeout(resolve, delay)), now = Date.now, random = Math.random, readSecretFile: readCredentialFile = file => readSecretFile(file, "GITHUB_TOKEN_FILE"), environment = process.env}) => {
     if (typeof fetchImplementation !== "function") throw new TypeError("fetch implementation is required");
     const defaultCoordinator = createQuotaCoordinator({sleep, now, random});
     let sharedCredential;
     let credentialResolved = false;
     const getSharedCredential = () => {
         if (!credentialResolved) {
-            sharedCredential = resolveCredential(config, "shared/credential", environment, readSecretFile);
+            sharedCredential = resolveCredential(config, "shared/credential", environment, readCredentialFile);
             credentialResolved = true;
         }
         return sharedCredential;
