@@ -6,7 +6,9 @@ import {createStream as createRotatingFileStream} from "rotating-file-stream";
 import morgan from "morgan";
 import * as ip from "neoip";
 import {createApp} from "./app.js";
+import {redactRequestLog} from "./util/log-redaction.js";
 import {ProductionConfigError, readProductionConfig} from "./util/production-config.js";
+import {createGracefulShutdown, installShutdownHandlers, startExpiredAuthenticationCleanup} from "./util/runtime-maintenance.js";
 
 config();
 
@@ -25,23 +27,31 @@ try {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const formatRequestLog = (tokens, req, res) => redactRequestLog([
+    tokens.method(req, res),
+    tokens.url(req, res),
+    tokens.status(req, res),
+    tokens.res(req, res, "content-length") || "-",
+    `${tokens["response-time"](req, res)}ms`,
+].join(" "));
 let server;
 if (process.exitCode !== 1) {
     const logsDirectory = path.join(__dirname, "logs");
     if (!fs.existsSync(logsDirectory)) fs.mkdirSync(logsDirectory, {recursive: true});
     const port = process.env.PORT || 3000;
     const {default: pool} = await import("./util/pg-pool.js");
-    const logger = morgan(nodeEnv === "development" ? "dev" : "common");
-    const fileLogger = morgan("combined", {
-        stream: createRotatingFileStream(
-            (time, i) => time ? `server.${time.toISOString().split("T")[0]}.${i}.log.gz` : "server.log",
-            {
-                path: logsDirectory,
-                size: "100M",
-                interval: "1d",
-                compress: "gzip",
-            },
-        ),
+    const logger = morgan(formatRequestLog);
+    const logStream = createRotatingFileStream(
+        (time, i) => time ? `server.${time.toISOString().split("T")[0]}.${i}.log.gz` : "server.log",
+        {
+            path: logsDirectory,
+            size: "100M",
+            interval: "1d",
+            compress: "gzip",
+        },
+    );
+    const fileLogger = morgan(formatRequestLog, {
+        stream: logStream,
         skip: (req, _) => {
             switch (req.connection.remoteAddress) {
             case "::1":
@@ -61,8 +71,11 @@ if (process.exitCode !== 1) {
  App listening on:
  * http://localhost:${port}
  * http://${ip.address()}:${port}
-  `);
+        `);
     });
+    const stopCleanup = startExpiredAuthenticationCleanup({pool});
+    const shutdown = createGracefulShutdown({server, pool, logStream, stopCleanup});
+    installShutdownHandlers({shutdown});
 }
 
 export default server;
