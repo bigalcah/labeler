@@ -18,10 +18,13 @@ class CategoryPool {
     constructor() {
         this.connections = 0;
         this.categories = new Map([
-            [ownedCategoryId, {id: ownedCategoryId, participant_id: 11, raw_name: "Needs review", normalized_name: "needs review", updated_at: "2026-01-01T00:00:00.000Z"}],
-            [foreignCategoryId, {id: foreignCategoryId, participant_id: 22, raw_name: "Private to B", normalized_name: "private to b", updated_at: "2026-01-01T00:00:00.000Z"}],
+            [ownedCategoryId, {id: ownedCategoryId, study_id: "study-1", participant_id: 11, raw_name: "Needs review", normalized_name: "needs review", updated_at: "2026-01-01T00:00:00.000Z"}],
+            [foreignCategoryId, {id: foreignCategoryId, study_id: "study-2", participant_id: 11, raw_name: "Private to another study", normalized_name: "private to another study", updated_at: "2026-01-01T00:00:00.000Z"}],
         ]);
-        this.classifications = new Map([["card-1", ownedCategoryId]]);
+        this.classifications = new Map([
+            ["study-1:card-1", ownedCategoryId],
+            ["study-2:card-2", foreignCategoryId],
+        ]);
         this.locks = new Map();
         this.version = 1;
         this.writes = [];
@@ -40,7 +43,7 @@ class CategoryPool {
                     return {rows: []};
                 }
                 if (sql.includes("SELECT id, updated_at") && sql.includes("FOR UPDATE")) {
-                    const categoryId = parameters[0];
+                    const [categoryId, studyId, participantId] = parameters;
                     const previousLock = this.locks.get(categoryId) || Promise.resolve();
                     let release;
                     const currentLock = new Promise(resolve => { release = resolve; });
@@ -51,16 +54,17 @@ class CategoryPool {
                         if (this.locks.get(categoryId) === currentLock) this.locks.delete(categoryId);
                     };
                     const category = this.categories.get(categoryId);
-                    return {rows: category?.participant_id === parameters[1] ? [{id: category.id, updated_at: category.updated_at}] : []};
+                    return {rows: category?.study_id === studyId && category.participant_id === participantId ? [{id: category.id, updated_at: category.updated_at}] : []};
                 }
                 if (sql.startsWith("UPDATE participant_category")) {
-                    const [categoryId, participantId, rawName, normalizedName, expectedUpdatedAt] = parameters;
+                    const [categoryId, studyId, participantId, rawName, normalizedName, expectedUpdatedAt] = parameters;
                     const category = this.categories.get(categoryId);
-                    if (!category || category.participant_id !== participantId
+                    if (!category || category.study_id !== studyId || category.participant_id !== participantId
                         || (expectedUpdatedAt !== null && category.updated_at !== expectedUpdatedAt)) {
                         return {rows: []};
                     }
                     if ([...this.categories.values()].some(candidate => candidate.id !== categoryId
+                        && candidate.study_id === studyId
                         && candidate.participant_id === participantId
                         && candidate.normalized_name === normalizedName)) {
                         const error = new Error("duplicate category");
@@ -70,7 +74,7 @@ class CategoryPool {
                     category.raw_name = rawName;
                     category.normalized_name = normalizedName;
                     category.updated_at = `2026-01-01T00:00:00.00${this.version++}Z`;
-                    this.writes.push({categoryId, participantId, rawName, normalizedName});
+                    this.writes.push({categoryId, studyId, participantId, rawName, normalizedName});
                     return {rows: [{id: category.id, raw_name: category.raw_name, updated_at: category.updated_at}]};
                 }
                 throw new Error(`Unexpected query: ${sql}`);
@@ -130,9 +134,10 @@ test("renaming uses session ownership, normalizes the name, and preserves classi
             raw_name: "Needs   Tests",
             updated_at: "2026-01-01T00:00:00.001Z",
         });
-        assert.equal(pool.classifications.get("card-1"), ownedCategoryId);
+        assert.equal(pool.classifications.get("study-1:card-1"), ownedCategoryId);
         assert.deepEqual(pool.writes[0], {
             categoryId: ownedCategoryId,
+            studyId: context.studyId,
             participantId: context.participantId,
             rawName: "Needs   Tests",
             normalizedName: "needs tests",
@@ -146,6 +151,7 @@ test("renaming rejects empty names and duplicate normalized names", async () => 
     const pool = new CategoryPool();
     pool.categories.set("550e8400-e29b-41d4-a716-446655440002", {
         id: "550e8400-e29b-41d4-a716-446655440002",
+        study_id: context.studyId,
         participant_id: 11,
         raw_name: "Needs Tests",
         normalized_name: "needs tests",
@@ -164,7 +170,7 @@ test("renaming rejects empty names and duplicate normalized names", async () => 
     }
 });
 
-test("renaming a foreign category is unreadable and does not write", async () => {
+test("renaming a category from another study for the same participant is unreadable and does not write", async () => {
     const pool = new CategoryPool();
     const server = await start(pool);
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -172,7 +178,9 @@ test("renaming a foreign category is unreadable and does not write", async () =>
         const response = await renameRequest(baseUrl, foreignCategoryId, {name: "Changed"});
         assert.equal(response.status, 404);
         assert.equal(pool.writes.length, 0);
-        assert.equal(pool.categories.get(foreignCategoryId).raw_name, "Private to B");
+        assert.equal(pool.categories.get(foreignCategoryId).raw_name, "Private to another study");
+        assert.equal(pool.classifications.get("study-1:card-1"), ownedCategoryId);
+        assert.equal(pool.classifications.get("study-2:card-2"), foreignCategoryId);
     } finally {
         await close(server);
     }

@@ -42,10 +42,11 @@ export const patch = async (req, res) => {
             const {rows: [ownedCategory]} = await client.query(
                 `SELECT id, updated_at
                  FROM participant_category
-                 WHERE id = $1
-                   AND participant_id = $2
-                 FOR UPDATE`,
-                [categoryId, context.participantId],
+                  WHERE id = $1
+                    AND study_id = $2
+                    AND participant_id = $3
+                  FOR UPDATE`,
+                [categoryId, context.studyId, context.participantId],
             );
             if (!ownedCategory) {
                 throw new StudyRuntimeError(HTTPStatus.NOT_FOUND, "Category is not owned by the participant");
@@ -53,14 +54,15 @@ export const patch = async (req, res) => {
 
             const {rows: [updatedCategory]} = await client.query(
                 `UPDATE participant_category
-                 SET raw_name = $3,
-                     normalized_name = $4,
-                     updated_at = clock_timestamp()
-                 WHERE id = $1
-                   AND participant_id = $2
-                   AND ($5::timestamptz IS NULL OR updated_at = $5::timestamptz)
-                 RETURNING id, raw_name, updated_at`,
-                [categoryId, context.participantId, categoryName.rawName, categoryName.normalizedName, expectedUpdatedAt],
+                  SET raw_name = $4,
+                      normalized_name = $5,
+                      updated_at = clock_timestamp()
+                  WHERE id = $1
+                    AND study_id = $2
+                    AND participant_id = $3
+                    AND ($6::timestamptz IS NULL OR updated_at = $6::timestamptz)
+                  RETURNING id, raw_name, updated_at`,
+                [categoryId, context.studyId, context.participantId, categoryName.rawName, categoryName.normalizedName, expectedUpdatedAt],
             );
             if (!updatedCategory) {
                 throw new StudyRuntimeError(HTTPStatus.CONFLICT, "The category version is stale");
