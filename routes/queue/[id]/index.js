@@ -22,7 +22,7 @@ export const get = async (req, res) => {
     try {
         const [ card, categories, progress ] = await Promise.all([
             loadStudyCard(pool, context.studyId, context.participantId, req.params.id),
-            loadParticipantCategories(pool, context.participantId),
+            loadParticipantCategories(pool, context.studyId, context.participantId),
             loadStudyProgress(pool, context.studyId, context.participantId),
         ]);
         const participant = sessionParticipant(context);

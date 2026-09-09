@@ -42,7 +42,7 @@ export const post = async (req, res) => {
     try {
         const nextCardId = await withTransaction(pool, async client => {
             const lockedCard = await lockStudyCard(client, context.studyId, cardId);
-            await assertParticipantCategory(client, context.participantId, categoryId);
+            await assertParticipantCategory(client, context, categoryId);
             const state = await readLockedCardState(client, context.studyId, context.participantId, cardId);
             const currentRevision = state.classification_id ? Number(state.revision) : 0;
             if (state.discard_card_id) {
