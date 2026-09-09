@@ -194,3 +194,27 @@ test("POST logout destroys the current PostgreSQL session and clears the host co
         await closeServer(server);
     }
 });
+
+test("POST logout accepts the session synchronizer token from the request header", async () => {
+    const pool = new AuthHttpPool();
+    const server = await startServer(pool);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    pool.sessions.set(sessionId, {csrfToken: sessionCsrfToken});
+
+    try {
+        const response = await fetch(`${baseUrl}/logout`, {
+            method: "POST",
+            headers: {
+                cookie: `__Host-session=${signedCookie(sessionId)}`,
+                origin: "http://127.0.0.1",
+                "x-csrf-token": sessionCsrfToken,
+            },
+            redirect: "manual",
+        });
+
+        assert.equal(response.status, 302);
+        assert.deepEqual(pool.deletedSessionIds, [sessionId]);
+    } finally {
+        await closeServer(server);
+    }
+});

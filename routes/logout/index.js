@@ -1,5 +1,4 @@
 import HTTPStatus from "../../util/http-status.js";
-import {validateSessionCsrfToken} from "../../util/csrf.js";
 import {
     clearSessionCookie,
     destroySession,
@@ -8,10 +7,7 @@ import {
 
 export const post = async (req, res) => {
     const {pool, sessionPolicy} = req.app.locals.dependencies;
-    if (!req.sessionContext || !validateSessionCsrfToken({
-        expectedToken: req.csrfToken,
-        suppliedToken: req.body?.csrf_token,
-    })) {
+    if (!req.sessionContext || !req.csrfValidated) {
         res.status(HTTPStatus.FORBIDDEN).end();
         return;
     }

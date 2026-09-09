@@ -17,12 +17,14 @@ class SecurityPool {
     constructor() {
         this.categoryWrites = 0;
         this.contexts = new Map();
+        this.databaseCalls = 0;
     }
 
     async query(sql, parameters = []) {
+        this.databaseCalls += 1;
         if (sql.startsWith("INSERT INTO participant_category")) {
             this.categoryWrites += 1;
-            return {rows: [{id: "category-1", raw_name: parameters[1]}]};
+            return {rows: [{id: "category-1", raw_name: parameters[2]}]};
         }
         if (sql.startsWith("INSERT INTO login_csrf_context")) {
             this.contexts.set(parameters[0], {token: parameters[1], expires_at: parameters[2]});
@@ -33,6 +35,11 @@ class SecurityPool {
             return {rows: csrfContext ? [csrfContext] : []};
         }
         throw new Error(`Unexpected pool query: ${sql}`);
+    }
+
+    async connect() {
+        this.databaseCalls += 1;
+        throw new Error("Rejected mutations must not open a database transaction");
     }
 }
 
@@ -68,17 +75,23 @@ const startServer = async ({
 
 const closeServer = server => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
 
-const categoryRequest = (baseUrl, options = {}) => fetch(`${baseUrl}/categories`, {
-    method: "POST",
-    headers: {
+const categoryRequest = (baseUrl, options = {}) => {
+    const headers = new Headers({
         cookie: "__Host-session=session-a",
         origin: "https://study.example",
         "content-type": "application/x-www-form-urlencoded",
         "x-csrf-token": tokenA,
         ...options.headers,
-    },
-    body: "name=Private+category",
-});
+    });
+    for (const [name, value] of Object.entries(options.headers || {})) {
+        if (value === undefined) headers.delete(name);
+    }
+    return fetch(`${baseUrl}/categories`, {
+        method: "POST",
+        headers,
+        body: "name=Private+category",
+    });
+};
 
 test("mutation security rejects missing, invalid, cross-session CSRF and Origin before database writes", async () => {
     const pool = new SecurityPool();
@@ -99,6 +112,57 @@ test("mutation security rejects missing, invalid, cross-session CSRF and Origin 
 
         assert.deepEqual(rejected.map(response => response.status), [403, 403, 403, 403, 403]);
         assert.equal(pool.categoryWrites, 0);
+        assert.equal(pool.databaseCalls, 0);
+    } finally {
+        await closeServer(server);
+    }
+});
+
+test("every mutation route rejects absent CSRF and hostile Origin before database access", async () => {
+    const pool = new SecurityPool();
+    const server = await startServer({pool});
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const cardId = "550e8400-e29b-41d4-a716-446655440000";
+    const mutations = [
+        ["/login", "username=participant-a&password=secret"],
+        ["/logout", ""],
+        ["/categories", "name=Private+category"],
+        [`/categories/${cardId}`, "name=Renamed"],
+        [`/queue/${cardId}/classify`, `category_id=${cardId}&expected_revision=0`],
+        [`/queue/${cardId}/discard`, "expected_revision=0"],
+    ];
+
+    try {
+        const responses = await Promise.all(mutations.flatMap(([path, body], index) => [
+            fetch(`${baseUrl}${path}`, {
+                method: index === 3 ? "PATCH" : "POST",
+                headers: {cookie: "__Host-session=session-a", origin: "https://study.example", "content-type": "application/x-www-form-urlencoded"},
+                body,
+            }),
+            fetch(`${baseUrl}${path}`, {
+                method: index === 3 ? "PATCH" : "POST",
+                headers: {cookie: "__Host-session=session-a", origin: "https://hostile.example", "content-type": "application/x-www-form-urlencoded", "x-csrf-token": tokenA},
+                body,
+            }),
+        ]));
+
+        assert.deepEqual(responses.map(response => response.status), mutations.flatMap(() => [403, 403]));
+        assert.equal(pool.databaseCalls, 0);
+    } finally {
+        await closeServer(server);
+    }
+});
+
+test("a rotated session rejects its previous synchronizer token without mutation", async () => {
+    const pool = new SecurityPool();
+    const server = await startServer({pool, sessions: new Map([["session-a", {token: tokenB}]])});
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    try {
+        const response = await categoryRequest(baseUrl);
+
+        assert.equal(response.status, 403);
+        assert.equal(pool.databaseCalls, 0);
     } finally {
         await closeServer(server);
     }
