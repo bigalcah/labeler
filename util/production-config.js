@@ -1,6 +1,6 @@
-import {readFileSync, statSync} from "node:fs";
 import {timingSafeEqual} from "node:crypto";
 import path from "node:path";
+import {readSecretFile} from "./secret-file.js";
 
 const IDLE_TTL_MS = 28_800_000;
 const ABSOLUTE_TTL_MS = 86_400_000;
@@ -108,31 +108,18 @@ const validateProductionConfig = input => {
 };
 
 const readSecret = (file, field, io) => {
-    assertAbsoluteFile(file, field);
-    let metadata;
     try {
-        metadata = io.statSync(file);
+        const content = readSecretFile(file, field, io);
+        if (!/^[A-Za-z0-9_-]+$/.test(content)) fail(field);
+        const decoded = Buffer.from(content, "base64url");
+        if (decoded.length < 32 || decoded.toString("base64url") !== content) fail(field);
+        return decoded;
     } catch (_error) {
         fail(field);
     }
-    if (!metadata.isFile() || ![0o400, 0o600].includes(metadata.mode & 0o777)) fail(field);
-    let content;
-    try {
-        content = io.readFileSync(file, "utf8");
-    } catch (_error) {
-        fail(field);
-    }
-    const withoutLineEnding = content.endsWith("\r\n")
-        ? content.slice(0, -2)
-        : content.endsWith("\n") ? content.slice(0, -1) : content;
-    if (withoutLineEnding.includes("\n") || withoutLineEnding.includes("\r")
-        || !/^[A-Za-z0-9_-]+$/.test(withoutLineEnding)) fail(field);
-    const decoded = Buffer.from(withoutLineEnding, "base64url");
-    if (decoded.length < 32 || decoded.toString("base64url") !== withoutLineEnding) fail(field);
-    return decoded;
 };
 
-const readProductionConfig = (environment = process.env, io = {readFileSync, statSync}) => {
+const readProductionConfig = (environment = process.env, io) => {
     const nodeEnv = environment.NODE_ENV || "development";
     if (nodeEnv !== "production") return validateProductionConfig({nodeEnv});
     const currentFile = environment.SESSION_SECRET_FILE;
