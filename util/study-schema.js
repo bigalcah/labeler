@@ -33,6 +33,10 @@ const managedMigrations = Object.freeze([
         id: "009_csrf_contexts",
         url: new URL("../schema/migrations/009_csrf_contexts.sql", import.meta.url),
     },
+    {
+        id: "010_study_scoped_participant_categories",
+        url: new URL("../schema/migrations/010_study_scoped_participant_categories.sql", import.meta.url),
+    },
 ]);
 const knownExternalMigrationIds = new Set([ "002_retire_legacy_labeler" ]);
 const advisoryLockKey = "labeler:study-schema";
