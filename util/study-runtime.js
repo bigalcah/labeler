@@ -13,42 +13,20 @@ class StudyRuntimeError extends Error {
 
 const isUuid = value => typeof value === "string" && UUID_PATTERN.test(value);
 
-const resolveReadyStudy = async executor => {
-    const {rows} = await executor.query(
-        `SELECT id, expected_card_count
-         FROM study
-         WHERE bootstrap_state = 'READY'
-         ORDER BY id
-         LIMIT 2`,
-    );
-    if (rows.length !== 1) {
-        throw new StudyRuntimeError(HTTPStatus.SERVICE_UNAVAILABLE, "Exactly one READY study is required");
+const requireStudySession = (req, res) => {
+    const context = req.sessionContext;
+    if (!context || context.studyId === undefined || context.participantId === undefined) {
+        res.status(HTTPStatus.UNAUTHORIZED).end();
+        return null;
     }
-    return rows[0];
+    return context;
 };
 
-const resolveStudyParticipant = async (executor, participantName) => {
-    const study = await resolveReadyStudy(executor);
-    const {rows: [ participant ]} = await executor.query(
-        `SELECT study_participant.study_id,
-                reviewer.id,
-                reviewer.name,
-                study_participant.ordinal
-         FROM study_participant
-         INNER JOIN reviewer ON reviewer.id = study_participant.reviewer_id
-         WHERE study_participant.study_id = $1
-           AND reviewer.name = $2`,
-        [ study.id, participantName ],
-    );
-    if (!participant) {
-        throw new StudyRuntimeError(HTTPStatus.NOT_FOUND, "Participant is not a member of the READY study");
-    }
-    return {study, participant};
-};
+const sessionParticipant = context => ({name: context.participantKey || "Participant"});
 
 const loadParticipantCategories = async (executor, participantId) => {
     const {rows} = await executor.query(
-        `SELECT id, raw_name
+        `SELECT id, raw_name, updated_at
          FROM participant_category
          WHERE participant_id = $1
          ORDER BY raw_name`,
@@ -253,7 +231,7 @@ export {
     loadParticipantCategories,
     loadStudyCard,
     loadStudyProgress,
+    requireStudySession,
     respondWithStudyRuntimeError,
-    resolveReadyStudy,
-    resolveStudyParticipant,
+    sessionParticipant,
 };

@@ -1,4 +1,9 @@
-import {loadStudyProgress, resolveReadyStudy, resolveStudyParticipant, respondWithStudyRuntimeError} from "../../util/study-runtime.js";
+import {
+    loadStudyProgress,
+    requireStudySession,
+    respondWithStudyRuntimeError,
+    sessionParticipant,
+} from "../../util/study-runtime.js";
 
 const withPercentage = progress => ({
     ...progress,
@@ -9,20 +14,17 @@ const withPercentage = progress => ({
 });
 
 export const get = async (req, res) => {
+    const context = requireStudySession(req, res);
+    if (!context) return;
+
     const pool = req.app.locals.dependencies.pool;
     try {
-        if (!req.query.participant) {
-            await resolveReadyStudy(pool);
-            res.render("progress", {reviewers: [], participant: null, selectedProgress: null});
-            return;
-        }
-
-        const {study, participant} = await resolveStudyParticipant(pool, req.query.participant);
         // Progress counts are derived from FROM pr_cards through study_card membership in the shared runtime query.
-        const selectedProgress = withPercentage(await loadStudyProgress(pool, study.id, participant.id));
+        const selectedProgress = withPercentage(await loadStudyProgress(pool, context.studyId, context.participantId));
+        const participant = sessionParticipant(context);
         res.locals.participant = participant;
         res.render("progress", {
-            reviewers: [ { ...participant, ...selectedProgress } ],
+            reviewers: [],
             participant,
             selectedProgress,
         });

@@ -8,16 +8,18 @@ const required = variable => {
 };
 
 const baseUrl = required("STUDY_HTTP_BASE_URL");
-const participant = process.env.STUDY_HTTP_PARTICIPANT || "javier";
+const sessionCookie = required("STUDY_HTTP_SESSION_COOKIE");
 const replayCardId = required("STUDY_HTTP_REPLAY_CARD_ID");
 const navigationCardId = required("STUDY_HTTP_NAVIGATION_CARD_ID");
 const concurrentCardId = required("STUDY_HTTP_CONCURRENT_CARD_ID");
 const categoryId = required("STUDY_HTTP_CATEGORY_ID");
-const otherParticipant = process.env.STUDY_HTTP_OTHER_PARTICIPANT || "other-participant";
-const request = (path, options) => fetch(`${baseUrl}${path}`, options);
+const request = (path, options = {}) => fetch(`${baseUrl}${path}`, {
+    ...options,
+    headers: {cookie: sessionCookie, ...(options.headers || {})},
+});
 
 test("HTTP contract returns 400 for malformed card and missing revision", async () => {
-    const response = await request(`/${participant}/queue/not-a-uuid/discard`, {
+    const response = await request("/queue/not-a-uuid/discard", {
         method: "POST",
         headers: {"content-type": "application/json"},
         body: JSON.stringify({}),
@@ -31,14 +33,14 @@ test("HTTP contract returns 404 for an unknown participant", async () => {
 });
 
 test("HTTP discard contract exposes 422, 303, and 409 replay outcomes", async () => {
-    const invalid = await request(`/${participant}/queue/${replayCardId}/discard`, {
+    const invalid = await request(`/queue/${replayCardId}/discard?participant=other-participant&study_id=other-study`, {
         method: "POST",
         headers: {"content-type": "application/json"},
-        body: JSON.stringify({reason: {invalid: true}, expected_revision: 0}),
+        body: JSON.stringify({reason: {invalid: true}, expected_revision: 0, participant_id: 999, study_id: "other-study"}),
     });
     assert.equal(invalid.status, 422);
 
-    const first = await request(`/${participant}/queue/${replayCardId}/discard`, {
+    const first = await request(`/queue/${replayCardId}/discard`, {
         method: "POST",
         redirect: "manual",
         headers: {"content-type": "application/json"},
@@ -46,7 +48,7 @@ test("HTTP discard contract exposes 422, 303, and 409 replay outcomes", async ()
     });
     assert.equal(first.status, 303);
 
-    const replay = await request(`/${participant}/queue/${replayCardId}/discard`, {
+    const replay = await request(`/queue/${replayCardId}/discard`, {
         method: "POST",
         redirect: "manual",
         headers: {"content-type": "application/json"},
@@ -54,7 +56,7 @@ test("HTTP discard contract exposes 422, 303, and 409 replay outcomes", async ()
     });
     assert.equal(replay.status, 303);
 
-    const conflict = await request(`/${participant}/queue/${replayCardId}/discard`, {
+    const conflict = await request(`/queue/${replayCardId}/discard`, {
         method: "POST",
         headers: {"content-type": "application/json"},
         body: JSON.stringify({reason: "different reason", expected_revision: 0}),
@@ -63,19 +65,19 @@ test("HTTP discard contract exposes 422, 303, and 409 replay outcomes", async ()
 });
 
 test("HTTP navigation contract returns 303 after a valid mutation and never exposes another participant", async () => {
-    const response = await request(`/${participant}/queue/${navigationCardId}/discard`, {
+    const response = await request(`/queue/${navigationCardId}/discard`, {
         method: "POST",
         redirect: "manual",
         headers: {"content-type": "application/json"},
-        body: JSON.stringify({reason: "navigation", expected_revision: 0, category_id: categoryId}),
+        body: JSON.stringify({reason: "navigation", expected_revision: 0, category_id: categoryId, participant_id: 999, study_id: "other-study"}),
     });
     assert.equal(response.status, 303);
-    assert.match(response.headers.get("location") || "", new RegExp(`/${participant}/queue`));
-    assert.doesNotMatch(await response.text(), /other-participant|other-category|other-reason/);
+    assert.match(response.headers.get("location") || "", /^\/queue(?:\/|$)/);
+    assert.doesNotMatch(await response.text(), /other-category|other-reason/);
 });
 
 test("HTTP discard contract lets the first concurrent mutation win", async () => {
-    const makeRequest = () => request(`/${participant}/queue/${concurrentCardId}/discard`, {
+    const makeRequest = () => request(`/queue/${concurrentCardId}/discard`, {
         method: "POST",
         redirect: "manual",
         headers: {"content-type": "application/json"},
@@ -83,7 +85,7 @@ test("HTTP discard contract lets the first concurrent mutation win", async () =>
     });
     const responses = await Promise.all([
         makeRequest(),
-        request(`/${participant}/queue/${concurrentCardId}/discard`, {
+        request(`/queue/${concurrentCardId}/discard`, {
             method: "POST",
             redirect: "manual",
             headers: {"content-type": "application/json"},
@@ -94,7 +96,7 @@ test("HTTP discard contract lets the first concurrent mutation win", async () =>
 });
 
 test("HTTP card responses do not expose another participant's private state", async () => {
-    const response = await request(`/${participant}/queue/${replayCardId}`);
+    const response = await request(`/queue/${replayCardId}`);
     assert.equal(response.status, 200);
-    assert.doesNotMatch(await response.text(), new RegExp(otherParticipant));
+    assert.doesNotMatch(await response.text(), /other-participant|other-category|other-reason/);
 });

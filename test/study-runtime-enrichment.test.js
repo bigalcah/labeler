@@ -128,8 +128,8 @@ test("mutation lock rejects a promoted card without a completed mapped run", asy
 test("classification and discard mutations carry study and promoted run parameters", async () => {
     const root = path.resolve(new URL("..", import.meta.url).pathname);
     const [classify, discard] = await Promise.all([
-        readFile(path.join(root, "routes/[name]/queue/[id]/classify/index.js"), "utf8"),
-        readFile(path.join(root, "routes/[name]/queue/[id]/discard/index.js"), "utf8"),
+        readFile(path.join(root, "routes/queue/[id]/classify/index.js"), "utf8"),
+        readFile(path.join(root, "routes/queue/[id]/discard/index.js"), "utf8"),
     ]);
 
     assert.match(classify, /study_id, enrichment_run_id/);
@@ -148,10 +148,9 @@ test("GitHub-shaped text is sanitized before markdown reaches the view", () => {
 
 test("runtime routes and views contain no GitHub network client or API endpoint", async () => {
     const runtimeFiles = [
-        "routes/[name]/queue/[id]/classify/index.js",
-        "routes/[name]/queue/[id]/discard/index.js",
-        "routes/[name]/queue/[id]/index.js",
-        "routes/instances/[id]/index.js",
+        "routes/queue/[id]/classify/index.js",
+        "routes/queue/[id]/discard/index.js",
+        "routes/queue/[id]/index.js",
         "views/partials/instance/data.ejs",
     ];
     const sources = await Promise.all(runtimeFiles.map(file => readFile(path.join(root, file), "utf8")));

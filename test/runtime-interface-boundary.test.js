@@ -6,7 +6,7 @@ import test, {after, before} from "node:test";
 import {fileURLToPath} from "node:url";
 import express from "express";
 import {router} from "express-file-routing";
-import {isUuid} from "../routes/[name]/queue/[id]/classify/index.js";
+import {isUuid} from "../routes/queue/[id]/classify/index.js";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const fromRoot = relativePath => path.join(root, relativePath);
@@ -25,12 +25,10 @@ const removedRuntimeFiles = [
 ];
 
 const protectedRuntimeFiles = new Map([
-    [ "routes/instances/index.js", /FROM pr_cards/ ],
-    [ "routes/instances/[id]/index.js", /FROM pr_cards/ ],
-    [ "routes/[name]/queue/index.js", /res\.render\("review"/ ],
-    [ "routes/[name]/queue/[id]/classify/index.js", /pr_classification/ ],
-    [ "routes/[name]/categories/index.js", /participant_category/ ],
-    [ "routes/progress/index.js", /FROM pr_cards/ ],
+    [ "routes/queue/index.js", /res\.render\("review"/ ],
+    [ "routes/queue/[id]/classify/index.js", /pr_classification/ ],
+    [ "routes/categories/index.js", /participant_category/ ],
+    [ "routes/progress/index.js", /loadStudyProgress/ ],
     [ "views/review.ejs", /\/categories/ ],
 ]);
 
@@ -111,7 +109,7 @@ test("navigation links pending cards directly and omits retired entry points", a
     ]);
 
     for (const source of navigationSource) {
-        assert.match(source, /\/instances\?status=pending/);
+        assert.match(source, /\/queue/);
         assert.match(source, /\/progress/);
         assert.doesNotMatch(source, /\/conflicts|\/export/);
     }
