@@ -7,6 +7,7 @@ const unitExcluded = new Set(["private-discard-http.test.js", "current-runtime-e
 const integrationRequirements = [
     ["STUDY_HTTP_BASE_URL", "a prepared current-runtime study database"],
     ["STUDY_HTTP_SESSION_COOKIE", "an authenticated session cookie for a current-runtime participant"],
+    ["STUDY_HTTP_CSRF_TOKEN", "the synchronizer token for the authenticated current-runtime session"],
     ["STUDY_HTTP_REPLAY_CARD_ID", "a pending card reserved for replay assertions"],
     ["STUDY_HTTP_NAVIGATION_CARD_ID", "a separate pending card reserved for navigation assertions"],
     ["STUDY_HTTP_CONCURRENT_CARD_ID", "a separate pending card reserved for concurrency assertions"],

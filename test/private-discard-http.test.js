@@ -9,13 +9,20 @@ const required = variable => {
 
 const baseUrl = required("STUDY_HTTP_BASE_URL");
 const sessionCookie = required("STUDY_HTTP_SESSION_COOKIE");
+const csrfToken = required("STUDY_HTTP_CSRF_TOKEN");
 const replayCardId = required("STUDY_HTTP_REPLAY_CARD_ID");
 const navigationCardId = required("STUDY_HTTP_NAVIGATION_CARD_ID");
 const concurrentCardId = required("STUDY_HTTP_CONCURRENT_CARD_ID");
 const categoryId = required("STUDY_HTTP_CATEGORY_ID");
+const origin = new URL(baseUrl).origin;
 const request = (path, options = {}) => fetch(`${baseUrl}${path}`, {
     ...options,
-    headers: {cookie: sessionCookie, ...(options.headers || {})},
+    headers: {
+        cookie: sessionCookie,
+        origin,
+        "x-csrf-token": csrfToken,
+        ...(options.headers || {}),
+    },
 });
 
 test("HTTP contract returns 400 for malformed card and missing revision", async () => {

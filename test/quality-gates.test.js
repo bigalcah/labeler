@@ -22,7 +22,12 @@ test("integration gate fails without a prepared runtime target", () => {
 
 test("integration gate rejects missing scenario variables before invoking HTTP tests", () => {
     assert.throws(() => execFileSync("npm", ["run", "test:integration"], {
-        env: {...process.env, STUDY_HTTP_BASE_URL: "http://127.0.0.1:1", STUDY_HTTP_SESSION_COOKIE: "session"},
+        env: {
+            ...process.env,
+            STUDY_HTTP_BASE_URL: "http://127.0.0.1:1",
+            STUDY_HTTP_SESSION_COOKIE: "session",
+            STUDY_HTTP_CSRF_TOKEN: "csrf",
+        },
         stdio: "pipe",
     }), error => error.status === 2
         && error.stderr.includes("STUDY_HTTP_REPLAY_CARD_ID")
@@ -34,6 +39,7 @@ test("integration gate rejects reused stateful card identifiers", () => {
         ...process.env,
         STUDY_HTTP_BASE_URL: "http://127.0.0.1:1",
         STUDY_HTTP_SESSION_COOKIE: "session",
+        STUDY_HTTP_CSRF_TOKEN: "csrf",
         STUDY_HTTP_REPLAY_CARD_ID: "same-card",
         STUDY_HTTP_NAVIGATION_CARD_ID: "same-card",
         STUDY_HTTP_CONCURRENT_CARD_ID: "concurrent-card",

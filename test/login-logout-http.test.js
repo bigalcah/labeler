@@ -1,11 +1,23 @@
 import assert from "node:assert/strict";
+import {createHmac} from "node:crypto";
 import {once} from "node:events";
 import test from "node:test";
 import {createApp} from "../app.js";
+import {readSessionCookie} from "../util/session-middleware.js";
 
 const now = new Date("2026-01-01T12:00:00.000Z");
 const sessionId = "s".repeat(43);
 const sessionCsrfToken = "t".repeat(43);
+const sessionSecret = Buffer.alloc(32, 4);
+const sessionPolicy = {
+    sessionCookie: {name: "__Host-session", secure: true, httpOnly: true, sameSite: "lax", path: "/"},
+    trustProxyHops: 0,
+    idleTtlMs: 28_800_000,
+    absoluteTtlMs: 86_400_000,
+    getSessionSecrets: () => [sessionSecret],
+};
+
+const signedCookie = id => `${id}.${createHmac("sha256", sessionSecret).update(id, "ascii").digest("base64url")}`;
 
 class AuthHttpPool {
     constructor() {
@@ -73,9 +85,7 @@ class AuthHttpPool {
 }
 
 const sessionMiddleware = pool => (req, res, next) => {
-    const cookie = req.headers.cookie || "";
-    const sessionCookie = cookie.split(";").map(part => part.trim()).find(part => part.startsWith("__Host-session="));
-    const id = sessionCookie?.slice("__Host-session=".length);
+    const id = readSessionCookie(req, sessionPolicy);
     const session = pool.sessions.get(id);
     req.sessionContext = session ? {accountId: "account-1", studyId: "study-1", participantId: 12} : null;
     req.csrfToken = session?.csrfToken || null;
@@ -87,6 +97,7 @@ const sessionMiddleware = pool => (req, res, next) => {
 const startServer = async pool => {
     const app = await createApp({
         pool,
+        sessionPolicy,
         sessionMiddleware: sessionMiddleware(pool),
         clock: () => now,
         passwordVerifier: async (hash, password) => hash === "stored-password-hash" && password === "correct",
@@ -161,7 +172,7 @@ test("POST logout destroys the current PostgreSQL session and clears the host co
         const response = await fetch(`${baseUrl}/logout`, {
             method: "POST",
             headers: {
-                cookie: `__Host-session=${sessionId}`,
+                cookie: `__Host-session=${signedCookie(sessionId)}`,
                 origin: "http://127.0.0.1",
                 "content-type": "application/x-www-form-urlencoded",
             },
