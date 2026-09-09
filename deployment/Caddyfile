@@ -1,0 +1,9 @@
+http://{$PUBLIC_HOSTNAME} {
+    redir https://{$PUBLIC_HOSTNAME}{uri} permanent
+}
+
+https://{$PUBLIC_HOSTNAME} {
+    @actuator path /actuator /actuator/*
+    respond @actuator 404
+    reverse_proxy labeling-server:3000
+}

@@ -6,21 +6,22 @@ services:
   labeling-database:
     container_name: labeling-database
     hostname: labeling-database
-    image: seart/labeling-database:latest
+    image: seart/labeling-database:1.0.0
     build:
       context: ../
       dockerfile: deployment/database/Dockerfile
     volumes:
       - data:/var/lib/postgresql/data
+      - ${DATABASE_PASSWORD_HOST_PATH:?DATABASE_PASSWORD_HOST_PATH must point to the database password}:/run/secrets/database-password:ro
     networks: [ default ]
     environment:
       POSTGRES_DB: ${DATABASE_NAME}
       POSTGRES_USER: ${DATABASE_USER}
-      POSTGRES_PASSWORD: ${DATABASE_PASS}
+      POSTGRES_PASSWORD_FILE: /run/secrets/database-password
     restart: always
 
   labeling-study-prepare:
-    image: seart/labeling-server:latest
+    image: seart/labeling-server:1.0.0
     build:
       context: ../
       dockerfile: deployment/server/Dockerfile
@@ -28,16 +29,21 @@ services:
     networks: [ default ]
     volumes:
       - ../plans/merged_after_rework_cards_seed_20260510.csv:/labeling/plans/prs.csv:ro
+      - ${DATABASE_PASSWORD_HOST_PATH:?DATABASE_PASSWORD_HOST_PATH must point to the database password}:/run/secrets/database-password:ro
+      - ${PGPASSFILE_HOST_PATH:?PGPASSFILE_HOST_PATH must point to the legacy retirement passfile}:/run/secrets/legacy-retirement.pgpass:ro
+      - ${STUDY_ACCOUNT_MANIFEST_HOST_PATH:?STUDY_ACCOUNT_MANIFEST_HOST_PATH must point to a protected account manifest}:/run/secrets/study-account-manifest.json:ro
+      - ${GITHUB_TOKEN_HOST_PATH:?GITHUB_TOKEN_HOST_PATH must point to the GitHub token}:/run/secrets/github-token:ro
       - ${LEGACY_BACKUP_DIRECTORY:-/tmp/labeler-no-legacy-backup}:/legacy-backup:ro
     environment:
       DATABASE_HOST: labeling-database
       DATABASE_PORT: 5432
       DATABASE_NAME: ${DATABASE_NAME}
       DATABASE_USER: ${DATABASE_USER}
-      DATABASE_PASS: ${DATABASE_PASS}
+      DATABASE_PASS_FILE: /run/secrets/database-password
       STUDY_DATABASE_MODE: ${STUDY_DATABASE_MODE:-clean}
       STUDY_CSV_PATH: /labeling/plans/prs.csv
       STUDY_CONFIG_INPUT: ${STUDY_CONFIG_INPUT:-}
+      STUDY_ACCOUNT_MANIFEST_FILE: /run/secrets/study-account-manifest.json
       LEGACY_RETIREMENT_CONFIRM: ${LEGACY_RETIREMENT_CONFIRM:-}
       LEGACY_BACKUP_ARCHIVE: /legacy-backup/${LEGACY_BACKUP_ARCHIVE_FILE:-legacy.dump}
       LEGACY_BACKUP_MANIFEST: /legacy-backup/${LEGACY_BACKUP_MANIFEST_FILE:-legacy.manifest.json}
@@ -45,13 +51,12 @@ services:
       PGPORT: 5432
       PGDATABASE: ${DATABASE_NAME}
       PGUSER: ${DATABASE_USER}
-      PGPASSWORD: ${DATABASE_PASS}
+      PGPASSFILE: /run/secrets/legacy-retirement.pgpass
       GITHUB_ENRICHMENT_ENABLED: ${GITHUB_ENRICHMENT_ENABLED:-false}
       GITHUB_API_BASE: ${GITHUB_API_BASE:-https://api.github.com}
       GITHUB_API_VERSION: ${GITHUB_API_VERSION:-2022-11-28}
-      GITHUB_CREDENTIAL_ALIASES: ${GITHUB_CREDENTIAL_ALIASES:-{"default":{"tokenEnv":"GITHUB_TOKEN","permissions":["metadata","pulls","contents","issues"]}}}
+      GITHUB_CREDENTIAL_ALIASES: ${GITHUB_CREDENTIAL_ALIASES:-{"default":{"tokenFile":"/run/secrets/github-token","permissions":["metadata","pulls","contents","issues"]}}}
       GITHUB_DEFAULT_ALIAS: ${GITHUB_DEFAULT_ALIAS:-default}
-      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     depends_on:
       labeling-database:
         condition: service_healthy
@@ -60,17 +65,26 @@ services:
   labeling-server:
     container_name: labeling-server
     hostname: labeling-server
-    image: seart/labeling-server:latest
+    image: seart/labeling-server:1.0.0
     build:
       context: ../
       dockerfile: deployment/server/Dockerfile
     networks: [ default ]
+    volumes:
+      - ${SESSION_SECRET_CURRENT_HOST_PATH:?SESSION_SECRET_CURRENT_HOST_PATH must point to the current session secret}:/run/secrets/session-current:ro
+      - ${SESSION_SECRET_PREVIOUS_HOST_PATH:?SESSION_SECRET_PREVIOUS_HOST_PATH must point to the previous session secret}:/run/secrets/session-previous:ro
+      - ${DATABASE_PASSWORD_HOST_PATH:?DATABASE_PASSWORD_HOST_PATH must point to the database password}:/run/secrets/database-password:ro
     environment:
+      NODE_ENV: production
+      APP_ORIGIN: ${APP_ORIGIN:?APP_ORIGIN must be an HTTPS origin}
+      TRUST_PROXY_HOPS: "1"
+      SESSION_SECRET_FILE: /run/secrets/session-current
+      SESSION_SECRET_PREVIOUS_FILE: /run/secrets/session-previous
       DATABASE_HOST: labeling-database
       DATABASE_PORT: 5432
       DATABASE_NAME: ${DATABASE_NAME}
       DATABASE_USER: ${DATABASE_USER}
-      DATABASE_PASS: ${DATABASE_PASS}
+      DATABASE_PASS_FILE: /run/secrets/database-password
     depends_on:
       labeling-study-prepare:
         condition: service_completed_successfully
@@ -78,12 +92,30 @@ services:
       restart_policy:
         condition: on-failure
         max_attempts: 3
+
+  labeling-caddy:
+    container_name: labeling-caddy
+    hostname: labeling-caddy
+    image: caddy:2.8.4-alpine
+    networks: [ default ]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      PUBLIC_HOSTNAME: ${PUBLIC_HOSTNAME:?PUBLIC_HOSTNAME must be the public DNS hostname}
+    depends_on:
+      labeling-server:
+        condition: service_healthy
     ports:
-      - "7755:3000"
+      - "80:80"
+      - "443:443"
 
 volumes:
   data:
     name: labeling-data
+  caddy-data:
+  caddy-config:
 
 networks:
   default:

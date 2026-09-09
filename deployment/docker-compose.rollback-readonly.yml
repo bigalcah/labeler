@@ -12,11 +12,12 @@ services:
     command: [ "postgres", "-c", "default_transaction_read_only=on" ]
     volumes:
       - data:/var/lib/postgresql/data
+      - ${DATABASE_PASSWORD_HOST_PATH:?DATABASE_PASSWORD_HOST_PATH must point to the database password}:/run/secrets/database-password:ro
     networks: [ default ]
     environment:
       POSTGRES_DB: ${DATABASE_NAME}
       POSTGRES_USER: ${DATABASE_USER}
-      POSTGRES_PASSWORD: ${DATABASE_PASS}
+      POSTGRES_PASSWORD_FILE: /run/secrets/database-password
     restart: always
 
   labeling-server:
@@ -24,25 +25,45 @@ services:
     hostname: labeling-server
     image: ${ROLLBACK_SERVER_IMAGE:-seart/labeling-server:previous}
     networks: [ default ]
+    volumes:
+      - ${ROLLBACK_DATABASE_PASSWORD_HOST_PATH:?ROLLBACK_DATABASE_PASSWORD_HOST_PATH must point to the read-only database password}:/run/secrets/rollback-database-password:ro
     environment:
       DATABASE_HOST: labeling-database
       DATABASE_PORT: 5432
       DATABASE_NAME: ${DATABASE_NAME}
       DATABASE_USER: ${ROLLBACK_DATABASE_USER:-labeling_readonly}
-      DATABASE_PASS: ${ROLLBACK_DATABASE_PASS}
+      DATABASE_PASS_FILE: /run/secrets/rollback-database-password
     depends_on:
       labeling-database:
-        condition: service_started
+        condition: service_healthy
     deploy:
       restart_policy:
         condition: on-failure
         max_attempts: 3
+
+  labeling-caddy:
+    container_name: labeling-caddy
+    hostname: labeling-caddy
+    image: caddy:2.8.4-alpine
+    networks: [ default ]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      PUBLIC_HOSTNAME: ${PUBLIC_HOSTNAME:?PUBLIC_HOSTNAME must be the public DNS hostname}
+    depends_on:
+      labeling-server:
+        condition: service_healthy
     ports:
-      - "7755:3000"
+      - "80:80"
+      - "443:443"
 
 volumes:
   data:
     name: labeling-data
+  caddy-data:
+  caddy-config:
 
 networks:
   default:
