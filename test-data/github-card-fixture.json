@@ -1,28 +1,173 @@
 {
-  "source_type": "GITHUB_API",
-  "source_card_id": "github-demo-1",
-  "repository": "demo/labeler",
-  "pr_number": 999,
-  "title": "Future API provider fixture",
-  "body": "This fixture verifies that the card view is not tied to CSV-only data.",
-  "author": "demo-user",
-  "language": "JavaScript",
-  "state": "closed",
-  "merged": true,
-  "html_url": "https://github.com/demo/labeler/pull/999",
-  "dates": {
-    "created_at": "2026-01-01T00:00:00Z",
-    "closed_at": "2026-01-02T00:00:00Z",
-    "merged_at": "2026-01-02T00:00:00Z"
+  "card": {
+    "source_type": "CSV",
+    "source_card_id": "offline-provider-card",
+    "repository": "example/labeler",
+    "pr_number": 42,
+    "ordinal": 0,
+    "title": "CSV baseline title",
+    "body": "CSV baseline body",
+    "author": "csv-author",
+    "language": "JavaScript",
+    "state": "open",
+    "merged": false,
+    "html_url": "https://github.com/example/labeler/pull/42",
+    "created_at_source": "2026-01-01T00:00:00Z",
+    "closed_at_source": null,
+    "merged_at_source": null,
+    "summary": {
+      "commits": null,
+      "file_count": null,
+      "reviews": null,
+      "comments": null,
+      "changes_requested": null
+    },
+    "evidence": {
+      "selected": "Sanitized CSV baseline evidence."
+    }
   },
-  "summary": {
-    "commits": 2,
-    "reviews": 1
-  },
-  "evidence": {
-    "selected": "A future API provider can supply this same card contract."
-  },
-  "raw_payload": {
-    "number": 999
+  "scenarios": {
+    "complete": {
+      "snapshot": {
+        "run_id": "fixture-run-complete",
+        "snapshot_checksum": "fixture-snapshot-complete",
+        "captured_at": "2026-01-03T00:00:00Z"
+      },
+      "pages": [
+        {
+          "endpoint": "metadata",
+          "state": "COMPLETE",
+          "itemCount": 1,
+          "payload": {
+            "id": 42,
+            "number": 42,
+            "title": "Offline provider title",
+            "body": "Offline provider body",
+            "state": "closed",
+            "merged": true,
+            "user": {"login": "provider-author"},
+            "html_url": "https://github.com/example/labeler/pull/42",
+            "created_at": "2026-01-01T00:00:00Z",
+            "closed_at": "2026-01-02T00:00:00Z",
+            "merged_at": "2026-01-02T00:00:00Z",
+            "additions": 7,
+            "deletions": 2,
+            "changed_files": 1,
+            "commits": 2,
+            "comments": 0,
+            "review_comments": 0,
+            "provider_internal_note": "provider-only-marker"
+          }
+        },
+        {
+          "endpoint": "commits",
+          "state": "COMPLETE",
+          "itemCount": 2,
+          "payload": [
+            {
+              "sha": "commit-one",
+              "message": "Add offline card projection",
+              "author": {"login": "provider-author"},
+              "html_url": "https://github.com/example/labeler/commit/commit-one"
+            },
+            {
+              "sha": "commit-two",
+              "message": "Verify provider fixture",
+              "author": {"login": "provider-author"},
+              "html_url": "https://github.com/example/labeler/commit/commit-two"
+            }
+          ]
+        },
+        {
+          "endpoint": "files",
+          "state": "COMPLETE",
+          "itemCount": 1,
+          "payload": [
+            {
+              "sha": "file-one",
+              "filename": "src/card.js",
+              "status": "modified",
+              "additions": 7,
+              "deletions": 2,
+              "changes": 9,
+              "blob_url": "https://github.com/example/labeler/blob/commit-one/src/card.js",
+              "patch": "offline-patch-marker\n+const projected = true;"
+            }
+          ]
+        },
+        {
+          "endpoint": "diff",
+          "state": "COMPLETE",
+          "itemCount": 1,
+          "payload": "offline-diff-marker\ndiff --git a/src/card.js b/src/card.js"
+        },
+        {
+          "endpoint": "timeline",
+          "state": "COMPLETE",
+          "itemCount": 1,
+          "payload": [
+            {
+              "id": "timeline-one",
+              "event": "review_requested",
+              "actor": {"login": "provider-author"},
+              "created_at": "2026-01-01T12:00:00Z"
+            }
+          ]
+        },
+        {"endpoint": "reviews", "state": "COMPLETE_EMPTY", "itemCount": 0, "payload": []},
+        {"endpoint": "issueComments", "state": "COMPLETE_EMPTY", "itemCount": 0, "payload": []},
+        {"endpoint": "reviewComments", "state": "COMPLETE_EMPTY", "itemCount": 0, "payload": []}
+      ]
+    },
+    "emptyAndTruncated": {
+      "snapshot": {
+        "run_id": "fixture-run-limited",
+        "snapshot_checksum": "fixture-snapshot-limited",
+        "captured_at": "2026-01-04T00:00:00Z"
+      },
+      "pages": [
+        {
+          "endpoint": "metadata",
+          "state": "COMPLETE",
+          "itemCount": 1,
+          "payload": {
+            "id": 42,
+            "number": 42,
+            "title": "Offline provider title",
+            "state": "open",
+            "merged": false,
+            "user": {"login": "provider-author"},
+            "html_url": "https://github.com/example/labeler/pull/42"
+          }
+        },
+        {"endpoint": "commits", "state": "COMPLETE_EMPTY", "itemCount": 0, "payload": []},
+        {
+          "endpoint": "files",
+          "state": "TRUNCATED",
+          "reason": "Provider file cap reached",
+          "itemCount": 1,
+          "reported_count": 3,
+          "payload": [
+            {
+              "sha": "limited-file",
+              "filename": "src/limited.js",
+              "status": "modified",
+              "blob_url": "https://github.com/example/labeler/blob/limited/src/limited.js"
+            }
+          ]
+        },
+        {
+          "endpoint": "diff",
+          "state": "TRUNCATED",
+          "reason": "Provider diff byte cap reached",
+          "itemCount": 1,
+          "payload": "truncated-diff-marker\ndiff --git a/src/limited.js b/src/limited.js"
+        },
+        {"endpoint": "timeline", "state": "COMPLETE_EMPTY", "itemCount": 0, "payload": []},
+        {"endpoint": "reviews", "state": "COMPLETE_EMPTY", "itemCount": 0, "payload": []},
+        {"endpoint": "issueComments", "state": "COMPLETE_EMPTY", "itemCount": 0, "payload": []},
+        {"endpoint": "reviewComments", "state": "COMPLETE_EMPTY", "itemCount": 0, "payload": []}
+      ]
+    }
   }
 }
