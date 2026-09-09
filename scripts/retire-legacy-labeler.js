@@ -27,7 +27,6 @@ if (requestedActions.length !== 1) {
             process.env.DATABASE_PORT = inputs.credentials.port;
             process.env.DATABASE_NAME = inputs.credentials.database;
             process.env.DATABASE_USER = inputs.credentials.user;
-            if (process.env.PGPASSWORD) process.env.DATABASE_PASS = process.env.PGPASSWORD;
         }
 
         ({default: pool} = await import("../util/pg-pool.js"));

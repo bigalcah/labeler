@@ -1,9 +1,10 @@
 import {createHash, randomUUID} from "node:crypto";
-import {accessSync, constants, createReadStream, realpathSync} from "node:fs";
+import {createReadStream, realpathSync} from "node:fs";
 import {access, link, readFile, rm, stat, writeFile} from "node:fs/promises";
 import path from "node:path";
 import {spawn} from "node:child_process";
 import {validateLegacyInventory} from "./legacy-inventory.js";
+import {readSecretFile} from "./secret-file.js";
 
 class LegacyBackupError extends Error {
     constructor(message) {
@@ -49,17 +50,14 @@ const resolveBackupInputs = (environment, repositoryRoot) => {
         database: required(environment, "PGDATABASE"),
         user: required(environment, "PGUSER"),
     };
-    if (!environment.PGPASSWORD && !environment.PGPASSFILE) {
-        throw new LegacyBackupError("PGPASSWORD or PGPASSFILE is required");
+    if (!environment.PGPASSFILE) throw new LegacyBackupError("PGPASSFILE is required");
+    try {
+        readSecretFile(environment.PGPASSFILE, "PGPASSFILE");
+    } catch (_error) {
+        throw new LegacyBackupError("PGPASSFILE is invalid");
     }
-    if (environment.PGPASSFILE) {
-        try {
-            accessSync(environment.PGPASSFILE, constants.R_OK);
-        } catch (error) {
-            throw new LegacyBackupError(`PGPASSFILE is not readable: ${error.message}`);
-        }
-    }
-    return {archivePath, manifestPath, credentials, environment};
+    const {PGPASSWORD: _password, ...credentialEnvironment} = environment;
+    return {archivePath, manifestPath, credentials, environment: credentialEnvironment};
 };
 
 const runCommand = (command, args, options = {}) => new Promise((resolve, reject) => {

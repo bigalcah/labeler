@@ -29,7 +29,7 @@ const backupManifest = async (archivePath, inventory, overrides = {}) => {
     };
 };
 
-test("backup inputs require explicit external paths and database credentials", () => {
+test("backup inputs require explicit external paths and file-backed database credentials", async () => {
     assert.throws(() => resolveBackupInputs({}, root), /LEGACY_BACKUP_ARCHIVE/);
     assert.throws(() => resolveBackupInputs({
         LEGACY_BACKUP_ARCHIVE: path.join(root, "backup.dump"),
@@ -38,7 +38,6 @@ test("backup inputs require explicit external paths and database credentials", (
         PGPORT: "5432",
         PGDATABASE: "labeling",
         PGUSER: "labeler",
-        PGPASSWORD: "secret",
     }, root), /outside the repository/);
     assert.throws(() => resolveBackupInputs({
         LEGACY_BACKUP_ARCHIVE: "/tmp/backup.dump",
@@ -47,7 +46,29 @@ test("backup inputs require explicit external paths and database credentials", (
         PGPORT: "5432",
         PGDATABASE: "labeling",
         PGUSER: "labeler",
-    }, root), /PGPASSWORD or PGPASSFILE/);
+        PGPASSWORD: "secret",
+    }, root), /PGPASSFILE is required/);
+
+    const directory = await mkdtemp(path.join(os.tmpdir(), "labeler-pgpassfile-"));
+    const passfile = path.join(directory, "database-passfile");
+    await writeFile(passfile, "db:5432:labeling:labeler:secret\n", {mode: 0o400});
+
+    try {
+        const inputs = resolveBackupInputs({
+            LEGACY_BACKUP_ARCHIVE: "/tmp/backup.dump",
+            LEGACY_BACKUP_MANIFEST: "/tmp/backup.manifest.json",
+            PGHOST: "db",
+            PGPORT: "5432",
+            PGDATABASE: "labeling",
+            PGUSER: "labeler",
+            PGPASSFILE: passfile,
+            PGPASSWORD: "secret",
+        }, root);
+        assert.equal(inputs.environment.PGPASSFILE, passfile);
+        assert.equal(Object.hasOwn(inputs.environment, "PGPASSWORD"), false);
+    } finally {
+        await rm(directory, {recursive: true});
+    }
 });
 
 test("backup verification binds the archive to the intended database identity", async () => {
