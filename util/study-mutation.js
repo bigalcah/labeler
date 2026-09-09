@@ -92,13 +92,14 @@ const readLockedCardState = async (executor, studyId, participantId, cardId) => 
     };
 };
 
-const assertParticipantCategory = async (executor, participantId, categoryId) => {
+const assertParticipantCategory = async (executor, context, categoryId) => {
     const {rows: [ category ]} = await executor.query(
         `SELECT id
          FROM participant_category
          WHERE id = $1
-           AND participant_id = $2`,
-        [ categoryId, participantId ],
+           AND study_id = $2
+           AND participant_id = $3`,
+        [ categoryId, context.studyId, context.participantId ],
     );
     if (!category) {
         throw new StudyRuntimeError(HTTPStatus.NOT_FOUND, "Category is not owned by the participant");

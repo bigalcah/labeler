@@ -24,13 +24,14 @@ const requireStudySession = (req, res) => {
 
 const sessionParticipant = context => ({name: context.participantKey || "Participant"});
 
-const loadParticipantCategories = async (executor, participantId) => {
+const loadParticipantCategories = async (executor, studyId, participantId) => {
     const {rows} = await executor.query(
         `SELECT id, raw_name, updated_at
          FROM participant_category
-         WHERE participant_id = $1
+         WHERE study_id = $1
+           AND participant_id = $2
          ORDER BY raw_name`,
-        [ participantId ],
+        [ studyId, participantId ],
     );
     return rows;
 };
@@ -114,6 +115,7 @@ const cardSelect = `
        AND discard.participant_id = $2
     LEFT JOIN participant_category category
         ON category.id = classification.category_id
+       AND category.study_id = study_card.study_id
        AND category.participant_id = $2
     LEFT JOIN study_enrichment_promotion promotion
         ON promotion.study_id = study_card.study_id
