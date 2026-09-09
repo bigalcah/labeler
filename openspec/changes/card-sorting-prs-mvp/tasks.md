@@ -38,7 +38,7 @@ Las casillas reflejan trabajo verificado en la implementación actual, no solo d
 - [x] 4.1 Renderizar la tarjeta PR con título, repositorio, número, estado, autor, lenguaje del CSV, fechas, cuerpo y métricas.
 - [x] 4.2 Mostrar evidencia seleccionada, comentarios y JSON original bajo demanda sin ejecutar HTML no confiable.
 - [x] 4.3 Mostrar enlace externo a GitHub como referencia opcional, sin iframe ni consulta desde el navegador.
-- [ ] 4.4 Añadir estados vacíos explícitos para campos ausentes y tarjetas con evidencia incompleta.
+- [x] 4.4 Añadir estados vacíos explícitos para campos ausentes y tarjetas con evidencia incompleta.
 - [x] 4.5 Mantener temporalmente `/login` como selector local y cargar el progreso del participante seleccionado.
 - [x] 4.6 Crear y listar categorías planas únicamente para el participante seleccionado.
 - [ ] 4.7 Permitir renombrar una categoría propia sin exponer ni modificar categorías de otro participante.

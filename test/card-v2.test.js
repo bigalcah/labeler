@@ -49,6 +49,70 @@ test("CardV2 marks unavailable and truncated sections without inventing values",
     assert.equal(projected.metrics.review_comment_count.value, null);
 });
 
+test("CardV2 distinguishes an incomplete promoted snapshot from unavailable evidence", () => {
+    const projected = projectCardV2(card, {run_id: "run", snapshot_checksum: "checksum", pages: [
+        {endpoint: "files", state: "COMPLETE_EMPTY", normalized_payload: []},
+        {endpoint: "reviews", state: "UNAVAILABLE", normalized_payload: null},
+    ]});
+
+    assert.equal(projected.github_evidence.files.availability, AVAILABILITY.EMPTY);
+    assert.equal(projected.github_evidence.reviews.availability, AVAILABILITY.UNAVAILABLE);
+    assert.equal(projected.github_evidence.issue_comments.availability, AVAILABILITY.INCOMPLETE);
+    assert.equal(projected.github_evidence.issue_comments.reason, "Endpoint missing from local snapshot");
+    assert.equal(projected.availability.issueComments, AVAILABILITY.INCOMPLETE);
+    assert.equal(projected.metrics.issue_comment_count.value, 2);
+    assert.equal(projected.metrics.issue_comment_count.availability, AVAILABILITY.INCOMPLETE);
+});
+
+test("CardV2 treats complete-empty endpoint counts as authoritative zeroes", () => {
+    const projected = projectCardV2({...card, summary: {
+        commits: 9,
+        file_count: 8,
+        reviews: 7,
+        changes_requested: 6,
+        comments: 5,
+    }}, {run_id: "run", snapshot_checksum: "checksum", pages: [
+        {endpoint: "commits", state: "COMPLETE_EMPTY", normalized_payload: []},
+        {endpoint: "files", state: "COMPLETE_EMPTY", normalized_payload: []},
+        {endpoint: "reviews", state: "COMPLETE_EMPTY", normalized_payload: []},
+        {endpoint: "issueComments", state: "COMPLETE_EMPTY", normalized_payload: []},
+        {endpoint: "reviewComments", state: "COMPLETE_EMPTY", normalized_payload: []},
+    ]});
+
+    for (const metric of Object.values(projected.metrics)) {
+        assert.equal(metric.value, 0);
+        assert.equal(metric.availability, AVAILABILITY.EMPTY);
+        assert.notEqual(metric.provenance.source, "CSV");
+    }
+});
+
+test("participant card renders explicit empty field, metric, and incomplete evidence states", async () => {
+    const template = await readFile(path.join(root, "views/partials/instance/data.ejs"), "utf8");
+    const emptyCard = {
+        ...card,
+        body: null,
+        author: null,
+        language: null,
+        state: null,
+        summary: {},
+        evidence: {},
+    };
+    const rendered = ejs.render(template, {
+        data: {...emptyCard, card_v2: projectCardV2(emptyCard, {run_id: "run", pages: [
+            {endpoint: "files", state: "COMPLETE_EMPTY", normalized_payload: []},
+        ]})},
+        renderSafeMarkdown: value => String(value),
+    });
+
+    assert.match(rendered, /Author[\s\S]*Not available/);
+    assert.match(rendered, /Dataset language: Not available/);
+    assert.match(rendered, /pr-status-unknown[^>]*>UNAVAILABLE<\/span>/);
+    assert.match(rendered, /No CSV evidence is available for this card/);
+    assert.match(rendered, /Review events[\s\S]*Incomplete/);
+    assert.match(rendered, /Pull request comments[\s\S]*Incomplete[^]*Endpoint missing from local snapshot/);
+    assert.doesNotMatch(rendered, />undefined<|>null</);
+});
+
 test("participant card renders safe local evidence without raw payload or unsafe links", async () => {
     const template = await readFile(path.join(root, "views/partials/instance/data.ejs"), "utf8");
     const rendered = ejs.render(template, {

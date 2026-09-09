@@ -1,6 +1,7 @@
-const AVAILABILITY = Object.freeze({PRESENT: "PRESENT", EMPTY: "EMPTY", UNAVAILABLE: "UNAVAILABLE", TRUNCATED: "TRUNCATED"});
+const AVAILABILITY = Object.freeze({PRESENT: "PRESENT", EMPTY: "EMPTY", UNAVAILABLE: "UNAVAILABLE", TRUNCATED: "TRUNCATED", INCOMPLETE: "INCOMPLETE"});
 const OVERLAPPING_FIELDS = Object.freeze({title: "title", body: "body", author: "author", state: "state", merged: "merged", html_url: "html_url"});
 const DATE_FIELDS = Object.freeze({created_at: "created_at", closed_at: "closed_at", merged_at: "merged_at"});
+const SNAPSHOT_ENDPOINTS = Object.freeze(["metadata", "commits", "files", "reviews", "issueComments", "reviewComments", "timeline"]);
 const METRICS = Object.freeze({
     commit_count: {endpoint: "commits", pointer: "/value/commits"},
     changed_file_count: {endpoint: "files", pointer: "/value/changed_files"},
@@ -50,11 +51,11 @@ const endpointPayloads = pages => (Array.isArray(pages) ? pages : []).reduce((re
 
 const values = endpoint => endpoint?.pages.flatMap(page => Array.isArray(page.payload) ? page.payload : []) || [];
 const latestObject = endpoint => endpoint?.pages.map(page => page.payload).filter(payload => payload && typeof payload === "object" && !Array.isArray(payload)).at(-1) || null;
-const statusFor = endpoint => endpoint?.status || AVAILABILITY.UNAVAILABLE;
+const statusFor = (endpoint, hasSnapshot = false) => endpoint?.status || (hasSnapshot ? AVAILABILITY.INCOMPLETE : AVAILABILITY.UNAVAILABLE);
 const field = (value, availability, provenance) => ({value, availability, provenance});
 
-const projectEvidenceItems = (endpoint, endpointName, runId, checksum) => {
-    const status = statusFor(endpoint);
+const projectEvidenceItems = (endpoint, endpointName, runId, checksum, hasSnapshot) => {
+    const status = statusFor(endpoint, hasSnapshot);
     const items = values(endpoint).map(item => ({
         id: safeText(item.id ?? item.sha),
         author: safeUser(item.user ?? item.author ?? item.actor),
@@ -68,7 +69,7 @@ const projectEvidenceItems = (endpoint, endpointName, runId, checksum) => {
         url: safeUrl(item.html_url ?? item.blob_url ?? item.raw_url),
     }));
     items.sort((left, right) => String(left.created_at || left.id || "").localeCompare(String(right.created_at || right.id || "")) || String(left.id || "").localeCompare(String(right.id || "")));
-    return {items, availability: status, captured_count: endpoint?.captured_count ?? 0, reported_count: endpoint?.reported_count ?? null, reason: endpoint?.reason ?? null, provenance: githubProvenance(runId, checksum, endpointName, status, endpoint?.captured_at, null)};
+    return {items, availability: status, captured_count: endpoint?.captured_count ?? 0, reported_count: endpoint?.reported_count ?? null, reason: endpoint?.reason ?? (status === AVAILABILITY.INCOMPLETE ? "Endpoint missing from local snapshot" : null), provenance: githubProvenance(runId, checksum, endpointName, status, endpoint?.captured_at, null)};
 };
 
 const projectCardV2 = (card, enrichmentInput = null) => {
@@ -76,6 +77,7 @@ const projectCardV2 = (card, enrichmentInput = null) => {
     const pages = endpointPayloads(enrichment?.pages);
     const runId = enrichment?.run_id ?? null;
     const snapshotChecksum = enrichment?.snapshot_checksum ?? null;
+    const hasSnapshot = enrichment !== null;
     const metadataEndpoint = pages.metadata;
     const metadata = latestObject(metadataEndpoint);
     const provenance = {};
@@ -99,35 +101,37 @@ const projectCardV2 = (card, enrichmentInput = null) => {
     const files = values(pages.files);
     const issueComments = values(pages.issueComments);
     const reviewComments = values(pages.reviewComments);
+    const isCaptured = endpoint => endpoint?.status === AVAILABILITY.PRESENT || endpoint?.status === AVAILABILITY.EMPTY;
     const metricValues = {
-        commit_count: metadata?.commits ?? (pages.commits?.status === AVAILABILITY.PRESENT ? values(pages.commits).length : card.summary?.commits),
-        changed_file_count: metadata?.changed_files ?? (pages.files?.status === AVAILABILITY.PRESENT ? files.length : card.summary?.file_count),
-        additions: metadata?.additions ?? (pages.files?.status === AVAILABILITY.PRESENT && files.every(item => Number.isFinite(item.additions)) ? files.reduce((sum, item) => sum + item.additions, 0) : null),
-        deletions: metadata?.deletions ?? (pages.files?.status === AVAILABILITY.PRESENT && files.every(item => Number.isFinite(item.deletions)) ? files.reduce((sum, item) => sum + item.deletions, 0) : null),
-        review_event_count: pages.reviews?.status === AVAILABILITY.PRESENT ? reviewItems.length : card.summary?.reviews,
-        changes_requested_review_count: pages.reviews?.status === AVAILABILITY.PRESENT ? reviewItems.filter(item => item.state === "CHANGES_REQUESTED").length : card.summary?.changes_requested,
-        issue_comment_count: pages.issueComments?.status === AVAILABILITY.PRESENT ? issueComments.length : metadata?.comments ?? card.summary?.comments,
-        review_comment_count: pages.reviewComments?.status === AVAILABILITY.PRESENT ? reviewComments.length : null,
+        commit_count: metadata?.commits ?? (isCaptured(pages.commits) ? values(pages.commits).length : card.summary?.commits),
+        changed_file_count: metadata?.changed_files ?? (isCaptured(pages.files) ? files.length : card.summary?.file_count),
+        additions: metadata?.additions ?? (isCaptured(pages.files) && files.every(item => Number.isFinite(item.additions)) ? files.reduce((sum, item) => sum + item.additions, 0) : null),
+        deletions: metadata?.deletions ?? (isCaptured(pages.files) && files.every(item => Number.isFinite(item.deletions)) ? files.reduce((sum, item) => sum + item.deletions, 0) : null),
+        review_event_count: isCaptured(pages.reviews) ? reviewItems.length : card.summary?.reviews,
+        changes_requested_review_count: isCaptured(pages.reviews) ? reviewItems.filter(item => item.state === "CHANGES_REQUESTED").length : card.summary?.changes_requested,
+        issue_comment_count: metadata?.comments ?? (isCaptured(pages.issueComments) ? issueComments.length : card.summary?.comments),
+        review_comment_count: isCaptured(pages.reviewComments) ? reviewComments.length : null,
     };
     metricValues.total_changes = Number.isFinite(metricValues.additions) && Number.isFinite(metricValues.deletions) ? metricValues.additions + metricValues.deletions : null;
     const metrics = {};
     for (const [name, definition] of Object.entries(METRICS)) {
         const value = metricValues[name] ?? null;
         const endpoint = pages[definition.endpoint];
-        const complete = endpoint?.status === AVAILABILITY.PRESENT;
+        const complete = isCaptured(endpoint);
         const source = complete && (name === "total_changes" || name === "additions" || name === "deletions" || name === "changed_file_count" || name === "commit_count") ? derivedProvenance(runId, snapshotChecksum, definition.endpoint, endpoint.status, endpoint.captured_at, definition.pointer) : complete ? githubProvenance(runId, snapshotChecksum, definition.endpoint, endpoint.status, endpoint.captured_at, definition.pointer) : csvProvenance(`/metrics/${name}`);
-        metrics[name] = field(value, value === null ? (endpoint?.status === AVAILABILITY.UNAVAILABLE ? AVAILABILITY.UNAVAILABLE : endpoint?.status === AVAILABILITY.TRUNCATED ? AVAILABILITY.TRUNCATED : AVAILABILITY.EMPTY) : complete || !enrichment ? AVAILABILITY.PRESENT : AVAILABILITY.EMPTY, source);
+        const endpointStatus = statusFor(endpoint, hasSnapshot);
+        metrics[name] = field(value, value === null ? endpointStatus === AVAILABILITY.PRESENT ? AVAILABILITY.EMPTY : endpointStatus : endpointStatus === AVAILABILITY.EMPTY ? AVAILABILITY.EMPTY : complete || !enrichment ? AVAILABILITY.PRESENT : endpointStatus, source);
         provenance[`/metrics/${name}`] = source;
     }
     const evidence = {
-        files: projectEvidenceItems(pages.files, "files", runId, snapshotChecksum),
-        reviews: projectEvidenceItems(pages.reviews, "reviews", runId, snapshotChecksum),
-        issue_comments: projectEvidenceItems(pages.issueComments, "issueComments", runId, snapshotChecksum),
-        review_comments: projectEvidenceItems(pages.reviewComments, "reviewComments", runId, snapshotChecksum),
-        timeline: projectEvidenceItems(pages.timeline, "timeline", runId, snapshotChecksum),
-        supplementary_activity: projectEvidenceItems(pages.commits, "commits", runId, snapshotChecksum),
+        files: projectEvidenceItems(pages.files, "files", runId, snapshotChecksum, hasSnapshot),
+        reviews: projectEvidenceItems(pages.reviews, "reviews", runId, snapshotChecksum, hasSnapshot),
+        issue_comments: projectEvidenceItems(pages.issueComments, "issueComments", runId, snapshotChecksum, hasSnapshot),
+        review_comments: projectEvidenceItems(pages.reviewComments, "reviewComments", runId, snapshotChecksum, hasSnapshot),
+        timeline: projectEvidenceItems(pages.timeline, "timeline", runId, snapshotChecksum, hasSnapshot),
+        supplementary_activity: projectEvidenceItems(pages.commits, "commits", runId, snapshotChecksum, hasSnapshot),
     };
-    return {version: 2, identity: {source_card_id: card.source_card_id ?? card.id ?? null, repository: card.repository ?? null, pr_number: card.pr_number ?? null, ordinal: card.ordinal ?? null}, fields, dates, dataset_language: field(card.language ?? null, card.language == null ? AVAILABILITY.EMPTY : AVAILABILITY.PRESENT, csvProvenance("/language")), metrics, csv_evidence: card.evidence ? {body: card.body ?? null, summary: card.summary ?? null, selected: card.evidence.selected ?? null, all_text: card.evidence.all_text ?? null} : {}, github_evidence: evidence, availability: Object.fromEntries(Object.entries(pages).map(([name, endpoint]) => [name, statusFor(endpoint)])), snapshot: {run_id: runId, snapshot_checksum: snapshotChecksum, captured_at: enrichment?.captured_at ?? null}, provenance};
+    return {version: 2, identity: {source_card_id: card.source_card_id ?? card.id ?? null, repository: card.repository ?? null, pr_number: card.pr_number ?? null, ordinal: card.ordinal ?? null}, fields, dates, dataset_language: field(card.language ?? null, card.language == null ? AVAILABILITY.EMPTY : AVAILABILITY.PRESENT, csvProvenance("/language")), metrics, csv_evidence: card.evidence ? {body: card.body ?? null, summary: card.summary ?? null, selected: card.evidence.selected ?? null, all_text: card.evidence.all_text ?? null} : {}, github_evidence: evidence, availability: Object.fromEntries(SNAPSHOT_ENDPOINTS.map(name => [name, statusFor(pages[name], hasSnapshot)])), snapshot: {run_id: runId, snapshot_checksum: snapshotChecksum, captured_at: enrichment?.captured_at ?? null}, provenance};
 };
 
 const projectEnrichedCard = (card, enrichmentInput = null) => {
