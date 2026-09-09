@@ -43,6 +43,7 @@ export const createApp = async ({
     originPolicy = {},
 } = {}) => {
     const app = express();
+    app.set("trust proxy", sessionPolicy?.trustProxyHops ?? 0);
     const resolvedSessionMiddleware = sessionMiddleware || createSessionMiddleware({
         pool,
         clock,

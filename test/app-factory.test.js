@@ -95,6 +95,33 @@ test("real database route uses injected pool and middleware dependencies", async
     assert.equal(server.listening, false);
 });
 
+test("factory applies the configured numeric proxy hop count before middleware", async () => {
+    const pool = new ReadyStudyPool([]);
+    let clientIp;
+    const app = await createApp({
+        pool,
+        sessionPolicy: {trustProxyHops: 1},
+        sessionMiddleware: (req, _res, next) => {
+            clientIp = req.ip;
+            next();
+        },
+        middleware: [(req, res) => res.send(req.ip)],
+    });
+    const server = await listen(app);
+
+    try {
+        const response = await fetch(`http://127.0.0.1:${server.address().port}/proxy-check`, {
+            headers: {"x-forwarded-for": "203.0.113.10"},
+        });
+        assert.equal(response.status, 200);
+        assert.equal(await response.text(), "203.0.113.10");
+        assert.equal(clientIp, "203.0.113.10");
+        assert.equal(app.get("trust proxy"), 1);
+    } finally {
+        await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
+});
+
 test("async database failure after an await reaches controlled error middleware", async () => {
     const app = await createApp({
         pool: new FakePool({fail: true}),
