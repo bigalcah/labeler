@@ -14,8 +14,10 @@ privilegios de escritura.
 
 2. Crea o verifica, fuera del flujo de despliegue, un rol `labeling_readonly` sin
    privilegios `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `CREATE`, `ALTER` ni `DROP`.
-   Define su contraseña en `ROLLBACK_DATABASE_PASS` y, si procede, cambia el nombre
-   mediante `ROLLBACK_DATABASE_USER`.
+   Guarda su contraseña en un archivo externo protegido y configura su ruta absoluta
+   mediante `ROLLBACK_DATABASE_PASSWORD_HOST_PATH`; si procede, cambia el nombre mediante
+   `ROLLBACK_DATABASE_USER`. El launcher monta el archivo solo de lectura y entrega su
+   ruta como `DATABASE_PASS_FILE`.
 
 3. Selecciona la imagen anterior y arranca exclusivamente el launcher de rollback:
 

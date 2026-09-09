@@ -2,20 +2,54 @@
 
 ## Configuración de despliegue
 
-Define las credenciales de base en `deployment/.env`:
+Define únicamente la configuración no secreta y las rutas externas de secretos en
+`deployment/.env`:
 
 ```dotenv
 COMPOSE_PROJECT_NAME=labeling
 
 DATABASE_NAME=labeling
 DATABASE_USER=labeling_admin
-DATABASE_PASS=<set-a-unique-local-password>
+DATABASE_PORT=5432
+PUBLIC_HOSTNAME=labeler.example.org
+APP_ORIGIN=https://labeler.example.org
+DATABASE_PASSWORD_HOST_PATH=/absolute/external/database-password
+SESSION_SECRET_CURRENT_HOST_PATH=/absolute/external/session-current
+SESSION_SECRET_PREVIOUS_HOST_PATH=/absolute/external/session-previous
 ```
+
+Cada ruta de secreto debe ser absoluta, quedar fuera del repositorio y apuntar a un archivo
+protegido. Compose monta la contraseña de base como `POSTGRES_PASSWORD_FILE` para PostgreSQL
+y como `DATABASE_PASS_FILE` para Node. No guardes contraseñas, tokens, cookies ni secretos de
+sesión en `deployment/.env`.
 
 El bootstrap del estudio lee el CSV canónico de 300 tarjetas montado por Compose. Su configuración protegida crea o
 reutiliza los participantes mediante `reviewer`, persiste `pr_cards` y gobierna la membresía del estudio. `reviewer` se
 conserva mientras existan referencias estructurales desde membresías, cuentas, categorías o clasificaciones del MVP. El
 despliegue no carga fixtures legacy de labels o instancias.
+
+### Manifiesto de cuentas
+
+Antes del despliegue, genera fuera de Docker el manifiesto de hashes de las cuentas con el mismo archivo de configuración
+del estudio que usará el bootstrap:
+
+```bash
+npm run credentials:generate -- \
+  --study-config /absolute/external/study-config.json \
+  --output /absolute/external/study-account-manifest.json
+chmod 0400 /absolute/external/study-account-manifest.json
+```
+
+El comando recibe una contraseña por participante mediante entrada estándar, o desde un descriptor indicado con
+`--password-fd`; no las guardes en `deployment/.env`. Configura únicamente la ruta absoluta del archivo generado:
+
+```dotenv
+STUDY_ACCOUNT_MANIFEST_HOST_PATH=/absolute/external/study-account-manifest.json
+```
+
+El manifiesto contiene hashes, debe permanecer con permiso `0400` y Compose lo monta en modo lectura solo para
+`labeling-study-prepare` como `/run/secrets/study-account-manifest.json`. `labeling-server` no recibe el archivo, su
+ruta ni contraseñas de participantes.
 
 ## Base limpia
 
@@ -33,9 +67,10 @@ Solo después de que ese servicio termine correctamente arranca `labeling-server
 docker compose --env-file deployment/.env -f deployment/docker-compose.yml up --build -d
 ```
 
-Abre `http://localhost:7755/login` después de que pase el health check del servidor. No uses `clean` con una base
-existente que aún contenga objetos legacy. La guarda se detiene antes del bootstrap y nunca los elimina
-automáticamente.
+Abre `https://labeler.example.org/login` después de que Caddy pase a depender del health check del servidor. Caddy es
+el único borde público y publica 80 y 443; no se publica ningún puerto de la aplicación o PostgreSQL. No uses
+`clean` con una base existente que aún contenga objetos legacy. La guarda se detiene antes del bootstrap y nunca los
+elimina automáticamente.
 
 ## Retiro con base existente
 
@@ -50,7 +85,13 @@ LEGACY_RETIREMENT_CONFIRM=retire-legacy-labeler
 LEGACY_BACKUP_DIRECTORY=/absolute/external/backup/directory
 LEGACY_BACKUP_ARCHIVE_FILE=legacy.dump
 LEGACY_BACKUP_MANIFEST_FILE=legacy.manifest.json
+PGPASSFILE_HOST_PATH=/absolute/external/legacy-retirement.pgpass
 ```
+
+`PGPASSFILE_HOST_PATH` apunta a un passfile externo protegido que Compose monta solo en
+`labeling-study-prepare` durante la ruta de retiro. Para el launcher de rollback de solo
+lectura, configura también `ROLLBACK_DATABASE_PASSWORD_HOST_PATH` con el archivo externo de
+la contraseña del rol `labeling_readonly`; no uses una variable de contraseña inline.
 
 La secuencia protegida tiene estas fases:
 

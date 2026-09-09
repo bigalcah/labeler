@@ -16,13 +16,14 @@ GITHUB_ENRICHMENT_ENABLED=true
 GITHUB_API_BASE=https://api.github.com
 GITHUB_API_VERSION=2022-11-28
 GITHUB_DEFAULT_ALIAS=default
-GITHUB_CREDENTIAL_ALIASES={"default":{"tokenEnv":"GITHUB_TOKEN","permissions":["metadata","pulls","contents","issues"]}}
-GITHUB_TOKEN=<read-only-token-from-secret-store>
+GITHUB_CREDENTIAL_ALIASES={"default":{"tokenFile":"/run/secrets/github-token","permissions":["metadata","pulls","contents","issues"]}}
+GITHUB_TOKEN_HOST_PATH=/absolute/external/github-token
 ```
 
 Los permisos declarados son la frontera mínima del cliente: metadata del repositorio,
 pull requests, contenido/archivos e issues/comentarios. El token se monta o expone solo
-al proceso prepare y nunca se persiste en páginas normalizadas, snapshots, logs o errores.
+al proceso prepare desde `GITHUB_TOKEN_HOST_PATH` y nunca se persiste en páginas
+normalizadas, snapshots, logs o errores.
 El perfil debe declarar exactamente una fuente de secreto: `tokenEnv` o `tokenFile`,
 pero nunca ambas. La validación falla antes de cualquier solicitud con códigos
 sanitizados `INVALID_PROFILE`, `CREDENTIAL_NOT_FOUND` o
