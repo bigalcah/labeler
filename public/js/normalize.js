@@ -1,0 +1,7 @@
+window.normalize = name => {
+    const coalesced = name ?? "";
+    const normalized = coalesced.replaceAll(/\s+/g, " ");
+    const lowercase = normalized.toLowerCase();
+    const trimmed = lowercase.trim();
+    return trimmed.length === 0 ? null : trimmed;
+};

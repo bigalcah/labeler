@@ -24,7 +24,7 @@
 
                     <nav class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3" aria-label="Card navigation">
                         <% if (navigation?.previousId) { %>
-                            <a class="btn btn-outline-secondary" href="/<%= encodeURIComponent(participant.name) %>/queue/<%= encodeURIComponent(navigation.previousId) %>">
+                            <a class="btn btn-outline-secondary" href="/queue/<%= encodeURIComponent(navigation.previousId) %>">
                                 <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Previous
                             </a>
                         <% } else { %>
@@ -34,7 +34,7 @@
                         <% } %>
                         <span class="badge rounded-pill text-bg-light border">Card <%= card.ordinal + 1 %> of <%= total %></span>
                         <% if (navigation?.nextId) { %>
-                            <a class="btn btn-outline-secondary" href="/<%= encodeURIComponent(participant.name) %>/queue/<%= encodeURIComponent(navigation.nextId) %>">
+                            <a class="btn btn-outline-secondary" href="/queue/<%= encodeURIComponent(navigation.nextId) %>">
                                 Next<i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
                             </a>
                         <% } else { %>
@@ -63,22 +63,40 @@
                         <section class="card mt-3" aria-labelledby="classification-title">
                             <div class="card-body">
                                 <h2 class="h5" id="classification-title">Main cause of rework or extra effort</h2>
-                                <form action="/<%= encodeURIComponent(participant.name) %>/queue/<%= encodeURIComponent(card.id) %>/classify"
+                                <form action="/queue/<%= encodeURIComponent(card.id) %>/classify"
                                       method="post">
+                                    <input type="hidden" name="csrf_token" value="<%= locals.csrfToken %>">
                                     <input type="hidden" name="expected_revision" value="<%= card.revision || 0 %>">
                                     <label class="form-label" for="category-id">Personal category</label>
                                     <div class="input-group mb-3">
                                         <select id="category-id" name="category_id" class="form-select" required>
                                             <option value="" <%= card.category_id ? "" : "selected" %> disabled>Select or create a category...</option>
                                             <% categories.forEach(category => { %>
-                                                <option value="<%= category.id %>" <%= category.id === card.category_id ? "selected" : "" %>><%= category.raw_name %></option>
+                                                <option value="<%= category.id %>" data-category-updated-at="<%= category.updated_at ? new Date(category.updated_at).toISOString() : "" %>" <%= category.id === card.category_id ? "selected" : "" %>><%= category.raw_name %></option>
                                             <% }); %>
                                         </select>
                                         <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal"
                                                 data-bs-target="#new-category-modal">
                                             New category
                                         </button>
-                                    </div>
+                                     </div>
+                                    <section class="mt-3" aria-labelledby="category-management-title">
+                                        <h3 class="h6" id="category-management-title">Manage personal categories</h3>
+                                        <ul class="list-group" id="category-management-list">
+                                            <% categories.forEach(category => { %>
+                                                <li class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+                                                    <span data-category-label="<%= category.id %>"><%= category.raw_name %></span>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-category-rename
+                                                            data-category-id="<%= category.id %>"
+                                                            data-category-version="<%= category.updated_at ? new Date(category.updated_at).toISOString() : "" %>"
+                                                            data-category-name="<%= category.raw_name %>"
+                                                            data-bs-toggle="modal" data-bs-target="#rename-category-modal">
+                                                        Rename <span class="visually-hidden"><%= category.raw_name %></span>
+                                                    </button>
+                                                </li>
+                                            <% }); %>
+                                        </ul>
+                                    </section>
                                     <label class="form-label" for="remarks">Observation (optional)</label>
                                     <textarea id="remarks" name="remarks" class="form-control mb-3" rows="4"
                                               placeholder="Why does this category describe the main cause?"><%= card.remarks || "" %></textarea>
@@ -94,9 +112,10 @@
                                 <div class="card-body">
                                     <h2 class="h5" id="discard-title">Cannot classify this card?</h2>
                                     <p class="text-muted">Discarding is private to <%= participant.name %> and does not remove the card for other participants.</p>
-                                    <form action="/<%= encodeURIComponent(participant.name) %>/queue/<%= encodeURIComponent(card.id) %>/discard"
-                                          method="post" onsubmit="return window.confirm('Discard this card for your participant?');">
-                                        <input type="hidden" name="expected_revision" value="<%= card.revision || 0 %>">
+                                     <form action="/queue/<%= encodeURIComponent(card.id) %>/discard"
+                                           method="post" data-confirm-discard="Discard this card for your participant?">
+                                         <input type="hidden" name="csrf_token" value="<%= locals.csrfToken %>">
+                                         <input type="hidden" name="expected_revision" value="<%= card.revision || 0 %>">
                                         <label class="form-label" for="discard-reason">Reason (optional)</label>
                                         <textarea id="discard-reason" name="reason" class="form-control mb-3" rows="2"
                                                   placeholder="Optional private reason"></textarea>
@@ -117,7 +136,8 @@
                                         <h2 class="modal-title h5" id="new-category-title">New personal category</h2>
                                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                                     </div>
-                                    <form id="new-category-form">
+                                     <form id="new-category-form" data-category-action="/categories">
+                                         <input type="hidden" name="csrf_token" value="<%= locals.csrfToken %>">
                                         <div class="modal-body">
                                             <label class="form-label" for="category-name">Name</label>
                                             <input id="category-name" class="form-control" required maxlength="160">
@@ -133,11 +153,38 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="modal fade" id="rename-category-modal" tabindex="-1" aria-labelledby="rename-category-title">
+                            <div class="modal-dialog">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h2 class="modal-title h5" id="rename-category-title">Rename personal category</h2>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                    </div>
+                                    <form id="rename-category-form" data-category-action="/categories">
+                                        <input type="hidden" name="csrf_token" value="<%= locals.csrfToken %>">
+                                        <input type="hidden" name="category_id">
+                                        <input type="hidden" name="expected_updated_at">
+                                        <div class="modal-body">
+                                            <label class="form-label" for="rename-category-name">Name</label>
+                                            <input id="rename-category-name" name="name" class="form-control" required maxlength="160"
+                                                   aria-describedby="rename-category-error">
+                                            <div id="rename-category-error" class="text-danger mt-2 d-none" role="alert">
+                                                This category name is already in use or could not be saved.
+                                            </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                            <button type="submit" class="btn btn-primary">Save category name</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
                     <% } %>
                 <% } else if (participant) { %>
                     <h1 class="text-center mb-3">Classification queue complete</h1>
                     <p class="text-center">You classified or discarded every card in your private queue.</p>
-                    <div class="text-center"><a class="btn btn-outline-primary" href="/progress?participant=<%= encodeURIComponent(participant.name) %>">View private progress</a></div>
+                    <div class="text-center"><a class="btn btn-outline-primary" href="/progress">View private progress</a></div>
                 <% } else { %>
                     <h1 class="text-center mb-3">Select a participant from the login page</h1>
                     <%- include('./partials/home-button'); %>
@@ -146,28 +193,7 @@
         </main>
         <%- include('./partials/footer'); %>
         <%- include('./partials/scripts/bootstrap'); %>
-        <% if (participant && card && card.status !== "DISCARDED") { %>
-            <script>
-                const categoryForm = document.getElementById("new-category-form");
-                categoryForm.addEventListener("submit", async event => {
-                    event.preventDefault();
-                    const error = document.getElementById("category-error");
-                    error.classList.add("d-none");
-                    const response = await fetch("/<%= encodeURIComponent(participant.name) %>/categories", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ name: document.getElementById("category-name").value }),
-                    });
-                    if (!response.ok) {
-                        error.classList.remove("d-none");
-                        return;
-                    }
-                    const category = await response.json();
-                    document.getElementById("category-id").add(new Option(category.raw_name, category.id, true, true));
-                    bootstrap.Modal.getInstance(document.getElementById("new-category-modal")).hide();
-                    categoryForm.reset();
-                });
-            </script>
-        <% } %>
+        <script src="/js/review.js"></script>
+        <script src="/js/pr-card.js"></script>
     </body>
 </html>

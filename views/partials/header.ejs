@@ -20,25 +20,9 @@
                         <a class="nav-link" href="/">Home</a>
                     </li>
                     <%
-                        const participantName = locals.participant?.name
-                            ? encodeURIComponent(locals.participant.name)
-                            : "";
                         const links = [
-                            [
-                                `/instances${participantName ? `?participant=${participantName}` : ""}`,
-                                "PR cards",
-                                locals.path === "/instances" && locals.status !== "pending",
-                            ],
-                            [
-                                `/instances?status=pending${participantName ? `&participant=${participantName}` : ""}`,
-                                "Pending cards",
-                                locals.path === "/instances" && locals.status === "pending",
-                            ],
-                            [
-                                `/progress${participantName ? `?participant=${participantName}` : ""}`,
-                                "Progress",
-                                locals.path === "/progress",
-                            ],
+                            [ "/queue", "PR cards", locals.path === "/queue" ],
+                            [ "/progress", "Progress", locals.path === "/progress" ],
                         ];
                         links.forEach(([ link, name, active ]) => {
                             const classes = active ? "nav-link active" : "nav-link";
@@ -55,6 +39,12 @@
                         <i class="bi bi-person-fill"></i>
                         <span><%- locals.participant.name %></span>
                     </div>
+                <% } %>
+                <% if (locals.sessionContext && locals.csrfToken) { %>
+                    <form class="ms-lg-3 py-2" action="/logout" method="post">
+                        <input type="hidden" name="csrf_token" value="<%= locals.csrfToken %>">
+                        <button class="btn btn-outline-secondary" type="submit">Log out</button>
+                    </form>
                 <% } %>
             </div>
         </div>

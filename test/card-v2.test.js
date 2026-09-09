@@ -60,6 +60,7 @@ test("participant card renders safe local evidence without raw payload or unsafe
     assert.doesNotMatch(rendered, /javascript:alert|must not reach card_v2|<script>alert/);
     assert.match(rendered, /CHANGES_REQUESTED/);
     assert.match(rendered, /line two/);
+    assert.match(rendered, /pr-status-open[^>]*>OPEN<\/span>/);
 });
 
 test("CardV2 template-render regression: Timeline and supplementary_activity evidence sections must not appear; Commits metric and review-event count must remain", async () => {

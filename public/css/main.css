@@ -122,8 +122,8 @@ a[target="_blank"] {
 }
 
 .pr-status-open {
-    background: #cfe2ff;
-    color: #0b3d91!important;
+    background: #0f3d75;
+    color: #fff!important;
 }
 
 .pr-status-unknown {

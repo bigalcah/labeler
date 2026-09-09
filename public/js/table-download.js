@@ -1,0 +1,30 @@
+const download = (id, separator = ",") => {
+    const selector = `table#${id} > :not(tfoot):not(caption) > tr`;
+    const csv = [...document.querySelectorAll(selector)].map(row => {
+        const columns = [...row.querySelectorAll("td, th")].map(column => {
+            const data = column.innerText.replace(/(\r\n|\n|\r)/gm, "")
+                .replace(/(\s\s)/gm, " ")
+                .replace(/"/g, "\"\"");
+            return `"${data}"`;
+        });
+        return columns.join(separator);
+    }).reduce((accumulator, current) => `${accumulator}${current}\n`, "");
+    const date = new Date().toISOString().replace(/T.*/, "").split("-").reverse().join("-");
+    const filename = `${id}-${date}.csv`;
+    const href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
+    const link = document.createElement("a");
+    link.style.display = "none";
+    link.setAttribute("href", href);
+    link.setAttribute("download", filename);
+    link.setAttribute("target", "_blank");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
+for (const element of document.querySelectorAll("table caption a")) {
+    element.addEventListener("click", event => {
+        event.preventDefault();
+        download(element.dataset.target);
+    });
+}
