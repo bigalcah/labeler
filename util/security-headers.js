@@ -13,13 +13,17 @@ const CONTENT_SECURITY_POLICY = [
     "style-src-attr 'none'",
 ].join("; ");
 
-const createSecurityHeadersMiddleware = () => (_req, res, next) => {
+const createSecurityHeadersMiddleware = ({nodeEnv = process.env.NODE_ENV || "development"} = {}) => (req, res, next) => {
     res.set({
+        "Cache-Control": "no-store",
         "Content-Security-Policy": CONTENT_SECURITY_POLICY,
         "Referrer-Policy": "no-referrer",
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
     });
+    if (nodeEnv === "production" && req.secure) {
+        res.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains");
+    }
     next();
 };
 

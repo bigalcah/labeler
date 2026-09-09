@@ -93,7 +93,7 @@ export const createApp = async ({
         res.locals.renderSafeMarkdown = renderSafeMarkdown;
         next();
     });
-    app.use(createSecurityHeadersMiddleware());
+    app.use(createSecurityHeadersMiddleware({nodeEnv}));
     app.use(asyncHandler(createMutationSecurityMiddleware({
         pool,
         clock,

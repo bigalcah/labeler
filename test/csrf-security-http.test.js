@@ -46,11 +46,20 @@ const sessionMiddleware = sessions => (req, res, next) => {
     next();
 };
 
-const startServer = async ({pool, sessions = new Map([["session-a", {token: tokenA}]])} = {}) => {
+const startServer = async ({
+    pool,
+    sessions = new Map([["session-a", {token: tokenA}]]),
+    nodeEnv = "development",
+    trustProxyHops = 0,
+    middleware = [],
+} = {}) => {
     const app = await createApp({
         pool,
         sessionMiddleware: sessionMiddleware(sessions),
+        sessionPolicy: {trustProxyHops},
+        nodeEnv,
         originPolicy: {nodeEnv: "production", appOrigin: "https://study.example"},
+        middleware,
     });
     const server = app.listen(0);
     await once(server, "listening");
@@ -124,11 +133,68 @@ test("rendered login responses include CSP and views have no inline scripts or h
         assert.equal(response.status, 200);
         assert.match(response.headers.get("content-security-policy") || "", /default-src 'self'/);
         assert.doesNotMatch(response.headers.get("content-security-policy") || "", /unsafe-(?:inline|eval)/);
+        assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+        assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+        assert.equal(response.headers.get("x-frame-options"), "DENY");
+        assert.match(response.headers.get("cache-control") || "", /\bno-store\b/);
         assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?<\/script>/i);
         assert.doesNotMatch(review, /onsubmit\s*=/i);
         assert.doesNotMatch(review, /<script\s*>/i);
         assert.doesNotMatch(card, /<script\s*>/i);
     } finally {
         await closeServer(server);
+    }
+});
+
+test("authenticated private responses are not stored", async () => {
+    const pool = new SecurityPool();
+    const server = await startServer({
+        pool,
+        middleware: [(req, res, next) => {
+            if (req.path !== "/private-test") return next();
+            if (!req.sessionContext) return res.sendStatus(401);
+            return res.type("text/plain").send("private response");
+        }],
+    });
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    try {
+        const response = await fetch(`${baseUrl}/private-test`, {
+            headers: {cookie: "__Host-session=session-a"},
+        });
+
+        assert.equal(response.status, 200);
+        assert.match(response.headers.get("cache-control") || "", /\bno-store\b/);
+    } finally {
+        await closeServer(server);
+    }
+});
+
+test("HSTS is sent only for production requests received through HTTPS", async () => {
+    const developmentServer = await startServer({
+        pool: new SecurityPool(),
+        nodeEnv: "development",
+        trustProxyHops: 1,
+    });
+    const productionServer = await startServer({
+        pool: new SecurityPool(),
+        nodeEnv: "production",
+        trustProxyHops: 1,
+    });
+    const developmentUrl = `http://127.0.0.1:${developmentServer.address().port}`;
+    const productionUrl = `http://127.0.0.1:${productionServer.address().port}`;
+
+    try {
+        const [developmentHttps, productionHttp, productionHttps] = await Promise.all([
+            fetch(`${developmentUrl}/login`, {headers: {"x-forwarded-proto": "https"}}),
+            fetch(`${productionUrl}/login`),
+            fetch(`${productionUrl}/login`, {headers: {"x-forwarded-proto": "https"}}),
+        ]);
+
+        assert.equal(developmentHttps.headers.get("strict-transport-security"), null);
+        assert.equal(productionHttp.headers.get("strict-transport-security"), null);
+        assert.match(productionHttps.headers.get("strict-transport-security") || "", /max-age=\d+/i);
+    } finally {
+        await Promise.all([closeServer(developmentServer), closeServer(productionServer)]);
     }
 });
