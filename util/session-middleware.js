@@ -1,8 +1,16 @@
-import {randomBytes} from "node:crypto";
+import {createHmac, randomBytes, timingSafeEqual} from "node:crypto";
 import {ABSOLUTE_TTL_MS, IDLE_TTL_MS, SESSION_COOKIE} from "./production-config.js";
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const SESSION_TAG_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const SESSION_TAG_BYTES = 32;
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const DEFAULT_POLICY = Object.freeze({
+    sessionCookie: SESSION_COOKIE,
+    idleTtlMs: IDLE_TTL_MS,
+    absoluteTtlMs: ABSOLUTE_TTL_MS,
+    getSessionSecrets: () => [],
+});
 
 const readCookie = (header, name) => {
     if (typeof header !== "string") return null;
@@ -18,6 +26,28 @@ const readCookie = (header, name) => {
 const asDate = value => {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const getSessionSecrets = policy => typeof policy.getSessionSecrets === "function"
+    ? policy.getSessionSecrets()
+    : [];
+
+const signSessionId = (sessionId, secret) => createHmac("sha256", secret)
+    .update(sessionId, "ascii")
+    .digest();
+
+const verifySessionCookie = (cookieValue, policy) => {
+    const parts = cookieValue.split(".");
+    if (parts.length !== 2) return null;
+    const [sessionId, tag] = parts;
+    if (!SESSION_ID_PATTERN.test(sessionId) || !SESSION_TAG_PATTERN.test(tag)) return null;
+    const receivedTag = Buffer.from(tag, "base64url");
+    if (receivedTag.length !== SESSION_TAG_BYTES || receivedTag.toString("base64url") !== tag) return null;
+    for (const secret of getSessionSecrets(policy)) {
+        const expectedTag = signSessionId(sessionId, secret);
+        if (timingSafeEqual(expectedTag, receivedTag)) return sessionId;
+    }
+    return null;
 };
 
 const isValidSession = ({session, now, policy}) => {
@@ -59,37 +89,39 @@ const loadSession = async ({pool, sessionId}) => {
 
 const createSessionId = () => randomBytes(32).toString("base64url");
 
-const readSessionCookie = (request, policy = {sessionCookie: SESSION_COOKIE}) => {
-    const sessionId = readCookie(request.headers.cookie, policy.sessionCookie.name);
-    return SESSION_ID_PATTERN.test(sessionId || "") ? sessionId : null;
+const readSessionCookie = (request, policy = DEFAULT_POLICY) => {
+    const cookieValue = readCookie(request.headers.cookie, policy.sessionCookie.name);
+    return cookieValue === null ? null : verifySessionCookie(cookieValue, policy);
 };
 
-const setSessionCookie = (response, sessionId, policy = {sessionCookie: SESSION_COOKIE}) => {
+const setSessionCookie = (response, sessionId, policy = DEFAULT_POLICY) => {
+    const [currentSecret] = getSessionSecrets(policy);
+    if (!currentSecret) throw new Error("Session signing key unavailable");
+    if (!SESSION_ID_PATTERN.test(sessionId)) throw new Error("Invalid session ID");
     const {name, ...options} = policy.sessionCookie;
-    response.cookie(name, sessionId, options);
+    const tag = signSessionId(sessionId, currentSecret).toString("base64url");
+    response.cookie(name, `${sessionId}.${tag}`, options);
 };
 
 const destroySession = async ({pool, sessionId}) => {
     await pool.query("DELETE FROM app_session WHERE session_id = $1", [ sessionId ]);
 };
 
-const clearSessionCookie = (response, policy = {sessionCookie: SESSION_COOKIE}) => {
+const clearSessionCookie = (response, policy = DEFAULT_POLICY) => {
     const {name, ...options} = policy.sessionCookie;
     response.clearCookie(name, options);
 };
 
 const createSessionMiddleware = ({pool, clock = () => new Date(), policy = {
-    sessionCookie: SESSION_COOKIE,
-    idleTtlMs: IDLE_TTL_MS,
-    absoluteTtlMs: ABSOLUTE_TTL_MS,
+    ...DEFAULT_POLICY,
 }} = {}) => async (req, res, next) => {
     req.sessionContext = null;
     res.locals.sessionContext = null;
     req.csrfToken = null;
     res.locals.csrfToken = null;
     req.touchSession = null;
-    const sessionId = readCookie(req.headers.cookie, policy.sessionCookie.name);
-    if (!SESSION_ID_PATTERN.test(sessionId || "")) return next();
+    const sessionId = readSessionCookie(req, policy);
+    if (!sessionId) return next();
     try {
         const now = asDate(clock());
         const session = await loadSession({pool, sessionId});
