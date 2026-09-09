@@ -52,6 +52,31 @@ Las migraciones gestionadas son `001_study_foundation`, `003_private_pr_discard`
 
 **IMPLEMENTED-UNVERIFIED:** no se verificó una base real, su ledger, restricciones o transacciones.
 
+## Retiro escalonado de `reviewer` y objetos legacy
+
+**PLANNED, contrato operativo:** el retiro legacy es posterior, explícito y por etapas. El MVP convive con objetos
+legacy mientras existan consumidores, datos por preservar o dependencias estructurales. No hay eliminación automática en
+este cambio.
+
+Las fases son:
+
+1. Aislar el flujo nuevo con `study`, `study_participant`, `study_card`, `pr_cards`, cuentas, sesiones, categorías y
+   clasificaciones privadas, sin sembrar fixtures legacy.
+2. Inventariar rutas, vistas, scripts, exports, SQL, funciones, vistas PostgreSQL y claves foráneas que todavía consumen
+   objetos legacy.
+3. En modo `clean`, fallar ante cualquier objeto legacy inventariado. Esta ruta solo acepta una base sin legacy y no
+   ejecuta `DROP`, `DELETE` ni limpieza automática.
+4. En modo `existing`, exigir backup externo verificable, manifiesto con checksum, identidad de base y confirmación
+   explícita antes de cualquier retiro permitido.
+5. Retirar solo consumidores y objetos autorizados por inventario. `reviewer` se conserva mientras existan referencias
+   desde membresías, cuentas, categorías, clasificaciones u otras tablas del MVP.
+6. Considerar la eliminación final de objetos restantes solo en cambios posteriores, después de demostrar ausencia de
+   consumidores y de referencias, con rollback documentado hacia una base separada o aprobada.
+
+Los criterios mínimos para avanzar entre fases son inventario completo, backup legible y verificable, confirmación
+operativa, allowlist de objetos autorizados, rollback probado fuera del volumen de producción y evidencia de que las
+clasificaciones, cuentas, tarjetas y membresías existentes se preservan.
+
 ## Prepare y runtime
 
 **VERIFIED, alcance estático:** Compose define `labeling-database`, `labeling-study-prepare` y `labeling-server`, la

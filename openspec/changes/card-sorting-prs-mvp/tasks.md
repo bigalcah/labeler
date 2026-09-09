@@ -10,7 +10,7 @@ Las casillas reflejan trabajo verificado en la implementación actual, no solo d
 - [x] 1.4 Crear un comando reproducible de importación CSV y documentar su ejecución local.
 - [x] 1.5 Añadir migraciones para `study`, `study_participant` y `study_card` sin sembrar `label` o `instance` legacy.
 - [x] 1.6 Añadir restricciones e índices para membresía, IDs fuente y clasificación única junto a las restricciones ya existentes.
-- [ ] 1.7 Documentar el retiro escalonado de `reviewer` y de los objetos legacy, sin eliminarlos.
+- [x] 1.7 Documentar el retiro escalonado de `reviewer` y de los objetos legacy, sin eliminarlos.
 
 ## 2. Configuración y bootstrap
 
@@ -69,12 +69,12 @@ Las casillas reflejan trabajo verificado en la implementación actual, no solo d
 
 ## 7. Sesión, acceso y privacidad
 
-- [ ] 7.1 Integrar middleware de sesiones PostgreSQL con cookies Secure, HttpOnly y SameSite=Lax, sin `MemoryStore`. Cada solicitud protegida debe recargar cuenta y membresía, validar habilitación, versión, expiración idle de 8 horas y máximo absoluto de 24 horas, y rechazar fallos del store sin filtrar datos.
-- [ ] 7.2 Implementar login con dummy verify para usuarios inexistentes, límites persistentes de 5 fallos por cuenta y 20 intentos por IP en 15 minutos, desbloqueo temporal, regeneración de SID y respuestas no enumerables. Las pruebas deben cubrir éxito, credencial inválida, cuenta inexistente o deshabilitada, `429` con `Retry-After` y ausencia de sesión autenticada tras el límite.
-- [ ] 7.3 Sustituir el selector local por una interfaz accesible de login y logout. El login debe ser público y protegido contra CSRF; logout debe ser exclusivamente POST, destruir la sesión y limpiar la cookie; pruebas HTTP y de navegador deben demostrar que no se listan reviewers ni IDs internos.
-- [ ] 7.4 Migrar todas las operaciones de estudio a rutas canónicas derivadas de la sesión validada, sin nombres de participante en URL, query o formulario, preservando navegación por ordinal, exclusión privada de clasificaciones y descartes, continuación `303` y cola vacía. Probar que las rutas antiguas devuelven 404 y que una sesión no puede cambiar el estudio o participante mediante identificadores suministrados por el cliente.
-- [ ] 7.5 Proteger todas las mutaciones con tokens CSRF synchronizer ligados y rotados con la sesión, validación timing-safe y comprobación de Origin. Añadir CSP compatible con las vistas, eliminar scripts inline y `onsubmit`, y probar tokens ausentes, inválidos, cruzados, rotados y orígenes hostiles sin mutación en PostgreSQL.
-- [ ] 7.6 Permitir renombrar categorías solo dentro de la cuenta autenticada, con normalización, control de propiedad, preservación de clasificaciones y protección CSRF. Probar nombre duplicado, categoría ajena y participación concurrente, sin aceptar un `participant_id` del cliente.
+- [x] 7.1 Integrar middleware de sesiones PostgreSQL con cookies Secure, HttpOnly y SameSite=Lax, sin `MemoryStore`. Cada solicitud protegida debe recargar cuenta y membresía, validar habilitación, versión, expiración idle de 8 horas y máximo absoluto de 24 horas, y rechazar fallos del store sin filtrar datos.
+- [x] 7.2 Implementar login con dummy verify para usuarios inexistentes, límites persistentes de 5 fallos por cuenta y 20 intentos por IP en 15 minutos, desbloqueo temporal, regeneración de SID y respuestas no enumerables. Las pruebas deben cubrir éxito, credencial inválida, cuenta inexistente o deshabilitada, `429` con `Retry-After` y ausencia de sesión autenticada tras el límite.
+- [x] 7.3 Sustituir el selector local por una interfaz accesible de login y logout. El login debe ser público y protegido contra CSRF; logout debe ser exclusivamente POST, destruir la sesión y limpiar la cookie; pruebas HTTP y de navegador deben demostrar que no se listan reviewers ni IDs internos.
+- [x] 7.4 Migrar todas las operaciones de estudio a rutas canónicas derivadas de la sesión validada, sin nombres de participante en URL, query o formulario, preservando navegación por ordinal, exclusión privada de clasificaciones y descartes, continuación `303` y cola vacía. Probar que las rutas antiguas devuelven 404 y que una sesión no puede cambiar el estudio o participante mediante identificadores suministrados por el cliente.
+- [x] 7.5 Proteger todas las mutaciones con tokens CSRF synchronizer ligados y rotados con la sesión, validación timing-safe y comprobación de Origin. Añadir CSP compatible con las vistas, eliminar scripts inline y `onsubmit`, y probar tokens ausentes, inválidos, cruzados, rotados y orígenes hostiles sin mutación en PostgreSQL.
+- [x] 7.6 Permitir renombrar categorías solo dentro de la cuenta autenticada, con normalización, control de propiedad, preservación de clasificaciones y protección CSRF. Probar nombre duplicado, categoría ajena y participación concurrente, sin aceptar un `participant_id` del cliente.
 
 ## 8. Bootstrap y flujo privado
 

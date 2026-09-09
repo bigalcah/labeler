@@ -44,6 +44,14 @@ Alternativa descartada: fetch bajo demanda en la vista, porque rompe clasificaci
 
 Cada endpoint distinguirá completo, vacío, no disponible y truncado. Los límites documentados de GitHub se conservarán como truncamiento con conteos, no como falsa completitud. Los endpoints requeridos que fallen impedirán promoción; fallas opcionales se mostrarán como no disponibles.
 
+### Manifiesto de credenciales en preparación
+
+El bootstrap limpio requerirá un manifiesto de cuentas generado fuera de Docker con el mismo `studyKey` y participantes que la configuración de estudio. El archivo contendrá únicamente los hashes de contraseña exigidos por el contrato de cuentas, residirá en una ruta absoluta del host definida por `STUDY_ACCOUNT_MANIFEST_HOST_PATH`, tendrá permiso `0400` y se montará como solo lectura en `/run/secrets/study-account-manifest.json`.
+
+`labeling-study-prepare` recibirá `STUDY_ACCOUNT_MANIFEST_FILE=/run/secrets/study-account-manifest.json`; `labeling-server` no recibirá ni ese montaje ni esa variable. La preparación fallará antes de crear cuentas o iniciar el servidor si el archivo falta, no es regular, no conserva `0400` o no coincide con el estudio configurado. Las contraseñas en claro no se almacenarán en `.env`, en el manifiesto ni en los logs.
+
+Alternativa descartada: secreto estándar de Compose, porque el lector exige exactamente `0400` y los backends Compose no garantizan ese modo para archivos de secreto. Un bind mount de un archivo host `0400` y `:ro` preserva el contrato de permisos y evita escrituras desde el contenedor.
+
 ### Encabezados de evidencia con columnas estables
 
 Cada `summary` de evidencia usará el mismo patrón de tres columnas: título flexible, etiqueta de fuente/disponibilidad alineada al final y control de expansión de ancho fijo. El título podrá envolver sin desplazar la etiqueta ni superponerse con ella. El patrón será compartido por la evidencia CSV y GitHub y conservará esas tres responsabilidades en escritorio, tablet y móvil.
@@ -84,12 +92,13 @@ Antes de reutilizar el run existente se ejecutará un verificador de cobertura p
 
 ## Migration Plan
 
-1. Verificar cobertura y estado de promoción del run existente sin mutarlo.
-2. Añadir contrato/versionado, normalización y persistencia aditiva para los campos v2.
-3. Ejecutar captura nueva solo si el verificador demuestra que el run existente no es compatible.
-4. Promover atómicamente un run v2 completo antes de habilitarlo para el estudio.
-5. Activar el proyector y la vista v2, conservando una ruta de lectura del contrato anterior para rollback read-only.
-6. Validar aislamiento y payload HTML antes de permitir clasificación.
+1. Generar y proteger el manifiesto de credenciales fuera de Docker para la configuración de estudio elegida.
+2. Verificar cobertura y estado de promoción del run existente sin mutarlo.
+3. Añadir contrato/versionado, normalización y persistencia aditiva para los campos v2.
+4. Ejecutar captura nueva solo si el verificador demuestra que el run existente no es compatible.
+5. Promover atómicamente un run v2 completo antes de habilitarlo para el estudio.
+6. Activar el proyector y la vista v2, conservando una ruta de lectura del contrato anterior para rollback read-only.
+7. Validar aislamiento, manifiesto y payload HTML antes de permitir clasificación.
 
 Rollback: detener la activación v2 y volver a servir el snapshot/promoción anterior en modo read-only; no borrar runs ni reescribir decisiones.
 

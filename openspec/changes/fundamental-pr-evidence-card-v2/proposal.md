@@ -11,6 +11,7 @@ El CSV puede identificar los 300 PRs, pero deja incompletos campos fundamentales
 - Paginar localmente las secciones voluminosas, mantener el diff completo y los detalles profundos como acción explícita hacia GitHub.
 - No mostrar Timeline ni Commits como secciones de evidencia participante. Las revisiones sin cuerpo se conservarán para métricas y auditoría, pero no se presentarán con un placeholder explicativo.
 - Alinear consistentemente las etiquetas de fuente y disponibilidad (`CSV`, `Available`, `Truncated`, `Empty`, `Unavailable`) en una columna visual estable, separada del título y del control de expansión tanto en escritorio como en móvil.
+- Exigir un manifiesto de credenciales de participantes para el bootstrap limpio: un archivo generado fuera del contenedor, validado y de solo lectura, montado exclusivamente en el servicio de preparación.
 - Evitar que la tarjeta participante exponga payloads crudos, secretos, categorías, observaciones o progreso de otros participantes.
 - Instrumentar exclusivamente las nuevas capturas offline con un ledger versionado y append-only de eventos de intentos API, pausas y reanudaciones. El ledger permitirá demostrar qué respuestas se observaron, qué decisión de retry se tomó y si la cobertura telemétrica del run es completa, sin incorporarse al snapshot, `CardV2`, rutas web ni HTML participante.
 - **BREAKING**: separar visual y semánticamente “Muestra: CSV” de “Evidencia: snapshot GitHub” y retirar la exposición del payload CSV completo en la vista v2.
@@ -30,6 +31,7 @@ El CSV puede identificar los 300 PRs, pero deja incompletos campos fundamentales
 ## Impact
 
 - Afecta `util/github-pr-normalizer.js`, `util/github-pr-client.js`, `util/study-card-projection.js`, la persistencia de snapshots y la vista `views/partials/instance/data.ejs`.
+- Afecta `deployment/docker-compose.yml`, `deployment/.env.template` y la documentación operativa de bootstrap para suministrar el manifiesto de cuentas sin exponerlo al servidor web.
 - Requiere pruebas de contrato, proyección, renderizado, privacidad, cobertura de 300 tarjetas y estados de error/rate limit.
 - Requiere una migración aditiva para el ledger y un marcador nullable de versión telemétrica en cada run. Los runs existentes conservarán `NULL`, no se retrocompletarán y no quedarán invalidados como evidencia de contenido por esa ausencia.
 - El run completado `57e7fe7e-b503-4285-a734-dba40c9d2b42` deberá declarar `telemetry_status = NOT_INSTRUMENTED`, `event_count = 0` y conteos 403/429 desconocidos (`null`): esto demuestra ausencia de telemetría persistida, no ausencia de respuestas durante su ejecución.

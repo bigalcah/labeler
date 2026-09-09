@@ -1,6 +1,6 @@
 {
   "inventoryVersion": 1,
-  "inventorySha256": "9435fb778e2b45944b0e1519672b69b008a9fe35024ac511e7e2fb736c55a99d",
+  "inventorySha256": "d215654b69782a96a49c84b678e5f3cf650dfc4c16da3ef26227800e4c57ab63",
   "inventory": {
     "database": {
       "sources": [
@@ -139,16 +139,15 @@
         "pr_classification"
       ],
       "runtimePaths": [
-        "routes/instances/index.js",
-        "routes/instances/[id]/index.js",
-        "routes/[name]/queue/index.js",
-        "routes/[name]/queue/[id]/classify/index.js",
-        "routes/[name]/categories/index.js",
+        "routes/queue/index.js",
+        "routes/queue/[id]/index.js",
+        "routes/queue/[id]/classify/index.js",
+        "routes/queue/[id]/discard/index.js",
+        "routes/categories/index.js",
         "routes/progress/index.js",
-        "views/instances.ejs",
-        "views/instance.ejs",
         "views/review.ejs",
-        "views/progress.ejs"
+        "views/progress.ejs",
+        "views/partials/instance/data.ejs"
       ]
     }
   }

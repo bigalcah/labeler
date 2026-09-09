@@ -43,9 +43,12 @@
 - [x] 6.3 Implementar resume seguro: cero fetch antes de `retry_at`, `RESUME_STARTED` al continuar, mismo run/checksum/configuración/versiones compatibles y no repetición de tarjetas confirmadas.
 - [x] 6.4 Actualizar documentación operativa sobre clasificación HTTP, cobertura, ledger, límites API, rollback read-only y la imposibilidad de certificar telemetría histórica ausente.
 - [x] 6.5 Definir y documentar el contrato y los criterios de evidencia sanitizada para una futura captura controlada, verificándolos de forma determinista con fixtures y sin incluir credenciales ni respuestas crudas; la ejecución de la captura viva de las 300/300 tarjetas corresponde a la tarea 10.7 de `github-pr-api-enrichment`.
+- [ ] 6.6 Configurar `labeling-study-prepare` para montar un manifiesto de cuentas desde `STUDY_ACCOUNT_MANIFEST_HOST_PATH` en una ruta interna fija, exponer solo `STUDY_ACCOUNT_MANIFEST_FILE` al prepare y excluir ambos del servidor web.
+- [ ] 6.7 Actualizar la plantilla y documentación de despliegue para generar el manifiesto fuera de Docker, protegerlo con `0400`, configurar su ruta absoluta y no almacenar contraseñas de participantes en `.env`.
 
 ## 7. Verificación final
 
 - [x] 7.1 Ejecutar lint JavaScript, pruebas de normalización/proyección/renderizado/persistencia/telemetría/integración y el verificador determinista de las 300 tarjetas; corregir solo fallos introducidos por este cambio.
 - [x] 7.2 Verificar manualmente que la clasificación funciona sin red GitHub, que cada participante recibe la misma evidencia y que ningún payload privado aparece en HTML o logs.
 - [x] 7.3 Reconstruir y recrear `labeling-server` mediante el Compose normal, verificar en Playwright sobre `http://localhost:7755` que no aparecen Timeline, la sección Commits, reviews sin texto ni el placeholder, y confirmar que los badges conservan la alineación especificada en los tres viewports sin errores de consola.
+- [ ] 7.4 Añadir pruebas de configuración que rechacen un manifiesto ausente o expuesto al servidor web y validen el montaje read-only exclusivo del prepare.

@@ -36,3 +36,16 @@ El sistema SHALL conservar el origen de cada tarjeta y permitir que una futura c
 #### Scenario: Origen CSV
 - **WHEN** el estudio se crea desde el CSV
 - **THEN** cada tarjeta registra `CSV` como fuente y queda disponible para el proveedor GitHub aditivo
+
+### Requirement: Manifiesto de cuentas de participantes
+Una preparación de estudio limpia MUST recibir un manifiesto de credenciales que coincida exactamente con el `studyKey` y la lista ordenada de participantes configurados. El manifiesto SHALL ser un archivo regular con permiso `0400`, generado fuera del contenedor y montado como solo lectura únicamente para `labeling-study-prepare` en una ruta absoluta configurada mediante `STUDY_ACCOUNT_MANIFEST_FILE`. El servidor web MUST NOT recibir el archivo, su ruta ni contraseñas en claro.
+
+#### Scenario: Manifiesto válido en despliegue limpio
+- **WHEN** el manifiesto protegido coincide con la configuración del estudio
+- **THEN** la preparación crea las cuentas de participantes con los hashes declarados
+- **AND** el servidor inicia sin acceso al manifiesto
+
+#### Scenario: Manifiesto ausente o inválido
+- **WHEN** el manifiesto falta, no tiene permiso `0400`, no es un archivo regular o no coincide con el estudio configurado
+- **THEN** la preparación falla antes de crear cuentas de participantes
+- **AND** el servidor no inicia
