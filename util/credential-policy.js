@@ -26,6 +26,7 @@ const hasCentralPolicy = value => {
 };
 
 const createPasswordHash = password => argon2.hash(password, ARGON2ID_POLICY);
+const verifyPasswordHash = (passwordHash, password) => argon2.verify(passwordHash, password);
 const isValidPasswordHash = passwordHash => {
     if (typeof passwordHash !== "string") return false;
     const parts = passwordHash.split("$");
@@ -36,4 +37,4 @@ const isValidPasswordHash = passwordHash => {
     return salt !== null && salt.length >= 8 && digest !== null && digest.length === ARGON2ID_POLICY.hashLength;
 };
 
-export {ARGON2ID_POLICY, createPasswordHash, isValidPasswordHash};
+export {ARGON2ID_POLICY, createPasswordHash, isValidPasswordHash, verifyPasswordHash};

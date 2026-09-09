@@ -11,6 +11,7 @@ const SESSION_COOKIE = Object.freeze({
     sameSite: "lax",
     path: "/",
 });
+const DEFAULT_DEVELOPMENT_ORIGINS = Object.freeze(["http://localhost", "http://127.0.0.1"]);
 
 class ProductionConfigError extends Error {
     constructor(field) {
@@ -57,6 +58,7 @@ const freezePolicy = ({nodeEnv, appOrigin = null, trustProxyHops = 0, sessionSec
     const policy = {
         nodeEnv,
         appOrigin,
+        developmentOrigins: DEFAULT_DEVELOPMENT_ORIGINS,
         trustProxyHops,
         sessionCookie: SESSION_COOKIE,
         idleTtlMs: IDLE_TTL_MS,
@@ -150,7 +152,11 @@ const readProductionConfig = (environment = process.env, io = {readFileSync, sta
 };
 
 export {
+    ABSOLUTE_TTL_MS,
+    DEFAULT_DEVELOPMENT_ORIGINS,
+    IDLE_TTL_MS,
     ProductionConfigError,
     readProductionConfig,
+    SESSION_COOKIE,
     validateProductionConfig,
 };
