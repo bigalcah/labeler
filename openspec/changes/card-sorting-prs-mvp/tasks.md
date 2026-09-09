@@ -41,7 +41,7 @@ Las casillas reflejan trabajo verificado en la implementación actual, no solo d
 - [x] 4.4 Añadir estados vacíos explícitos para campos ausentes y tarjetas con evidencia incompleta.
 - [x] 4.5 Mantener temporalmente `/login` como selector local y cargar el progreso del participante seleccionado.
 - [x] 4.6 Crear y listar categorías planas únicamente para el participante seleccionado.
-- [ ] 4.7 Permitir renombrar una categoría propia sin exponer ni modificar categorías de otro participante.
+- [x] 4.7 Permitir renombrar una categoría propia sin exponer ni modificar categorías de otro participante.
 - [x] 4.8 Guardar una sola clasificación por PR y participante con observación opcional, de forma transaccional y reanudable.
 - [ ] 4.9 Entregar la cola desde `study_card`, aislar categorías, conteos y respuestas, y recuperar progreso por membresía.
 - [ ] 4.10 Verificar tres participantes con categorías similares, clasificación del mismo PR y aislamiento completo.
@@ -51,7 +51,7 @@ Las casillas reflejan trabajo verificado en la implementación actual, no solo d
 - [x] 5.1 Documentar el contrato que deberá implementar el proveedor GitHub para completar las mismas secciones de tarjeta.
 - [x] 5.2 Mantener `source_type` y campos de procedencia para distinguir CSV de futura API.
 - [x] 5.3 No añadir todavía tokens, webhooks, worker de API ni llamadas de red durante la clasificación.
-- [ ] 5.4 Añadir fixtures de proveedor que demuestren que una tarjeta futura puede incorporar commits, archivos, diff y timeline sin cambiar la vista.
+- [x] 5.4 Añadir fixtures de proveedor que demuestren que una tarjeta futura puede incorporar commits, archivos, diff y timeline sin cambiar la vista.
 - [x] 5.5 Ejecutar lint JavaScript focalizado y corregir errores introducidos.
 - [ ] 5.6 Verificar build, readiness, bootstrap y flujo selector → tarjeta → categoría → siguiente tarjeta.
 - [ ] 5.7 Verificar que cada participante recibe exactamente 300 tarjetas y no ve datos ajenos.
@@ -73,17 +73,17 @@ Las casillas reflejan trabajo verificado en la implementación actual, no solo d
 - [x] 7.2 Implementar login con dummy verify para usuarios inexistentes, límites persistentes de 5 fallos por cuenta y 20 intentos por IP en 15 minutos, desbloqueo temporal, regeneración de SID y respuestas no enumerables. Las pruebas deben cubrir éxito, credencial inválida, cuenta inexistente o deshabilitada, `429` con `Retry-After`, entradas de contraseña no textuales o ausentes y ausencia de sesión autenticada tras el límite.
 - [x] 7.3 Sustituir el selector local por una interfaz accesible de login y logout. El login debe ser público y protegido contra CSRF; logout debe ser exclusivamente POST, destruir la sesión y limpiar la cookie; pruebas HTTP y de navegador deben demostrar que no se listan reviewers ni IDs internos.
 - [x] 7.4 Migrar todas las operaciones de estudio a rutas canónicas derivadas de la sesión validada, sin nombres de participante en URL, query o formulario, preservando navegación por ordinal, exclusión privada de clasificaciones y descartes, continuación `303` y cola vacía. Probar que las rutas antiguas devuelven 404 y que una sesión no puede cambiar el estudio o participante mediante identificadores suministrados por el cliente.
-- [ ] 7.5 Proteger todas las mutaciones con tokens CSRF synchronizer ligados y rotados con la sesión, validación timing-safe y comprobación de Origin. Añadir CSP compatible con las vistas, eliminar scripts inline y `onsubmit`, corregir los clientes de integración para enviar Origin y CSRF válidos, y probar tokens ausentes, inválidos, cruzados, rotados y orígenes hostiles sin mutación en PostgreSQL.
+- [x] 7.5 Proteger todas las mutaciones con tokens CSRF synchronizer ligados y rotados con la sesión, validación timing-safe y comprobación de Origin. Añadir CSP compatible con las vistas, eliminar scripts inline y `onsubmit`, corregir los clientes de integración para enviar Origin y CSRF válidos, y probar tokens ausentes, inválidos, cruzados, rotados y orígenes hostiles sin mutación en PostgreSQL.
 - [x] 7.6 Permitir renombrar categorías solo dentro de la cuenta autenticada, con normalización, control de propiedad, preservación de clasificaciones y protección CSRF. Probar nombre duplicado, categoría ajena y participación concurrente, sin aceptar un `participant_id` del cliente.
 
 ## 8. Bootstrap y flujo privado
 
 - [ ] 8.1 Hacer que la preparación one-shot espere una base saludable, valide configuración, CSV y manifiesto antes de escribir, aplique migraciones aditivas y ejecute una sola transacción que cree o reutilice estudio, tarjetas y `study_participant`, provisione después las cuentas ausentes y valide todas las cuentas antes de confirmar `READY`. La aplicación debe depender del éxito de la preparación actual y Caddy solo debe arrancar después de la readiness interna; probar clean y existing con rollback completo del intento y preservación de cuentas, credenciales, tarjetas y clasificaciones existentes.
-- [ ] 8.2 Completar los estados vacíos e incompletos de tarjetas y evidencia sin inventar valores ni ejecutar HTML no confiable. Fixtures y pruebas deben distinguir presente, vacío, no disponible, truncado e incompleto y conservar el contrato de la vista.
+- [x] 8.2 Completar los estados vacíos e incompletos de tarjetas y evidencia sin inventar valores ni ejecutar HTML no confiable. Fixtures y pruebas deben distinguir presente, vacío, no disponible, truncado e incompleto y conservar el contrato de la vista.
 - [ ] 8.3 Encapsular cola, categorías, clasificaciones, descartes y progreso en un servicio de estudio y repositorios privados. Todas las consultas deben filtrar por `study_id` y `participant_id` de sesión, mantener transacciones y demostrar con pruebas que `CLASSIFIED` tiene una sola categoría y que cada participante recibe sus 300 tarjetas.
 - [ ] 8.4 Añadir fixtures sanitizados del proveedor con metadata, commits, archivos, diff y timeline, incluidos estados vacíos y truncados, sin tokens, correos ni red. Probar que normalización y proyección alimentan la misma vista y que la clasificación no realiza llamadas GitHub en runtime.
 - [ ] 8.5 Reconciliar el retiro legacy con el contrato aprobado: clean debe fallar ante objetos legacy sin eliminarlos, existing debe exigir backup externo verificable antes de cualquier retiro permitido, y el inventario debe conservar reviewer mientras existan referencias. Pruebas de allowlist, idempotencia y rollback deben confirmar ausencia de SQL destructivo no autorizado.
-- [ ] 8.6 Añadir una regresión visual del badge de ciclo de vida para `OPEN`, `CLOSED`, `MERGED` y `UNAVAILABLE`, con texto siempre visible, distinción que no dependa solo del color, contraste WCAG AA y verificación responsive en navegador.
+- [x] 8.6 Añadir una regresión visual del badge de ciclo de vida para `OPEN`, `CLOSED`, `MERGED` y `UNAVAILABLE`, con texto siempre visible, distinción que no dependa solo del color, contraste WCAG AA y verificación responsive en navegador.
 
 ## 9. Borde público y operación VPS
 
@@ -101,4 +101,4 @@ Las casillas reflejan trabajo verificado en la implementación actual, no solo d
 - [ ] 10.3 Ejecutar el E2E completo en el VPS público: TLS, login, categoría, renombrado, clasificación, descarte, siguiente tarjeta, progreso y logout, además de reinicios y conflictos clean/existing. La evidencia debe demostrar readiness, cookies, headers, límites y exposición exclusiva de 80/443, sin skips.
 - [ ] 10.4 Actualizar documentación y estado del cambio únicamente después de reunir evidencia de cada tarea. Verificar que README, seguridad, arquitectura, operaciones, desarrollo y OpenSpec describen el mismo contrato, y mantener abiertas las tareas que no tengan pruebas o evidencia runtime.
 - [x] 10.5 Añadir limpieza acotada de contextos CSRF, intentos por IP y sesiones expiradas, además de shutdown ordenado de servidor, pool y logs. Probar que el mantenimiento no elimina sesiones activas ni filtra secretos.
-- [ ] 10.6 Sustituir la construcción insegura de HTML en el resaltado cliente por nodos/texto escapados y añadir una regresión de navegador para contenido GitHub controlado por el usuario.
+- [x] 10.6 Sustituir la construcción insegura de HTML en el resaltado cliente por nodos/texto escapados y añadir una regresión de navegador para contenido GitHub controlado por el usuario.
