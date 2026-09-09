@@ -68,8 +68,10 @@ test("real database route uses injected pool and middleware dependencies", async
     let loggerSeen = false;
     const app = await createApp({
         pool,
-        sessionMiddleware: (_req, _res, next) => {
+        sessionMiddleware: (req, res, next) => {
             sessionSeen = true;
+            req.sessionContext = {studyId: "study-1", participantId: 1, participantKey: "alice"};
+            res.locals.sessionContext = req.sessionContext;
             next();
         },
         clock: () => new Date("2026-01-01T00:00:00.000Z"),
@@ -80,10 +82,12 @@ test("real database route uses injected pool and middleware dependencies", async
     });
     const server = await listen(app);
 
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/progress?participant=alice`);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/progress?participant=other&study_id=other`, {
+        headers: {cookie: "authenticated=true"},
+    });
     assert.equal(response.status, 200);
     assert.match(await response.text(), /alice/);
-    assert.equal(pool.queries.length, 3);
+    assert.equal(pool.queries.length, 1);
     assert.equal(sessionSeen, true);
     assert.equal(loggerSeen, true);
 
@@ -92,10 +96,17 @@ test("real database route uses injected pool and middleware dependencies", async
 });
 
 test("async database failure after an await reaches controlled error middleware", async () => {
-    const app = await createApp({pool: new FakePool({fail: true})});
+    const app = await createApp({
+        pool: new FakePool({fail: true}),
+        sessionMiddleware: (req, res, next) => {
+            req.sessionContext = {studyId: "study-1", participantId: 1, participantKey: "alice"};
+            res.locals.sessionContext = req.sessionContext;
+            next();
+        },
+    });
     const server = await listen(app);
 
-    const response = await fetch(`http://127.0.0.1:${server.address().port}/progress?participant=alice`);
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/progress`);
     assert.equal(response.status, 500);
     assert.match(await response.text(), /injected database failure/);
 
@@ -119,26 +130,26 @@ test("health and unregistered paths keep their HTTP contracts", async () => {
     assert.equal(server.listening, false);
 });
 
-test("queue returns 503 when the injected pool has no READY study", async () => {
+test("participant-prefixed queue is unregistered when the injected pool has no READY study", async () => {
     const app = await createApp({pool: new ReadyStudyPool([])});
     const server = await listen(app);
 
     try {
         const response = await fetch(`http://127.0.0.1:${server.address().port}/javier/queue`);
-        assert.equal(response.status, 503);
+        assert.equal(response.status, 404);
     } finally {
         await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     }
     assert.equal(server.listening, false);
 });
 
-test("queue returns 503 when the injected pool has multiple READY studies", async () => {
+test("participant-prefixed queue remains unregistered with multiple READY studies", async () => {
     const app = await createApp({pool: new ReadyStudyPool([{id: "study-1"}, {id: "study-2"}])});
     const server = await listen(app);
 
     try {
         const response = await fetch(`http://127.0.0.1:${server.address().port}/javier/queue`);
-        assert.equal(response.status, 503);
+        assert.equal(response.status, 404);
     } finally {
         await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     }

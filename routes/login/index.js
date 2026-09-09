@@ -1,42 +1,58 @@
 import HTTPStatus from "../../util/http-status.js";
-import {respondWithStudyRuntimeError, resolveReadyStudy} from "../../util/study-runtime.js";
+import {authenticateLogin} from "../../util/login-authentication.js";
+import {clearLoginCsrfCookie} from "../../util/csrf.js";
+import {readSessionCookie, setSessionCookie} from "../../util/session-middleware.js";
 
-export const get = async (req, res) => {
-    const pool = req.app.locals.dependencies.pool;
-    try {
-        const study = await resolveReadyStudy(pool);
-        const {rows: reviewers} = await pool.query(
-            `SELECT reviewer.id, reviewer.name
-             FROM study_participant
-             INNER JOIN reviewer ON reviewer.id = study_participant.reviewer_id
-             WHERE study_participant.study_id = $1
-             ORDER BY study_participant.ordinal`,
-            [ study.id ],
-        );
-        res.render("login", {reviewers});
-    } catch (error) {
-        if (!respondWithStudyRuntimeError(res, error)) throw error;
-    }
+const renderLogin = async ({req, res, authenticationFailed = false, csrfFailed = false, csrfToken = null}) => {
+    const {pool, clock, csrf} = req.app.locals.dependencies;
+    const context = csrfToken === null
+        ? await csrf.ensureLoginCsrfContext({pool, request: req, response: res, clock, createToken: csrf.createCsrfToken})
+        : {token: csrfToken};
+    res.render("login", {
+        authenticationFailed,
+        csrfFailed,
+        csrfToken: context.token,
+    });
 };
 
+export const get = async (req, res) => renderLogin({req, res});
+
 export const post = async (req, res) => {
-    const pool = req.app.locals.dependencies.pool;
-    try {
-        const study = await resolveReadyStudy(pool);
-        const {rows: [ participant ]} = await pool.query(
-            `SELECT reviewer.name
-             FROM study_participant
-             INNER JOIN reviewer ON reviewer.id = study_participant.reviewer_id
-             WHERE study_participant.study_id = $1
-               AND reviewer.id = $2`,
-            [ study.id, req.body?.id ],
-        );
-        if (!participant) {
-            res.status(HTTPStatus.NOT_FOUND).end();
-            return;
-        }
-        res.redirect(`/${encodeURIComponent(participant.name)}/queue`);
-    } catch (error) {
-        if (!respondWithStudyRuntimeError(res, error)) throw error;
+    const {pool, clock, sessionPolicy, passwordVerifier, csrf} = req.app.locals.dependencies;
+    const csrfValid = req.csrfValidated || await csrf.validateLoginCsrfToken({
+        pool,
+        request: req,
+        token: req.body?.csrf_token,
+        clock,
+    });
+    if (!csrfValid) {
+        res.status(HTTPStatus.FORBIDDEN);
+        await renderLogin({req, res, csrfFailed: true});
+        return;
     }
+    const result = await authenticateLogin({
+        pool,
+        username: req.body?.username,
+        password: req.body?.password,
+        clientIp: req.ip,
+        sessionId: readSessionCookie(req, sessionPolicy),
+        clock,
+        sessionPolicy,
+        passwordVerifier: passwordVerifier || undefined,
+        createCsrfToken: csrf.createCsrfToken,
+    });
+    if (result.kind === "authenticated") {
+        setSessionCookie(res, result.sessionId, sessionPolicy);
+        clearLoginCsrfCookie(res);
+        res.redirect("/");
+        return;
+    }
+    if (result.kind === "rate_limited") {
+        res.set("Retry-After", `${result.retryAfterSeconds}`);
+        res.status(HTTPStatus.TOO_MANY_REQUESTS);
+        await renderLogin({req, res, authenticationFailed: true, csrfToken: req.body?.csrf_token});
+        return;
+    }
+    res.status(HTTPStatus.UNAUTHORIZED);
+    await renderLogin({req, res, authenticationFailed: true, csrfToken: req.body?.csrf_token});
 };

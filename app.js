@@ -3,7 +3,6 @@ import express from "express";
 import paginate from "express-paginate";
 import actuator from "express-actuator";
 import minifyHTML from "express-minify-html-2";
-import {minify as minifyJS} from "uglify-js";
 import bodyParser from "body-parser";
 import {router} from "express-file-routing";
 import {fileURLToPath} from "url";
@@ -11,6 +10,11 @@ import path from "node:path";
 import {parse as parseUserAgent} from "useragent";
 import HTTPStatus from "./util/http-status.js";
 import {renderSafeMarkdown} from "./util/safe-markdown.js";
+import {createSessionMiddleware} from "./util/session-middleware.js";
+import {createCsrfToken, ensureLoginCsrfContext, validateLoginCsrfToken, validateSessionCsrfToken} from "./util/csrf.js";
+import {createMutationSecurityMiddleware} from "./util/mutation-security.js";
+import {createSecurityHeadersMiddleware} from "./util/security-headers.js";
+import {DEFAULT_DEVELOPMENT_ORIGINS} from "./util/production-config.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,22 +32,52 @@ const wrapAsyncRoutes = fileRouter => {
 
 export const createApp = async ({
     pool,
-    sessionMiddleware = noopMiddleware,
+    sessionMiddleware,
+    sessionPolicy,
+    passwordVerifier,
     clock = () => new Date(),
     logger = noopMiddleware,
     middleware = [],
+    csrf = {},
     nodeEnv = process.env.NODE_ENV || "development",
+    originPolicy = {},
 } = {}) => {
     const app = express();
+    const resolvedSessionMiddleware = sessionMiddleware || createSessionMiddleware({
+        pool,
+        clock,
+        policy: sessionPolicy,
+    });
 
     app.locals.pool = pool;
-    app.locals.sessionMiddleware = sessionMiddleware;
+    app.locals.sessionMiddleware = resolvedSessionMiddleware;
     app.locals.clock = clock;
     app.locals.logger = logger;
-    app.locals.dependencies = {pool, sessionMiddleware, clock, logger};
+    app.locals.dependencies = {
+        pool,
+        sessionMiddleware: resolvedSessionMiddleware,
+        sessionPolicy,
+        passwordVerifier,
+        clock,
+        logger,
+        csrf: {
+            createCsrfToken,
+            ensureLoginCsrfContext,
+            validateLoginCsrfToken,
+            validateSessionCsrfToken,
+            ...csrf,
+        },
+    };
+
+    const resolvedOriginPolicy = Object.freeze({
+        nodeEnv,
+        appOrigin: originPolicy.appOrigin ?? sessionPolicy?.appOrigin ?? null,
+        developmentOrigins: originPolicy.developmentOrigins ?? sessionPolicy?.developmentOrigins ?? DEFAULT_DEVELOPMENT_ORIGINS,
+    });
+    app.locals.originPolicy = resolvedOriginPolicy;
 
     app.use(logger);
-    app.use(sessionMiddleware);
+    app.use(resolvedSessionMiddleware);
     app.set("views", path.join(__dirname, "views"));
     app.set("view engine", "ejs");
 
@@ -58,6 +92,13 @@ export const createApp = async ({
         res.locals.renderSafeMarkdown = renderSafeMarkdown;
         next();
     });
+    app.use(createSecurityHeadersMiddleware());
+    app.use(asyncHandler(createMutationSecurityMiddleware({
+        pool,
+        clock,
+        csrf: app.locals.dependencies.csrf,
+        originPolicy: resolvedOriginPolicy,
+    })));
     app.use(
         minifyHTML({
             override: true,
@@ -71,21 +112,6 @@ export const createApp = async ({
             }
         })
     );
-    app.use((req, res, next) => {
-        const originalSend = res.send;
-        res.send = function (body) {
-            if (typeof body === "string") {
-                const minified = body.replace(
-                    /<script>([\s\S]*?)<\/script>/gi,
-                    (match, content) => `<script>${(minifyJS(content).code)}</script>`
-                );
-                originalSend.call(this, minified);
-            } else {
-                originalSend.call(this, body);
-            }
-        };
-        next();
-    });
     app.use(compression());
     app.use(actuator({basePath: "/actuator"}));
     middleware.forEach(configuredMiddleware => app.use(configuredMiddleware));

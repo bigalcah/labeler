@@ -11,8 +11,9 @@ import {ProductionConfigError, readProductionConfig} from "./util/production-con
 config();
 
 const nodeEnv = process.env.NODE_ENV || "development";
+let sessionPolicy;
 try {
-    readProductionConfig(process.env);
+    sessionPolicy = readProductionConfig(process.env);
 } catch (error) {
     if (error instanceof ProductionConfigError) {
         console.error(error.message);
@@ -51,7 +52,7 @@ if (process.exitCode !== 1) {
             }
         }
     });
-    const app = await createApp({pool, logger: (req, res, next) => {
+    const app = await createApp({pool, sessionPolicy, logger: (req, res, next) => {
         logger(req, res, () => fileLogger(req, res, next));
     }});
 
