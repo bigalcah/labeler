@@ -62,7 +62,7 @@ test("every Compose runtime has a read-only root filesystem and bounded writable
             assert.match(block, /^ {4}read_only:\s*true$/m, `${file}: ${serviceName}`);
             assert.match(
                 block,
-                /^ {4}tmpfs:\n(?:^ {6}- .*$\n)*?^ {6}- \/[^\n]*:rw(?=[^\n]*\bsize=\d+(?:[kmg]i?b)?\b)[^\n]*$/mi,
+                /^ {4}tmpfs:\n(?:^ {6}- .*$\n)*?^ {6}- \/[^\n]*:rw(?=[^\n]*\bsize=\d+(?:[kmg](?:i?b)?)?\b)[^\n]*$/mi,
                 `${file}: ${serviceName}`,
             );
         }
