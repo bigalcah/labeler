@@ -245,20 +245,31 @@ test("HSTS is sent only for production requests received through HTTPS", async (
         nodeEnv: "production",
         trustProxyHops: 1,
     });
+    const untrustedProductionServer = await startServer({
+        pool: new SecurityPool(),
+        nodeEnv: "production",
+    });
     const developmentUrl = `http://127.0.0.1:${developmentServer.address().port}`;
     const productionUrl = `http://127.0.0.1:${productionServer.address().port}`;
+    const untrustedProductionUrl = `http://127.0.0.1:${untrustedProductionServer.address().port}`;
 
     try {
-        const [developmentHttps, productionHttp, productionHttps] = await Promise.all([
+        const [developmentHttps, productionHttp, productionHttps, untrustedForwardedHttps] = await Promise.all([
             fetch(`${developmentUrl}/login`, {headers: {"x-forwarded-proto": "https"}}),
             fetch(`${productionUrl}/login`),
             fetch(`${productionUrl}/login`, {headers: {"x-forwarded-proto": "https"}}),
+            fetch(`${untrustedProductionUrl}/login`, {headers: {"x-forwarded-proto": "https"}}),
         ]);
 
         assert.equal(developmentHttps.headers.get("strict-transport-security"), null);
         assert.equal(productionHttp.headers.get("strict-transport-security"), null);
         assert.match(productionHttps.headers.get("strict-transport-security") || "", /max-age=\d+/i);
+        assert.equal(untrustedForwardedHttps.headers.get("strict-transport-security"), null);
     } finally {
-        await Promise.all([closeServer(developmentServer), closeServer(productionServer)]);
+        await Promise.all([
+            closeServer(developmentServer),
+            closeServer(productionServer),
+            closeServer(untrustedProductionServer),
+        ]);
     }
 });
