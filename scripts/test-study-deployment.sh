@@ -150,6 +150,7 @@ CADDY
 DATABASE_NAME=labeling_harness
 DATABASE_USER=labeling_harness
 DATABASE_PASSWORD_HOST_PATH=$runtime/database-password
+DATABASE_PASSWORD_DATABASE_HOST_PATH=$runtime/database-password-postgres
 SESSION_SECRET_CURRENT_HOST_PATH=$runtime/session-current
 SESSION_SECRET_PREVIOUS_HOST_PATH=$runtime/session-previous
 STUDY_ACCOUNT_MANIFEST_HOST_PATH=$runtime/study-account-manifest.json
