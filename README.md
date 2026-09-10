@@ -1,9 +1,68 @@
 # Labeler
 
-## Configuración de despliegue
+## Despliegue local y VPS
 
-Define únicamente la configuración no secreta y las rutas externas de secretos en
-`deployment/.env`:
+El despliegue requiere Docker Compose, Node.js/npm, OpenSSL y un directorio externo para
+secretos. Nunca guardes contraseñas, tokens, cookies ni secretos de sesión en el repositorio.
+
+### 1. Preparar secretos externos
+
+Usa rutas fuera del repositorio. El archivo que lee Node debe tener permiso `0400`; el archivo
+que lee PostgreSQL debe poder ser leído por el usuario `postgres` (UID 70 dentro de la imagen,
+por lo que `0444` es la opción portable para un bind mount local). Ambos archivos deben contener
+la misma contraseña de PostgreSQL. Si el volumen ya existe, conserva la contraseña con la que fue
+inicializado.
+
+```bash
+export LABELER_SECRETS="$HOME/.config/labeler/secrets"
+export LABELER_BACKUPS="$HOME/.config/labeler/backups"
+mkdir -p "$LABELER_SECRETS" "$LABELER_BACKUPS"
+chmod 700 "$HOME/.config/labeler" "$LABELER_SECRETS" "$LABELER_BACKUPS"
+
+read -r -s -p "Contraseña PostgreSQL existente: " DATABASE_PASSWORD
+printf '\n'
+printf '%s\n' "$DATABASE_PASSWORD" > "$LABELER_SECRETS/database-password"
+printf '%s\n' "$DATABASE_PASSWORD" > "$LABELER_SECRETS/database-password-postgres"
+unset DATABASE_PASSWORD
+chmod 0400 "$LABELER_SECRETS/database-password"
+chmod 0444 "$LABELER_SECRETS/database-password-postgres"
+
+openssl rand -hex 32 > "$LABELER_SECRETS/session-current"
+openssl rand -hex 32 > "$LABELER_SECRETS/session-previous"
+chmod 0400 "$LABELER_SECRETS/session-current" "$LABELER_SECRETS/session-previous"
+```
+
+### 2. Generar el manifiesto de cuentas
+
+El manifiesto se genera fuera de Docker y contiene únicamente hashes Argon2id. El archivo de
+contraseñas generado queda fuera del repositorio; sus líneas corresponden a `javier`, `diego` y
+`pablo`, en ese orden.
+
+```bash
+export LABELER_STUDY_CONFIG="$LABELER_SECRETS/study-config.json"
+export LABELER_ACCOUNT_PASSWORDS="$LABELER_SECRETS/account-passwords.json"
+export LABELER_ACCOUNT_MANIFEST="$LABELER_SECRETS/study-account-manifest.json"
+
+cat > "$LABELER_STUDY_CONFIG" <<'JSON'
+{"studyKey":"pr-card-sorting-local","expectedCardCount":300,"participants":["javier","diego","pablo"]}
+JSON
+
+node --input-type=module > "$LABELER_ACCOUNT_PASSWORDS" <<'NODE'
+import {randomBytes} from "node:crypto";
+process.stdout.write(JSON.stringify(Array.from({length: 3}, () => randomBytes(24).toString("base64url"))));
+NODE
+chmod 0400 "$LABELER_STUDY_CONFIG" "$LABELER_ACCOUNT_PASSWORDS"
+
+npm run credentials:generate -- \
+  --study-config "$LABELER_STUDY_CONFIG" \
+  --output "$LABELER_ACCOUNT_MANIFEST" \
+  < "$LABELER_ACCOUNT_PASSWORDS"
+chmod 0400 "$LABELER_ACCOUNT_MANIFEST"
+```
+
+### 3. Configurar `deployment/.env`
+
+Parte de la plantilla y reemplaza las rutas por las rutas absolutas reales:
 
 ```dotenv
 COMPOSE_PROJECT_NAME=labeling
@@ -11,50 +70,32 @@ COMPOSE_PROJECT_NAME=labeling
 DATABASE_NAME=labeling
 DATABASE_USER=labeling_admin
 DATABASE_PORT=5432
-PUBLIC_HOSTNAME=labeler.example.org
-APP_ORIGIN=https://labeler.example.org
+PUBLIC_HOSTNAME=localhost
+APP_ORIGIN=https://localhost
 DATABASE_PASSWORD_HOST_PATH=/absolute/external/database-password
 DATABASE_PASSWORD_DATABASE_HOST_PATH=/absolute/external/database-password-postgres
 SESSION_SECRET_CURRENT_HOST_PATH=/absolute/external/session-current
 SESSION_SECRET_PREVIOUS_HOST_PATH=/absolute/external/session-previous
+STUDY_ACCOUNT_MANIFEST_HOST_PATH=/absolute/external/study-account-manifest.json
+STUDY_DATABASE_MODE=clean
+GITHUB_ENRICHMENT_ENABLED=false
 ```
 
-Cada ruta de secreto debe ser absoluta, quedar fuera del repositorio y apuntar a un archivo
-protegido. `DATABASE_PASSWORD_HOST_PATH` debe ser legible por el usuario Node y
-`DATABASE_PASSWORD_DATABASE_HOST_PATH` por el usuario PostgreSQL del contenedor; ambos deben
-contener la misma contraseña. Compose monta la segunda como `POSTGRES_PASSWORD_FILE` y la
-primera como `DATABASE_PASS_FILE`. No guardes contraseñas, tokens, cookies ni secretos de sesión
-en `deployment/.env`.
+Puedes comenzar con `cp deployment/.env.template deployment/.env` y editar los valores. El
+archivo `deployment/.env` está ignorado por Git. `DATABASE_PASSWORD_HOST_PATH` debe ser legible
+por Node y `DATABASE_PASSWORD_DATABASE_HOST_PATH` por PostgreSQL; Compose monta la segunda como
+`POSTGRES_PASSWORD_FILE` y la primera como `DATABASE_PASS_FILE`.
 
 El bootstrap del estudio lee el CSV canónico de 300 tarjetas montado por Compose. Su configuración protegida crea o
 reutiliza los participantes mediante `reviewer`, persiste `pr_cards` y gobierna la membresía del estudio. `reviewer` se
 conserva mientras existan referencias estructurales desde membresías, cuentas, categorías o clasificaciones del MVP. El
 despliegue no carga fixtures legacy de labels o instancias.
 
-### Manifiesto de cuentas
+El manifiesto contiene hashes, debe permanecer con permiso `0400` y Compose lo monta solo en
+`labeling-study-prepare` como `/run/secrets/study-account-manifest.json`. `labeling-server` no
+recibe el archivo ni las contraseñas de participantes.
 
-Antes del despliegue, genera fuera de Docker el manifiesto de hashes de las cuentas con el mismo archivo de configuración
-del estudio que usará el bootstrap:
-
-```bash
-npm run credentials:generate -- \
-  --study-config /absolute/external/study-config.json \
-  --output /absolute/external/study-account-manifest.json
-chmod 0400 /absolute/external/study-account-manifest.json
-```
-
-El comando recibe una contraseña por participante mediante entrada estándar, o desde un descriptor indicado con
-`--password-fd`; no las guardes en `deployment/.env`. Configura únicamente la ruta absoluta del archivo generado:
-
-```dotenv
-STUDY_ACCOUNT_MANIFEST_HOST_PATH=/absolute/external/study-account-manifest.json
-```
-
-El manifiesto contiene hashes, debe permanecer con permiso `0400` y Compose lo monta en modo lectura solo para
-`labeling-study-prepare` como `/run/secrets/study-account-manifest.json`. `labeling-server` no recibe el archivo, su
-ruta ni contraseñas de participantes.
-
-## Base limpia
+### 4. Validar y levantar
 
 `STUDY_DATABASE_MODE` usa `clean` por defecto. Después de que PostgreSQL esté saludable, el servicio
 `labeling-study-prepare`:
@@ -64,16 +105,44 @@ ruta ni contraseñas de participantes.
 3. falla si encuentra cualquier objeto legacy;
 4. prepara los participantes configurados y las tarjetas PR canónicas solo si la guarda anterior pasó.
 
-Solo después de que ese servicio termine correctamente arranca `labeling-server`:
+Valida la interpolación antes de crear contenedores:
+
+```bash
+docker compose --env-file deployment/.env \
+  -f deployment/docker-compose.yml config --quiet
+```
+
+Levanta las imágenes y el stack:
 
 ```bash
 docker compose --env-file deployment/.env -f deployment/docker-compose.yml up --build -d
 ```
 
-Abre `https://labeler.example.org/login` después de que Caddy pase a depender del health check del servidor. Caddy es
-el único borde público y publica 80 y 443; no se publica ningún puerto de la aplicación o PostgreSQL. No uses
-`clean` con una base existente que aún contenga objetos legacy. La guarda se detiene antes del bootstrap y nunca los
-elimina automáticamente.
+Comprueba el resultado:
+
+```bash
+docker compose --env-file deployment/.env -f deployment/docker-compose.yml ps
+docker compose --env-file deployment/.env -f deployment/docker-compose.yml logs labeling-study-prepare
+curl --insecure --fail --silent --show-error https://localhost/login > /dev/null
+```
+
+El resultado esperado es `healthy` para `labeling-database`, `labeling-server` y
+`labeling-caddy`, `Study ... is READY` en la preparación y HTTP 200 para `/login`. En local Caddy
+usa un certificado interno, por eso `curl` necesita `--insecure`; en VPS se debe usar el hostname
+público y un certificado TLS confiable. Caddy es el único borde público y publica 80/443; no se
+publican los puertos de la aplicación ni PostgreSQL.
+
+Para detener el stack sin borrar datos:
+
+```bash
+docker compose --env-file deployment/.env -f deployment/docker-compose.yml down
+```
+
+No uses `down -v` sobre `labeling-data` salvo que hayas decidido borrar el volumen local.
+
+`clean` es la ruta correcta para una base nueva o para una base que ya no contiene objetos legacy;
+falla de forma segura si todavía encuentra objetos del etiquetador anterior. Si la base contiene
+objetos legacy reales, no uses `clean`: sigue la ruta `existing` de la sección siguiente.
 
 ## Retiro con base existente
 
