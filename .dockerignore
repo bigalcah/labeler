@@ -5,6 +5,7 @@
 
 deployment
 node_modules
+scripts/test-study-deployment.sh
 
 .gitignore
 .dockerignore
