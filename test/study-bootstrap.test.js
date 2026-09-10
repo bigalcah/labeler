@@ -37,10 +37,12 @@ const buildCredentialManifest = async config => ({
 });
 
 const createBootstrapPool = () => {
-    const state = {accounts: [], cards: new Map(), study: null, studyCards: [], participants: []};
+    const state = {accounts: [], cards: new Map(), classifications: [], study: null, studyCards: [], participants: []};
+    const queries = [];
     let nextCardId = 1;
     let nextParticipantId = 1;
     const query = async (sql, parameters = []) => {
+        queries.push(sql);
         if (sql.startsWith("SELECT migration_id")) {
             return {rows: [
                 {migration_id: "001_study_foundation"},
@@ -116,7 +118,7 @@ const createBootstrapPool = () => {
         }
         throw new Error(`Unexpected fake bootstrap query: ${sql}`);
     };
-    return {state, query, connect: async () => ({query, release: () => {}})};
+    return {queries, state, query, connect: async () => ({query, release: () => {}})};
 };
 
 test("bootstrap persists exactly 300 cards and reimport preserves membership and checksum", async () => {
@@ -126,11 +128,19 @@ test("bootstrap persists exactly 300 cards and reimport preserves membership and
     const credentialManifest = await buildCredentialManifest(config);
     await bootstrapStudy({pool, config, cards, sourceChecksum: "csv-checksum", credentialManifest});
     const before = pool.state.studyCards.map(row => ({...row}));
+    pool.state.accounts[0].credential_version = 7;
+    pool.state.classifications.push({card_id: "card-id-1", participant_key: "one"});
+    const accountsBeforeRerun = pool.state.accounts.map(account => ({...account}));
+    const cardsBeforeRerun = Array.from(pool.state.cards.values(), card => ({...card}));
+    const classificationsBeforeRerun = pool.state.classifications.map(classification => ({...classification}));
     await bootstrapStudy({pool, config, cards, sourceChecksum: "csv-checksum", credentialManifest});
     assert.equal(pool.state.study.bootstrap_state, "READY");
     assert.equal(pool.state.studyCards.length, 300);
     assert.equal(pool.state.accounts.length, 3);
     assert.deepEqual(pool.state.studyCards, before);
+    assert.deepEqual(pool.state.accounts, accountsBeforeRerun);
+    assert.deepEqual(Array.from(pool.state.cards.values()), cardsBeforeRerun);
+    assert.deepEqual(pool.state.classifications, classificationsBeforeRerun);
     assert.equal(pool.state.study.source_checksum, "csv-checksum");
 });
 
@@ -149,4 +159,22 @@ test("bootstrap rejects membership checksum drift without changing the persisted
     assert.equal(pool.state.studyCards.length, 300);
     assert.equal(pool.state.studyCards[17].source_checksum, "different-checksum");
     assert.notDeepEqual(pool.state.studyCards, before);
+});
+
+test("bootstrap commits READY only after memberships and accounts are complete", async () => {
+    const pool = createBootstrapPool();
+    const config = {studyKey: "study-key", expectedCardCount: 300, participants: [ "one", "two", "three" ]};
+    const cards = buildBootstrapCards();
+    const credentialManifest = await buildCredentialManifest(config);
+
+    await bootstrapStudy({pool, config, cards, sourceChecksum: "csv-checksum", credentialManifest});
+
+    const firstAccount = pool.queries.findIndex(sql => sql.startsWith("INSERT INTO participant_account"));
+    const lastCardMembership = pool.queries.findLastIndex(sql => sql.startsWith("INSERT INTO study_card"));
+    const ready = pool.queries.findIndex(sql => sql.startsWith("UPDATE study"));
+    const commit = pool.queries.findIndex(sql => sql === "COMMIT");
+
+    assert.ok(lastCardMembership < firstAccount);
+    assert.ok(firstAccount < ready);
+    assert.ok(ready < commit);
 });
