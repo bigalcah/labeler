@@ -13,7 +13,7 @@ const viewPath = path.join(root, "views/partials/instance/data.ejs");
 
 const normalizePages = pages => pages.map(({payload, ...page}) => ({
     ...page,
-    normalized_payload: normalizeResponse(page.endpoint, payload),
+    normalized_payload: page.state === "UNAVAILABLE" ? null : normalizeResponse(page.endpoint, payload),
 }));
 
 test("sanitized provider fixtures feed the existing CardV2 view offline", async () => {
@@ -72,6 +72,18 @@ test("sanitized provider fixtures feed the existing CardV2 view offline", async 
         assert.equal(limited.metrics.changed_file_count.availability, AVAILABILITY.TRUNCATED);
         assert.match(limitedHtml, /Changed files[\s\S]*Truncated · 1[\s\S]*Provider file cap reached/);
         assert.doesNotMatch(limitedHtml, /truncated-diff-marker/);
+
+        const unavailablePages = normalizePages(fixture.scenarios.unavailable.pages);
+        const unavailable = projectCardV2(fixture.card, {
+            ...fixture.scenarios.unavailable.snapshot,
+            pages: unavailablePages,
+        });
+
+        assert.ok(unavailablePages.every(page => page.normalized_payload === null));
+        assert.equal(unavailable.fields.title.value, fixture.card.title);
+        assert.equal(unavailable.availability.commits, AVAILABILITY.UNAVAILABLE);
+        assert.equal(unavailable.github_evidence.files.availability, AVAILABILITY.UNAVAILABLE);
+        assert.equal(unavailable.github_evidence.timeline.availability, AVAILABILITY.UNAVAILABLE);
         assert.equal(networkCalls, 0);
     } finally {
         globalThis.fetch = originalFetch;

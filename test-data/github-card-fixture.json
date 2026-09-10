@@ -168,6 +168,20 @@
         {"endpoint": "issueComments", "state": "COMPLETE_EMPTY", "itemCount": 0, "payload": []},
         {"endpoint": "reviewComments", "state": "COMPLETE_EMPTY", "itemCount": 0, "payload": []}
       ]
+    },
+    "unavailable": {
+      "snapshot": {
+        "run_id": "fixture-run-unavailable",
+        "snapshot_checksum": "fixture-snapshot-unavailable",
+        "captured_at": "2026-01-05T00:00:00Z"
+      },
+      "pages": [
+        {"endpoint": "metadata", "state": "UNAVAILABLE", "itemCount": 0, "payload": null},
+        {"endpoint": "commits", "state": "UNAVAILABLE", "itemCount": 0, "payload": null},
+        {"endpoint": "files", "state": "UNAVAILABLE", "itemCount": 0, "payload": null},
+        {"endpoint": "diff", "state": "UNAVAILABLE", "itemCount": 0, "payload": null},
+        {"endpoint": "timeline", "state": "UNAVAILABLE", "itemCount": 0, "payload": null}
+      ]
     }
   }
 }
