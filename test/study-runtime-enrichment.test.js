@@ -125,18 +125,13 @@ test("mutation lock rejects a promoted card without a completed mapped run", asy
     assert.match(queries[0][0], /FOR UPDATE OF study_card/);
 });
 
-test("classification and discard mutations carry study and promoted run parameters", async () => {
+test("classification and discard repository writes carry study and promoted run parameters", async () => {
     const root = path.resolve(new URL("..", import.meta.url).pathname);
-    const [classify, discard] = await Promise.all([
-        readFile(path.join(root, "routes/queue/[id]/classify/index.js"), "utf8"),
-        readFile(path.join(root, "routes/queue/[id]/discard/index.js"), "utf8"),
-    ]);
+    const repository = await readFile(path.join(root, "util/study-write-repository.js"), "utf8");
 
-    assert.match(classify, /study_id, enrichment_run_id/);
-    assert.match(classify, /lockedCard\.enrichment_run_id/);
-    assert.match(classify, /AND study_id = \$6/);
-    assert.match(discard, /reason, study_id, enrichment_run_id/);
-    assert.match(discard, /lockedCard\.enrichment_run_id/);
+    assert.match(repository, /study_id, enrichment_run_id/);
+    assert.match(repository, /AND study_id = \$6/);
+    assert.match(repository, /reason, study_id, enrichment_run_id/);
 });
 
 test("GitHub-shaped text is sanitized before markdown reaches the view", () => {
