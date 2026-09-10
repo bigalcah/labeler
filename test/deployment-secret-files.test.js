@@ -16,12 +16,13 @@ test("deployment supplies database credentials only through read-only secret fil
     const serverBlock = compose.match(/ {2}labeling-server:[\s\S]*?(?=\n {2}labeling-caddy:)/)?.[0] || "";
 
     assert.match(databaseBlock, /POSTGRES_PASSWORD_FILE:\s*\/run\/secrets\/database-password/);
-    assert.match(databaseBlock, /\$\{DATABASE_PASSWORD_HOST_PATH:\?[^}]+\}:\/run\/secrets\/database-password:ro/);
+    assert.match(databaseBlock, /\$\{DATABASE_PASSWORD_DATABASE_HOST_PATH:\?[^}]+\}:\/run\/secrets\/database-password:ro/);
     assert.match(prepareBlock, /DATABASE_PASS_FILE:\s*\/run\/secrets\/database-password/);
     assert.match(prepareBlock, /\$\{DATABASE_PASSWORD_HOST_PATH:\?[^}]+\}:\/run\/secrets\/database-password:ro/);
     assert.match(serverBlock, /DATABASE_PASS_FILE:\s*\/run\/secrets\/database-password/);
     assert.match(serverBlock, /\$\{DATABASE_PASSWORD_HOST_PATH:\?[^}]+\}:\/run\/secrets\/database-password:ro/);
     assert.match(template, /^DATABASE_PASSWORD_HOST_PATH=\/absolute\/external\/database-password$/m);
+    assert.match(template, /^DATABASE_PASSWORD_DATABASE_HOST_PATH=\/absolute\/external\/database-password-postgres$/m);
     assert.doesNotMatch(compose, /GITHUB_TOKEN_HOST_PATH/);
     assert.doesNotMatch(template, /^GITHUB_TOKEN_HOST_PATH=/m);
     assert.doesNotMatch(compose, /^\s*(?:POSTGRES_PASSWORD|DATABASE_PASS|PGPASSWORD|GITHUB_TOKEN):/m);
