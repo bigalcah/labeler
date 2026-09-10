@@ -1,7 +1,6 @@
 import HTTPStatus from "../../util/http-status.js";
+import {createStudyService} from "../../util/study-service.js";
 import {
-    findFirstPendingCard,
-    loadStudyProgress,
     requireStudySession,
     respondWithStudyRuntimeError,
     sessionParticipant,
@@ -11,15 +10,15 @@ export const get = async (req, res) => {
     const context = requireStudySession(req, res);
     if (!context) return;
 
-    const pool = req.app.locals.dependencies.pool;
+    const studyService = createStudyService(req.app.locals.dependencies);
     try {
-        const cardId = await findFirstPendingCard(pool, context.studyId, context.participantId);
+        const cardId = await studyService.resolveQueue(context);
         if (cardId) {
             res.redirect(HTTPStatus.SEE_OTHER, `/queue/${encodeURIComponent(cardId)}`);
             return;
         }
 
-        const progress = await loadStudyProgress(pool, context.studyId, context.participantId);
+        const progress = await studyService.loadProgress(context);
         const participant = sessionParticipant(context);
         res.locals.participant = participant;
         res.render("review", {
