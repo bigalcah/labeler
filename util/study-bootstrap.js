@@ -170,12 +170,6 @@ const bootstrapStudy = async options => {
             participants: config.participants,
             allowCreate: study.created,
         });
-        await provisionParticipantAccounts({
-            client,
-            studyId: study.id,
-            config,
-            manifest,
-        });
         const persistedCards = await persistCards(client, cards, sourceChecksum);
         await persistStudyCards({
             client,
@@ -183,6 +177,12 @@ const bootstrapStudy = async options => {
             cards,
             persistedCards,
             allowCreate: study.created,
+        });
+        await provisionParticipantAccounts({
+            client,
+            studyId: study.id,
+            config,
+            manifest,
         });
         await client.query(
             `UPDATE study
