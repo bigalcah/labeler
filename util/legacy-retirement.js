@@ -15,6 +15,11 @@ const expectedObjectRows = inventory => [
 ];
 
 const assessRetirementState = (rows, migrationApplied, inventory) => {
+    const expectedCount = expectedObjectRows(inventory).length;
+    if (rows.length !== expectedCount) {
+        throw new LegacyRetirementError("Database object inventory result is incomplete");
+    }
+
     const missingProtected = rows
         .filter(row => row.kind === "protected-table" && !row.present)
         .map(row => row.name);
@@ -38,10 +43,6 @@ const assessRetirementState = (rows, migrationApplied, inventory) => {
         throw new LegacyRetirementError("Migration ledger marks retirement applied but legacy objects remain");
     }
 
-    const expectedCount = expectedObjectRows(inventory).length;
-    if (rows.length !== expectedCount) {
-        throw new LegacyRetirementError("Database object inventory result is incomplete");
-    }
     return "ready";
 };
 
