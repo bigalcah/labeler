@@ -88,8 +88,9 @@ LEGACY_BACKUP_MANIFEST_FILE=legacy.manifest.json
 PGPASSFILE_HOST_PATH=/absolute/external/legacy-retirement.pgpass
 ```
 
-`PGPASSFILE_HOST_PATH` apunta a un passfile externo protegido que Compose monta solo en
-`labeling-study-prepare` durante la ruta de retiro. Para el launcher de rollback de solo
+`PGPASSFILE_HOST_PATH` apunta a un passfile externo protegido que el overlay
+`deployment/docker-compose.existing.yml` monta solo en `labeling-study-prepare` durante la
+ruta de retiro. Para el launcher de rollback de solo
 lectura, configura también `ROLLBACK_DATABASE_PASSWORD_HOST_PATH` con el archivo externo de
 la contraseña del rol `labeling_readonly`; no uses una variable de contraseña inline.
 
@@ -105,12 +106,32 @@ La secuencia protegida tiene estas fases:
 5. El bootstrap del estudio se ejecuta después del retiro permitido. Si falta una confirmación, el backup no se puede
    leer, el checksum no coincide, el esquema está parcial o la migración falla, el servidor no arranca.
 
+El retiro requiere el overlay explícito, que no se usa en modo `clean`:
+
+```bash
+docker compose --env-file deployment/.env \
+  -f deployment/docker-compose.yml \
+  -f deployment/docker-compose.existing.yml up --build -d
+```
+
 Reejecutar contra un volumen ya retirado sigue exigiendo backup verificado y confirmación, pero no reaplica la migración.
 La eliminación final de objetos restantes pertenece a cambios posteriores, cuando no queden consumidores ni referencias.
 
 Para rollback, detén el stack, restaura la versión anterior de la aplicación y restaura el backup verificado en una base
 separada o en otro destino aprobado. Nunca uses borrado de volumen como rollback y nunca pruebes una restauración sobre
 el volumen de producción.
+
+## Backup cifrado del estudio
+
+El backup operativo completo es distinto del backup legacy previo al retiro. `npm run backup:study` genera un dump
+PostgreSQL de formato custom, cifra el flujo directamente con OpenSSL y publica de forma atómica el archivo cifrado y su
+manifiesto en rutas absolutas externas. El manifiesto registra checksum SHA-256 del archivo cifrado, identidad de base,
+retención y fingerprints de tarjetas, clasificaciones y cuentas, incluidos hash y `credential_version`. Los datos
+transitorios de sesiones, límites de login, CSRF y telemetría no se incluyen.
+
+La configuración, política de retención y verificación de restore se describen en
+[`deployment/ROLLBACK.md`](deployment/ROLLBACK.md). La retención es responsabilidad del almacenamiento externo; la
+herramienta nunca elimina backups ni sobrescribe destinos existentes.
 
 ## Local CSV validation
 

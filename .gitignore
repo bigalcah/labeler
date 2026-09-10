@@ -254,4 +254,6 @@ dist
 schema/00_init.sql
 instance.*
 docker-compose.*.yml
+!deployment/docker-compose.github-enrichment.yml
+!deployment/docker-compose.existing.yml
 !deployment/docker-compose.rollback-readonly.yml

@@ -4,6 +4,59 @@ Este procedimiento aplica cuando ya existe al menos un descarte. La versión ant
 no conoce el estado privado nuevo y solo puede consultar la base mediante un rol sin
 privilegios de escritura.
 
+## Backup cifrado y retención
+
+El backup operativo del estudio se crea desde el host, fuera del stack público. Requiere PostgreSQL client, OpenSSL y
+rutas absolutas externas para todos los archivos. La contraseña de PostgreSQL y la clave de cifrado se entregan solo
+mediante archivos `0400` o `0600`; no se aceptan secretos inline. Define:
+
+```dotenv
+PGHOST=<host-produccion>
+PGPORT=5432
+PGDATABASE=<base-produccion>
+PGUSER=<rol-backup>
+PGPASSFILE=/absolute/external/backup.pgpass
+STUDY_BACKUP_ARCHIVE=/absolute/external/backups/study-<timestamp>.dump.enc
+STUDY_BACKUP_MANIFEST=/absolute/external/backups/study-<timestamp>.manifest.json
+STUDY_BACKUP_ENCRYPTION_KEY_FILE=/absolute/external/backup-encryption-key
+STUDY_BACKUP_RETENTION_DAYS=30
+```
+
+Ejecuta `npm run backup:study`. El proceso transmite `pg_dump --format=custom` directamente a OpenSSL
+AES-256-CBC con PBKDF2-SHA256 y 600000 iteraciones; no crea un dump intermedio sin cifrar. Falla si un destino ya existe.
+El manifiesto incluye la identidad de origen, el checksum SHA-256 del archivo cifrado, la política de cifrado, los días de
+retención y fingerprints de `pr_cards`, `pr_classification` y `participant_account`, incluidos hashes y
+`credential_version`. Se excluyen solamente los datos transitorios de `app_session`, `login_ip_attempt`,
+`login_csrf_context` y `github_api_telemetry_event`.
+
+`STUDY_BACKUP_RETENTION_DAYS` es un input obligatorio del manifiesto, no una autorización de borrado. El almacenamiento
+externo debe conservar cada pareja archivo/manifiesto al menos ese número de días y aplicar su política fuera de esta
+herramienta. Conserva además cualquier backup requerido por una migración o por obligaciones de recuperación aunque haya
+superado esa edad. La herramienta nunca poda ni reemplaza archivos.
+
+## Verificación de restore aislado
+
+Precrea una base vacía en un PostgreSQL desechable que no use el host, puerto y nombre de la base productiva. Su passfile
+debe ser externo y protegido. Configura, además de las variables del backup y la identidad productiva anterior:
+
+```dotenv
+STUDY_RESTORE_CONFIRM=isolated-restore
+STUDY_RESTORE_PGHOST=<host-aislado>
+STUDY_RESTORE_PGPORT=5432
+STUDY_RESTORE_PGDATABASE=<base-vacia-aislada>
+STUDY_RESTORE_PGUSER=<rol-restore>
+STUDY_RESTORE_PGPASSFILE=/absolute/external/restore.pgpass
+```
+
+Ejecuta `npm run restore:study:verify`. Antes de escribir, el comando verifica manifiesto, checksum, cifrado, legibilidad
+del archive e identidad de producción; rechaza el mismo nombre de base o un destino que ya contenga tablas en `public`.
+Después restaura exclusivamente con las credenciales del destino y compara conteos y fingerprints de tarjetas,
+clasificaciones y credenciales. Un resultado válido imprime `ISOLATED_STUDY_RESTORE_VERIFIED`.
+
+No uses `labeling-data`, el Compose productivo ni sus credenciales como destino. Conserva como evidencia operativa la
+pareja archivo/manifiesto, la identidad no secreta del destino aislado, la salida final y un snapshot del volumen
+productivo antes y después. Sin esa ejecución real, la aceptación de restore de OpenSpec 9.5 permanece abierta.
+
 ## Rollback de solo lectura
 
 1. Detén el stack actual sin eliminar el volumen:

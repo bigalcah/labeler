@@ -4,6 +4,16 @@ El enriquecimiento es opt-in y se ejecuta una sola vez durante `labeling-study-p
 El servidor web no recibe credenciales ni realiza solicitudes GitHub: solo lee el run
 completado y promovido para el estudio.
 
+La configuración base `deployment/docker-compose.yml` desactiva el enriquecimiento y
+no monta ni requiere un token GitHub. Para activarlo, usa siempre el override dedicado:
+
+```bash
+docker compose --env-file deployment/.env \
+  -f deployment/docker-compose.yml \
+  -f deployment/docker-compose.github-enrichment.yml \
+  up --build -d
+```
+
 ## Configuración
 
 Usa un único token fine-grained de solo lectura compartido por las 300 tarjetas y sus
@@ -19,6 +29,10 @@ GITHUB_DEFAULT_ALIAS=default
 GITHUB_CREDENTIAL_ALIASES={"default":{"tokenFile":"/run/secrets/github-token","permissions":["metadata","pulls","contents","issues"]}}
 GITHUB_TOKEN_HOST_PATH=/absolute/external/github-token
 ```
+
+`GITHUB_TOKEN_HOST_PATH` es una ruta absoluta a un archivo externo protegido, no el
+token. Añádela solo al archivo local `deployment/.env` cuando se use el override; no
+añadas el valor del token a ningún archivo `.env` ni al repositorio.
 
 Los permisos declarados son la frontera mínima del cliente: metadata del repositorio,
 pull requests, contenido/archivos e issues/comentarios. El token se monta o expone solo

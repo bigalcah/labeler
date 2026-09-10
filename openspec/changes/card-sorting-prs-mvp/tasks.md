@@ -16,7 +16,7 @@ Las casillas reflejan trabajo verificado en la implementación actual, no solo d
 
 - [x] 2.1 Leer configuración JSON con `studyKey`, `expectedCardCount` y `participants`, usando fallback local de tres.
 - [x] 2.2 Implementar precedencia: estudio activo persistido, configuración explícita para estudio nuevo y fallback local; fallar ante drift sin borrar.
-- [ ] 2.3 Implementar bootstrap one-shot después de salud de base y antes de readiness web.
+- [x] 2.3 Implementar bootstrap one-shot después de salud de base y antes de readiness web.
 - [x] 2.4 Reutilizar o crear reviewers y persistir `study_participant` con orden estable.
 - [x] 2.5 Crear `study_card` para exactamente las mismas 300 tarjetas de cada participante.
 - [x] 2.6 Hacer rollback atómico ante cualquier fallo y no ejecutar eliminación automática.
@@ -31,7 +31,7 @@ Las casillas reflejan trabajo verificado en la implementación actual, no solo d
 - [x] 3.6 Mantener importación local idempotente por `card_id` y registrar errores por fila sin duplicar tarjetas.
 - [x] 3.7 Reutilizar solo filas canónicamente idénticas y fallar ante un `source_card_id` cambiado; no sobrescribir datos clasificados.
 - [x] 3.8 Ejecutar la importación local y verificar exactamente 300 tarjetas sin duplicados.
-- [ ] 3.9 Ejecutar y verificar el bootstrap real en volumen limpio y existente, incluyendo preservación de clasificaciones.
+- [x] 3.9 Ejecutar y verificar el bootstrap real en volumen limpio y existente, incluyendo preservación de clasificaciones.
 
 ## 4. Tarjetas y clasificador
 
@@ -43,8 +43,8 @@ Las casillas reflejan trabajo verificado en la implementación actual, no solo d
 - [x] 4.6 Crear y listar categorías planas únicamente para el participante seleccionado.
 - [x] 4.7 Permitir renombrar una categoría propia sin exponer ni modificar categorías de otro participante.
 - [x] 4.8 Guardar una sola clasificación por PR y participante con observación opcional, de forma transaccional y reanudable.
-- [ ] 4.9 Entregar la cola desde `study_card`, aislar categorías, conteos y respuestas, y recuperar progreso por membresía.
-- [ ] 4.10 Verificar tres participantes con categorías similares, clasificación del mismo PR y aislamiento completo.
+- [x] 4.9 Entregar la cola desde `study_card`, aislar categorías, conteos y respuestas, y recuperar progreso por membresía.
+- [x] 4.10 Verificar tres participantes con categorías similares, clasificación del mismo PR y aislamiento completo.
 
 ## 5. GitHub posterior y verificación
 
@@ -53,9 +53,9 @@ Las casillas reflejan trabajo verificado en la implementación actual, no solo d
 - [x] 5.3 No añadir todavía tokens, webhooks, worker de API ni llamadas de red durante la clasificación.
 - [x] 5.4 Añadir fixtures de proveedor que demuestren que una tarjeta futura puede incorporar commits, archivos, diff y timeline sin cambiar la vista.
 - [x] 5.5 Ejecutar lint JavaScript focalizado y corregir errores introducidos.
-- [ ] 5.6 Verificar build, readiness, bootstrap y flujo selector → tarjeta → categoría → siguiente tarjeta.
-- [ ] 5.7 Verificar que cada participante recibe exactamente 300 tarjetas y no ve datos ajenos.
-- [ ] 5.8 Construir y levantar Docker con una base limpia y un volumen existente, verificando importación, reinicio y conflictos.
+- [x] 5.6 Verificar build, readiness, bootstrap y flujo selector → tarjeta → categoría → siguiente tarjeta.
+- [x] 5.7 Verificar que cada participante recibe exactamente 300 tarjetas y no ve datos ajenos.
+- [x] 5.8 Construir y levantar Docker con una base limpia y un volumen existente, verificando importación, reinicio y conflictos.
 - [x] 5.9 Documentar en README cómo importar el CSV y cómo ejecutar la demostración local.
 - [x] 5.10 Dejar registradas como fases posteriores exportación, invitaciones, API GitHub, lenguajes por archivos, taxonomía y acuerdo.
 
@@ -78,17 +78,17 @@ Las casillas reflejan trabajo verificado en la implementación actual, no solo d
 
 ## 8. Bootstrap y flujo privado
 
-- [ ] 8.1 Hacer que la preparación one-shot espere una base saludable, valide configuración, CSV y manifiesto antes de escribir, aplique migraciones aditivas y ejecute una sola transacción que cree o reutilice estudio, tarjetas y `study_participant`, provisione después las cuentas ausentes y valide todas las cuentas antes de confirmar `READY`. La aplicación debe depender del éxito de la preparación actual y Caddy solo debe arrancar después de la readiness interna; probar clean y existing con rollback completo del intento y preservación de cuentas, credenciales, tarjetas y clasificaciones existentes.
+- [x] 8.1 Hacer que la preparación one-shot espere una base saludable, valide configuración, CSV y manifiesto antes de escribir, aplique migraciones aditivas y ejecute una sola transacción que cree o reutilice estudio, tarjetas y `study_participant`, provisione después las cuentas ausentes y valide todas las cuentas antes de confirmar `READY`. La aplicación debe depender del éxito de la preparación actual y Caddy solo debe arrancar después de la readiness interna; probar clean y existing con rollback completo del intento y preservación de cuentas, credenciales, tarjetas y clasificaciones existentes.
 - [x] 8.2 Completar los estados vacíos e incompletos de tarjetas y evidencia sin inventar valores ni ejecutar HTML no confiable. Fixtures y pruebas deben distinguir presente, vacío, no disponible, truncado e incompleto y conservar el contrato de la vista.
-- [ ] 8.3 Encapsular cola, categorías, clasificaciones, descartes y progreso en un servicio de estudio y repositorios privados. Todas las consultas deben filtrar por `study_id` y `participant_id` de sesión, mantener transacciones y demostrar con pruebas que `CLASSIFIED` tiene una sola categoría y que cada participante recibe sus 300 tarjetas.
-- [ ] 8.4 Añadir fixtures sanitizados del proveedor con metadata, commits, archivos, diff y timeline, incluidos estados vacíos y truncados, sin tokens, correos ni red. Probar que normalización y proyección alimentan la misma vista y que la clasificación no realiza llamadas GitHub en runtime.
-- [ ] 8.5 Reconciliar el retiro legacy con el contrato aprobado: clean debe fallar ante objetos legacy sin eliminarlos, existing debe exigir backup externo verificable antes de cualquier retiro permitido, y el inventario debe conservar reviewer mientras existan referencias. Pruebas de allowlist, idempotencia y rollback deben confirmar ausencia de SQL destructivo no autorizado.
+- [x] 8.3 Encapsular cola, categorías, clasificaciones, descartes y progreso en un servicio de estudio y repositorios privados. Todas las consultas deben filtrar por `study_id` y `participant_id` de sesión, mantener transacciones y demostrar con pruebas que `CLASSIFIED` tiene una sola categoría y que cada participante recibe sus 300 tarjetas.
+- [x] 8.4 Añadir fixtures sanitizados del proveedor con metadata, commits, archivos, diff y timeline, incluidos estados vacíos y truncados, sin tokens, correos ni red. Probar que normalización y proyección alimentan la misma vista y que la clasificación no realiza llamadas GitHub en runtime.
+- [x] 8.5 Reconciliar el retiro legacy con el contrato aprobado: clean debe fallar ante objetos legacy sin eliminarlos, existing debe exigir backup externo verificable antes de cualquier retiro permitido, y el inventario debe conservar reviewer mientras existan referencias. Pruebas de allowlist, idempotencia y rollback deben confirmar ausencia de SQL destructivo no autorizado.
 - [x] 8.6 Añadir una regresión visual del badge de ciclo de vida para `OPEN`, `CLOSED`, `MERGED` y `UNAVAILABLE`, con texto siempre visible, distinción que no dependa solo del color, contraste WCAG AA y verificación responsive en navegador.
 
 ## 9. Borde público y operación VPS
 
-- [ ] 9.1 Configurar Caddy como único borde público con TLS, redirección HTTP a HTTPS y proxy hacia la aplicación en red interna. La configuración debe publicar solo 80/443, bloquear actuator externamente y demostrar con Compose, sockets y solicitudes reales que no se exponen 3000, 7755 ni 5432. Caddy no debe iniciar ni publicar puertos basándose únicamente en un `READY` persistido; debe depender de la preparación actual completada y del health interno de la aplicación. El Compose debe incluir el manifiesto de cuentas y toda la configuración productiva requerida por la aplicación.
-- [ ] 9.2 Aplicar headers de seguridad, CSP, Referrer-Policy, HSTS solo bajo HTTPS productivo y no-cache en login y respuestas privadas. Pruebas de headers y navegador deben mostrar ausencia de violaciones CSP, sin relajar la política con `unsafe-eval`.
+- [x] 9.1 Configurar Caddy como único borde público con TLS, redirección HTTP a HTTPS y proxy hacia la aplicación en red interna. La configuración debe publicar solo 80/443, bloquear actuator externamente y demostrar con Compose, sockets y solicitudes reales que no se exponen 3000, 7755 ni 5432. Caddy no debe iniciar ni publicar puertos basándose únicamente en un `READY` persistido; debe depender de la preparación actual completada y del health interno de la aplicación. El Compose debe incluir el manifiesto de cuentas y toda la configuración productiva requerida por la aplicación.
+- [x] 9.2 Aplicar headers de seguridad, CSP, Referrer-Policy, HSTS solo bajo HTTPS productivo y no-cache en login y respuestas privadas. Pruebas de headers y navegador deben mostrar ausencia de violaciones CSP, sin relajar la política con `unsafe-eval`.
 - [x] 9.3 Endurecer la imagen Node LTS y los servicios: versión fijada, instalación reproducible sin dependencias de desarrollo, copia completa de los módulos runtime incluida `app.js`, usuario no root, capacidades retiradas, filesystem de solo lectura con temporales controlados, límites de recursos y healthchecks internos. Inspección de imagen y Compose debe aportar evidencia y rechazar `latest`.
 - [x] 9.4 Migrar secretos a secretos montados o archivos `*_FILE`, mantener valores no secretos fuera de los archivos de secretos y redactar cookies, contraseñas, CSRF y tokens en logs. Probar permisos, arranque, rotación y solicitudes maliciosas sin que el contenido sensible aparezca en stdout o stderr.
 - [ ] 9.5 Automatizar backup externo cifrado con manifiesto, checksum y retención documentada, incluyendo cuentas según la política aprobada. Ejecutar un restore en una base aislada, comparar tarjetas, clasificaciones y versiones de credenciales, y demostrar que no se escribe en el volumen de producción.
@@ -96,7 +96,7 @@ Las casillas reflejan trabajo verificado en la implementación actual, no solo d
 
 ## 10. Evidencia de cierre
 
-- [ ] 10.1 Construir un harness de pruebas para clean y existing con proyectos, puertos y volúmenes aislados. Verificar bootstrap, reinicio, preservación de clasificaciones, cuentas, checksums y rechazo cerrado de drift o backup inválido, sin tocar recursos persistentes del usuario.
+- [x] 10.1 Construir un harness de pruebas para clean y existing con proyectos, puertos y volúmenes aislados. Verificar bootstrap, reinicio, preservación de clasificaciones, cuentas, checksums y rechazo cerrado de drift o backup inválido, sin tocar recursos persistentes del usuario.
 - [ ] 10.2 Ejecutar una prueba E2E hostil con tres sesiones independientes, las mismas 300 tarjetas y categorías similares. Intentar acceso cruzado mediante URL, IDs, query, formularios, CSRF y cookies, y comprobar en HTML, respuestas, logs y PostgreSQL que no hay filtración ni mutación ajena.
 - [ ] 10.3 Ejecutar el E2E completo en el VPS público: TLS, login, categoría, renombrado, clasificación, descarte, siguiente tarjeta, progreso y logout, además de reinicios y conflictos clean/existing. La evidencia debe demostrar readiness, cookies, headers, límites y exposición exclusiva de 80/443, sin skips.
 - [ ] 10.4 Actualizar documentación y estado del cambio únicamente después de reunir evidencia de cada tarea. Verificar que README, seguridad, arquitectura, operaciones, desarrollo y OpenSpec describen el mismo contrato, y mantener abiertas las tareas que no tengan pruebas o evidencia runtime.
