@@ -14,14 +14,17 @@ DATABASE_PORT=5432
 PUBLIC_HOSTNAME=labeler.example.org
 APP_ORIGIN=https://labeler.example.org
 DATABASE_PASSWORD_HOST_PATH=/absolute/external/database-password
+DATABASE_PASSWORD_DATABASE_HOST_PATH=/absolute/external/database-password-postgres
 SESSION_SECRET_CURRENT_HOST_PATH=/absolute/external/session-current
 SESSION_SECRET_PREVIOUS_HOST_PATH=/absolute/external/session-previous
 ```
 
 Cada ruta de secreto debe ser absoluta, quedar fuera del repositorio y apuntar a un archivo
-protegido. Compose monta la contraseña de base como `POSTGRES_PASSWORD_FILE` para PostgreSQL
-y como `DATABASE_PASS_FILE` para Node. No guardes contraseñas, tokens, cookies ni secretos de
-sesión en `deployment/.env`.
+protegido. `DATABASE_PASSWORD_HOST_PATH` debe ser legible por el usuario Node y
+`DATABASE_PASSWORD_DATABASE_HOST_PATH` por el usuario PostgreSQL del contenedor; ambos deben
+contener la misma contraseña. Compose monta la segunda como `POSTGRES_PASSWORD_FILE` y la
+primera como `DATABASE_PASS_FILE`. No guardes contraseñas, tokens, cookies ni secretos de sesión
+en `deployment/.env`.
 
 El bootstrap del estudio lee el CSV canónico de 300 tarjetas montado por Compose. Su configuración protegida crea o
 reutiliza los participantes mediante `reviewer`, persiste `pr_cards` y gobierna la membresía del estudio. `reviewer` se
