@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {once} from "node:events";
+import {readFile} from "node:fs/promises";
 import test from "node:test";
 import {createApp} from "../app.js";
 
@@ -26,6 +27,15 @@ const firstCategoryId = "550e8400-e29b-41d4-a716-446655440001";
 const secondCategoryId = "550e8400-e29b-41d4-a716-446655440002";
 const thirdCategoryId = "550e8400-e29b-41d4-a716-446655440004";
 const csrfToken = "t".repeat(43);
+const canonicalRouteModules = [
+    "../routes/queue/index.js",
+    "../routes/queue/[id]/index.js",
+    "../routes/queue/[id]/classify/index.js",
+    "../routes/queue/[id]/discard/index.js",
+    "../routes/categories/index.js",
+    "../routes/categories/[id]/index.js",
+    "../routes/progress/index.js",
+];
 
 class StudyHttpPool {
     constructor({pending = pendingCardId} = {}) {
@@ -121,6 +131,14 @@ const start = async ({pool, authenticated = true, sessionContext = context} = {}
 };
 
 const close = server => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+
+test("canonical study routes delegate private operations to the study service", async () => {
+    const sources = await Promise.all(canonicalRouteModules.map(routeModule => readFile(new URL(routeModule, import.meta.url), "utf8")));
+    for (const source of sources) {
+        assert.match(source, /createStudyService/);
+        assert.doesNotMatch(source, /study-(?:mutation|read-repository|write-repository)|util\/category|withTransaction|\.query\(/);
+    }
+});
 
 test("study routes reject unauthenticated requests and old participant routes are unregistered", async () => {
     const server = await start({pool: new StudyHttpPool(), authenticated: false});
