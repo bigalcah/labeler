@@ -1,0 +1,15 @@
+services:
+  labeling-study-prepare:
+    volumes:
+      - ${PGPASSFILE_HOST_PATH:?PGPASSFILE_HOST_PATH must point to the legacy retirement passfile}:/run/secrets/legacy-retirement.pgpass:ro
+      - ${LEGACY_BACKUP_DIRECTORY:?LEGACY_BACKUP_DIRECTORY must point to the external legacy backup directory}:/legacy-backup:ro
+    environment:
+      STUDY_DATABASE_MODE: existing
+      LEGACY_RETIREMENT_CONFIRM: ${LEGACY_RETIREMENT_CONFIRM:-}
+      PGPASSFILE: /run/secrets/legacy-retirement.pgpass
+      PGHOST: labeling-database
+      PGPORT: 5432
+      PGDATABASE: ${DATABASE_NAME}
+      PGUSER: ${DATABASE_USER}
+      LEGACY_BACKUP_ARCHIVE: /legacy-backup/${LEGACY_BACKUP_ARCHIVE_FILE:-legacy.dump}
+      LEGACY_BACKUP_MANIFEST: /legacy-backup/${LEGACY_BACKUP_MANIFEST_FILE:-legacy.manifest.json}

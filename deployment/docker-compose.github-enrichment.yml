@@ -1,0 +1,10 @@
+services:
+  labeling-study-prepare:
+    volumes:
+      - ${GITHUB_TOKEN_HOST_PATH:?GITHUB_TOKEN_HOST_PATH must point to the GitHub token}:/run/secrets/github-token:ro
+    environment:
+      GITHUB_ENRICHMENT_ENABLED: "true"
+      GITHUB_API_BASE: ${GITHUB_API_BASE:-https://api.github.com}
+      GITHUB_API_VERSION: ${GITHUB_API_VERSION:-2022-11-28}
+      GITHUB_CREDENTIAL_ALIASES: ${GITHUB_CREDENTIAL_ALIASES:-{"default":{"tokenFile":"/run/secrets/github-token","permissions":["metadata","pulls","contents","issues"]}}}
+      GITHUB_DEFAULT_ALIAS: ${GITHUB_DEFAULT_ALIAS:-default}

@@ -6,6 +6,21 @@ GITHUB_ENRICHMENT_ENABLED="${GITHUB_ENRICHMENT_ENABLED:-false}"
 export GITHUB_ENRICHMENT_ENABLED
 
 case "${STUDY_DATABASE_MODE:-}" in
+  clean|existing)
+    ;;
+  *)
+    echo "STUDY_DATABASE_MODE must be clean or existing" >&2
+    exit 1
+    ;;
+esac
+
+if [ -n "${STUDY_CONFIG_INPUT:-}" ]; then
+  npm run validate:study-bootstrap -- "${STUDY_CSV_PATH:?STUDY_CSV_PATH is required}" "${STUDY_CONFIG_INPUT}"
+else
+  npm run validate:study-bootstrap -- "${STUDY_CSV_PATH:?STUDY_CSV_PATH is required}"
+fi
+
+case "${STUDY_DATABASE_MODE}" in
   clean)
     npm run retire:legacy:clean-check
     npm run migrate:study
@@ -19,13 +34,13 @@ case "${STUDY_DATABASE_MODE:-}" in
       echo "Existing mode requires readable external backup archive and manifest paths" >&2
       exit 1
     fi
+    if [ ! -r "${PGPASSFILE:-}" ]; then
+      echo "Existing mode requires a readable external retirement passfile" >&2
+      exit 1
+    fi
     npm run migrate:study -- --through 001_study_foundation
     npm run retire:legacy:apply
     npm run migrate:study
-    ;;
-  *)
-    echo "STUDY_DATABASE_MODE must be clean or existing" >&2
-    exit 1
     ;;
 esac
 
