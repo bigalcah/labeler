@@ -59,7 +59,7 @@ test("compose requires an account manifest exclusively for study preparation", a
 
 test("deployment preparation selects a guarded database path before bootstrap", async () => {
     const script = await readRepositoryFile("scripts/prepare-study-deployment.sh");
-    const existingBlock = script.match(/existing\)[\s\S]*?\n\s*;;/)?.[0];
+    const existingBlock = script.match(/existing\)(?:(?!\n\s*;;)[\s\S])*LEGACY_RETIREMENT_CONFIRM[\s\S]*?\n\s*;;/)?.[0];
     assert.ok(existingBlock);
     const existingCommands = existingBlock.match(/^\s*npm run .*$/gm)?.map(command => command.trim());
     const bootstrapCommand = script.match(/^\s*npm run bootstrap:study .*$/m)?.[0].trim();
