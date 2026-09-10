@@ -6,7 +6,7 @@ import test, {after, before} from "node:test";
 import {fileURLToPath} from "node:url";
 import express from "express";
 import {router} from "express-file-routing";
-import {isUuid} from "../routes/queue/[id]/classify/index.js";
+import {isUuid} from "../util/study-runtime.js";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const fromRoot = relativePath => path.join(root, relativePath);
@@ -26,9 +26,9 @@ const removedRuntimeFiles = [
 
 const protectedRuntimeFiles = new Map([
     [ "routes/queue/index.js", /res\.render\("review"/ ],
-    [ "routes/queue/[id]/classify/index.js", /pr_classification/ ],
-    [ "routes/categories/index.js", /participant_category/ ],
-    [ "routes/progress/index.js", /loadStudyProgress/ ],
+    [ "routes/queue/[id]/classify/index.js", /classifyCard/ ],
+    [ "routes/categories/index.js", /createCategory/ ],
+    [ "routes/progress/index.js", /loadProgress/ ],
     [ "views/review.ejs", /\/categories/ ],
 ]);
 
