@@ -109,20 +109,27 @@ Valida la interpolación antes de crear contenedores:
 
 ```bash
 docker compose --env-file deployment/.env \
-  -f deployment/docker-compose.yml config --quiet
+  -f deployment/docker-compose.yml \
+  -f deployment/docker-compose.clean.yml config --quiet
 ```
 
 Levanta las imágenes y el stack:
 
 ```bash
-docker compose --env-file deployment/.env -f deployment/docker-compose.yml up --build -d
+docker compose --env-file deployment/.env \
+  -f deployment/docker-compose.yml \
+  -f deployment/docker-compose.clean.yml up --build -d
 ```
 
 Comprueba el resultado:
 
 ```bash
-docker compose --env-file deployment/.env -f deployment/docker-compose.yml ps
-docker compose --env-file deployment/.env -f deployment/docker-compose.yml logs labeling-study-prepare
+docker compose --env-file deployment/.env \
+  -f deployment/docker-compose.yml \
+  -f deployment/docker-compose.clean.yml ps
+docker compose --env-file deployment/.env \
+  -f deployment/docker-compose.yml \
+  -f deployment/docker-compose.clean.yml logs labeling-study-prepare
 curl --insecure --fail --silent --show-error https://localhost/login > /dev/null
 ```
 
@@ -135,14 +142,21 @@ publican los puertos de la aplicación ni PostgreSQL.
 Para detener el stack sin borrar datos:
 
 ```bash
-docker compose --env-file deployment/.env -f deployment/docker-compose.yml down
+docker compose --env-file deployment/.env \
+  -f deployment/docker-compose.yml \
+  -f deployment/docker-compose.clean.yml down
 ```
 
 No uses `down -v` sobre `labeling-data` salvo que hayas decidido borrar el volumen local.
 
 `clean` es la ruta correcta para una base nueva o para una base que ya no contiene objetos legacy;
-falla de forma segura si todavía encuentra objetos del etiquetador anterior. Si la base contiene
-objetos legacy reales, no uses `clean`: sigue la ruta `existing` de la sección siguiente.
+falla de forma segura si todavía encuentra objetos del etiquetador anterior. Usa siempre el overlay
+explícito `deployment/docker-compose.clean.yml` para montar el descriptor y los dos perfiles 300/30.
+Antes de ejecutar los comandos `clean`, define en `deployment/.env` los cuatro valores exclusivos
+del overlay: `STUDY_PROFILES_INPUT_HOST_PATH`, `STUDY_CURRENT_CONFIG_HOST_PATH`,
+`STUDY_VALIDATION_CONFIG_HOST_PATH` y `STUDY_VALIDATION_ACCOUNT_MANIFEST_HOST_PATH`.
+Si la base contiene objetos legacy reales, no uses `clean`: sigue la ruta `existing` de la sección
+siguiente. Los overlays `clean` y `existing` son mutuamente excluyentes.
 
 ## Retiro con base existente
 
@@ -185,6 +199,10 @@ docker compose --env-file deployment/.env \
   -f deployment/docker-compose.yml \
   -f deployment/docker-compose.existing.yml up --build -d
 ```
+
+El overlay `existing` usa solo las variables compartidas y las de retiro documentadas arriba. No
+requiere el descriptor de perfiles, las configuraciones current/validation, el CSV de validación ni
+el manifiesto de cuentas de validación del overlay `clean`.
 
 Reejecutar contra un volumen ya retirado sigue exigiendo backup verificado y confirmación, pero no reaplica la migración.
 La eliminación final de objetos restantes pertenece a cambios posteriores, cuando no queden consumidores ni referencias.
