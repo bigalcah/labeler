@@ -7,7 +7,6 @@ import {
     GithubPersistenceError,
 } from "./github-pr-persistence-validation.js";
 
-const EXPECTED_CARD_COUNT = 300;
 const REQUIRED_ENDPOINTS = Object.freeze([
     "metadata",
     "commits",
@@ -140,7 +139,7 @@ const assertTelemetryComplete = async (client, run) => {
 };
 
 const createRunningRun = async options => {
-    const {pool, studyId, sourceChecksum, configFingerprint, normalizerVersion, expectedCardCount = EXPECTED_CARD_COUNT, resumeRunId = null} = options;
+    const {pool, studyId, sourceChecksum, configFingerprint, normalizerVersion, expectedCardCount, resumeRunId = null} = options;
     return withTransaction(pool, async client => {
         const {rows: [ study ]} = await client.query(
             `SELECT id, source_checksum, expected_card_count
@@ -255,15 +254,15 @@ const stagePage = async (client, options) => {
     return result;
 };
 
-const loadCommittedCardIds = async (client, runId) => {
+const loadCommittedCardIds = async (client, runId, studyId) => {
     const {rows} = await client.query(
-        "SELECT pr_card_id, ordinal FROM github_enrichment_run_card WHERE run_id = $1 ORDER BY ordinal",
-        [runId],
+        "SELECT pr_card_id, ordinal FROM github_enrichment_run_card WHERE run_id = $1 AND study_id = $2 ORDER BY ordinal",
+        [runId, studyId],
     );
     return rows;
 };
 
-const loadRunPages = async (client, runId, prCardId) => {
+const loadRunPages = async (client, runId, studyId, prCardId) => {
     const {rows} = await client.query(
         `SELECT endpoint, page_ordinal AS "pageOrdinal", request_fingerprint AS "requestFingerprint",
                 api_version AS "apiVersion", accept, etag, http_status AS "httpStatus",
@@ -271,9 +270,9 @@ const loadRunPages = async (client, runId, prCardId) => {
                 item_count AS "itemCount", next_url AS "nextUrl", state,
                 normalized_payload AS "normalizedPayload"
          FROM github_run_page
-         WHERE run_id = $1 AND pr_card_id = $2
+         WHERE run_id = $1 AND study_id = $2 AND pr_card_id = $3
          ORDER BY endpoint, page_ordinal`,
-        [runId, prCardId],
+        [runId, studyId, prCardId],
     );
     return rows.map(page => ({...page, normalized: page.normalizedPayload, next: page.nextUrl}));
 };
@@ -281,12 +280,17 @@ const loadRunPages = async (client, runId, prCardId) => {
 const persistCheckpoint = async (client, options) => {
     const checkpoint = sanitizeCheckpoint(options.checkpoint);
     const quota = sanitizeQuota(options.quota);
-    return client.query(
+    const result = await client.query(
         `UPDATE github_enrichment_run
-         SET checkpoint = $2, quota_metadata = $3, next_resume_at = $4, updated_at = NOW()
-         WHERE id = $1 AND state = 'RUNNING'`,
-        [options.runId, JSON.stringify(checkpoint), JSON.stringify(quota), quota.retryAt ? new Date(quota.retryAt) : null],
+         SET checkpoint = $3, quota_metadata = $4, next_resume_at = $5, updated_at = NOW()
+         WHERE id = $1 AND study_id = $2 AND state = 'RUNNING'
+         RETURNING id`,
+        [options.runId, options.studyId, JSON.stringify(checkpoint), JSON.stringify(quota), quota.retryAt ? new Date(quota.retryAt) : null],
     );
+    if (result.rows.length !== 1) {
+        throw new GithubPersistenceError("RUN_SCOPE_MISMATCH", "Checkpoint does not match a running study run");
+    }
+    return result;
 };
 
 const upsertSnapshot = async (client, options) => {
@@ -371,7 +375,7 @@ const loadStudyCards = async (client, studyId) => {
     return rows;
 };
 
-const assertRequiredPages = async (client, runId, expectedCount = EXPECTED_CARD_COUNT) => {
+const assertRequiredPages = async (client, runId, expectedCount) => {
     const {rows} = await client.query(
         `SELECT pr_card_id, endpoint,
                 BOOL_AND(state IN ('COMPLETE', 'COMPLETE_EMPTY', 'PARTIAL')) AS complete,
@@ -394,10 +398,19 @@ const assertRequiredPages = async (client, runId, expectedCount = EXPECTED_CARD_
 };
 
 const finalizeRun = async options => {
-    const {pool, runId, expectedCardCount = EXPECTED_CARD_COUNT} = options;
+    const {pool, runId} = options;
     return withTransaction(pool, async client => {
         const run = await loadRun(client, runId, true);
         if (run.state !== "RUNNING") throw new GithubPersistenceError("RUN_TERMINAL", "Enrichment run is already terminal");
+        const {rows: [study]} = await client.query(
+            "SELECT id, source_checksum, expected_card_count FROM study WHERE id = $1 FOR UPDATE",
+            [run.study_id],
+        );
+        if (!study) throw new GithubPersistenceError("STUDY_NOT_FOUND", "Run study does not exist");
+        if (run.source_checksum !== study.source_checksum) {
+            throw new GithubPersistenceError("STUDY_CHECKSUM_MISMATCH", "Run checksum does not match its study");
+        }
+        const expectedCardCount = study.expected_card_count;
         await assertTelemetryComplete(client, run);
         await assertRequiredPages(client, runId, expectedCardCount);
         const cards = await loadManifestRows(client, runId);
@@ -414,21 +427,22 @@ const finalizeRun = async options => {
     });
 };
 
-const markRunFailed = async (pool, runId) => withTransaction(pool, async client => {
+const markRunFailed = async (pool, runId, studyId) => withTransaction(pool, async client => {
     const run = await loadRun(client, runId, true);
+    if (run.study_id !== studyId) throw new GithubPersistenceError("RUN_SCOPE_MISMATCH", "Run belongs to another study");
     if (run.state !== "RUNNING") return run;
     const {rows: [failed]} = await client.query(
         `UPDATE github_enrichment_run
          SET state = 'FAILED', updated_at = NOW()
-         WHERE id = $1 AND state = 'RUNNING'
+         WHERE id = $1 AND study_id = $2 AND state = 'RUNNING'
          RETURNING id, study_id, source_checksum, state, manifest_checksum`,
-        [ runId ],
+        [ runId, studyId ],
     );
     return failed || {...run, state: "FAILED"};
 });
 
 const promoteRun = async options => {
-    const {pool, studyId, runId, sourceChecksum, expectedCardCount = EXPECTED_CARD_COUNT} = options;
+    const {pool, studyId, runId, sourceChecksum} = options;
     return withTransaction(pool, async client => {
         const {rows: [study]} = await client.query(
             `SELECT id, source_checksum, expected_card_count
@@ -437,9 +451,10 @@ const promoteRun = async options => {
              FOR UPDATE`,
             [ studyId ],
         );
-        if (!study || study.source_checksum !== sourceChecksum || study.expected_card_count !== expectedCardCount) {
+        if (!study || study.source_checksum !== sourceChecksum) {
             throw new GithubPersistenceError("STUDY_CHECKSUM_MISMATCH", "Promotion does not match the study");
         }
+        const expectedCardCount = study.expected_card_count;
         const run = await loadRun(client, runId, true);
         if (run.study_id !== studyId || run.source_checksum !== sourceChecksum) {
             throw new GithubPersistenceError("RUN_SCOPE_MISMATCH", "Run belongs to another study or checksum");
@@ -473,7 +488,6 @@ const promoteRun = async options => {
 };
 
 export {
-    EXPECTED_CARD_COUNT,
     GithubPersistenceError,
     REQUIRED_ENDPOINTS,
     assertExactCards,

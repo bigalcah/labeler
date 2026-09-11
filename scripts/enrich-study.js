@@ -3,6 +3,7 @@ import {readPullRequestCards} from "../util/csv-pr-provider.js";
 import {readGithubConfig} from "../util/github-pr-config.js";
 import {createGithubClient} from "../util/github-pr-client.js";
 import {enrichStudyWithGithub} from "../util/study-github-enrichment.js";
+import {prepareStudyGithubEnrichment} from "../util/study-github-enrichment-input.js";
 import {readStudyConfig} from "../util/study-config.js";
 
 const [ csvPath, configInput = process.env.STUDY_CONFIG ] = process.argv.slice(2);
@@ -13,41 +14,29 @@ if (!csvPath) {
 } else {
     try {
         const githubConfig = readGithubConfig();
-        if (!githubConfig.enabled) {
+        const requestedStudy = await readStudyConfig(configInput);
+        const result = await prepareStudyGithubEnrichment({
+            pool,
+            csvPath,
+            requestedStudy,
+            githubConfig,
+            readCards: readPullRequestCards,
+            createClient: createGithubClient,
+            enrich: enrichStudyWithGithub,
+        });
+        if (result.status === "DISABLED") {
             console.log("GitHub enrichment is disabled; CSV bootstrap remains authoritative");
-        } else if (githubConfig.enabled) {
-            const config = await readStudyConfig(configInput);
-            const {errors, sourceChecksum} = await readPullRequestCards(csvPath, {
-                expectedCardCount: config.expectedCardCount,
-            });
-            if (errors.length > 0) {
-                throw new Error(`CSV validation failed:\n${JSON.stringify(errors, null, 2)}`);
-            }
-            const {rows: [study]} = await pool.query(
-                `SELECT id, study_key, source_checksum, expected_card_count, bootstrap_state
-                 FROM study
-                 WHERE study_key = $1`,
-                [config.studyKey],
-            );
-            if (!study || study.bootstrap_state !== "READY") {
-                throw new Error(`Study ${config.studyKey} is not ready for GitHub enrichment`);
-            }
-            if (study.source_checksum !== sourceChecksum) {
-                throw new Error(`Source checksum drift for studyKey ${config.studyKey}`);
-            }
-            const result = await enrichStudyWithGithub({
-                pool,
-                study,
-                config: githubConfig,
-                githubClient: createGithubClient({config: githubConfig}),
-            });
+        } else {
             if (result.status === "PAUSED") {
-                console.error(`Study ${config.studyKey} GitHub enrichment is paused; rerun after ${result.retryAt || "the announced reset"}`);
+                console.error(`Study ${requestedStudy.studyKey} GitHub enrichment is paused; rerun after ${result.retryAt || "the announced reset"}`);
                 process.exitCode = 2;
             } else {
-                console.log(`Study ${config.studyKey} GitHub enrichment is ${result.status}`);
+                console.log(`Study ${requestedStudy.studyKey} GitHub enrichment is ${result.status}`);
             }
         }
+    } catch (_error) {
+        console.error("STUDY_GITHUB_ENRICHMENT_FAILED");
+        process.exitCode = 1;
     } finally {
         await pool.end();
     }

@@ -1,6 +1,6 @@
 import {buildRunManifest, checksumRunManifest} from "./github-pr-manifest.js";
 
-const DEFAULT_EXPECTED_CARD_COUNT = 300;
+const SUPPORTED_EXPECTED_CARD_COUNTS = new Set([30, 300]);
 
 class GithubPersistenceError extends Error {
     constructor(code, message) {
@@ -10,7 +10,10 @@ class GithubPersistenceError extends Error {
     }
 }
 
-const assertExactCards = (cards, expectedCount = DEFAULT_EXPECTED_CARD_COUNT) => {
+const assertExactCards = (cards, expectedCount) => {
+    if (!SUPPORTED_EXPECTED_CARD_COUNTS.has(expectedCount)) {
+        throw new GithubPersistenceError("CARD_COUNT_UNSUPPORTED", "Study card count must equal 30 or 300");
+    }
     const ordinals = cards.map(card => card.ordinal);
     if (cards.length !== expectedCount
         || new Set(cards.map(card => card.pr_card_id)).size !== expectedCount
@@ -19,7 +22,7 @@ const assertExactCards = (cards, expectedCount = DEFAULT_EXPECTED_CARD_COUNT) =>
     }
 };
 
-const assertStudyMapping = (studyCards, runCards, expectedCount = DEFAULT_EXPECTED_CARD_COUNT) => {
+const assertStudyMapping = (studyCards, runCards, expectedCount) => {
     assertExactCards(studyCards, expectedCount);
     if (studyCards.length !== runCards.length
         || studyCards.some((card, index) => card.pr_card_id !== runCards[index].pr_card_id || card.ordinal !== runCards[index].ordinal)) {
@@ -27,7 +30,7 @@ const assertStudyMapping = (studyCards, runCards, expectedCount = DEFAULT_EXPECT
     }
 };
 
-const assertRunCards = (cards, expectedCount = DEFAULT_EXPECTED_CARD_COUNT) => {
+const assertRunCards = (cards, expectedCount) => {
     assertExactCards(cards, expectedCount);
     const snapshots = cards.map(card => ({ordinal: card.ordinal, snapshotChecksum: card.snapshot_checksum}));
     return {

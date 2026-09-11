@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import {readFile} from "node:fs/promises";
 import test from "node:test";
 import {REQUIRED_ENDPOINTS} from "../util/github-pr-persistence.js";
 import {verifyGithubCoverage} from "../util/github-pr-coverage-verifier.js";
@@ -13,17 +12,30 @@ const completePages = (card, endpoint) => ({
     item_count: endpoint === "metadata" ? 1 : 0,
     normalized_payload: endpoint === "metadata" ? {title: "title", body: "body", user: {login: "author"}, state: "closed", merged: true, html_url: "https://github.com/owner/repo/pull/1", created_at: "2020-01-01", closed_at: "2020-01-02", merged_at: "2020-01-02"} : [],
 });
-const completeInput = () => ({
-    cards, run, runCards: cards.map(card => ({pr_card_id: card.source_card_id})),
-    pages: cards.flatMap(card => REQUIRED_ENDPOINTS.map(endpoint => completePages(card, endpoint))),
-    snapshots: cards.map(card => ({pr_card_id: card.source_card_id})),
-    sourceChecksum: "csv-checksum",
+const completeInput = (expectedCardCount = 300) => ({
+    study: {id: "study-id", source_checksum: "csv-checksum", expected_card_count: expectedCardCount},
+    cards: cards.slice(0, expectedCardCount),
+    run: {...run, study_id: "study-id"},
+    runCards: cards.slice(0, expectedCardCount).map(card => ({
+        study_id: "study-id",
+        pr_card_id: card.source_card_id,
+        ordinal: card.ordinal,
+        snapshot_id: `snapshot-${card.ordinal}`,
+        snapshot_checksum: `checksum-${card.ordinal}`,
+    })),
+    pages: cards.slice(0, expectedCardCount).flatMap(card => REQUIRED_ENDPOINTS.map(endpoint => completePages(card, endpoint))),
+    snapshots: cards.slice(0, expectedCardCount).map(card => ({
+        id: `snapshot-${card.ordinal}`,
+        pr_card_id: card.source_card_id,
+        snapshot_checksum: `checksum-${card.ordinal}`,
+    })),
     telemetry: {attempt_telemetry_version: null, events: []},
 });
 
-test("coverage CLI aliases persisted source IDs for run-card and page rows", async () => {
-    const script = await readFile(new URL("../scripts/verify-github-coverage.js", import.meta.url), "utf8");
-    assert.equal([...script.matchAll(/SELECT pr_cards\.source_card_id AS pr_card_id/g)].length, 2);
+test("rejects unsupported persisted denominators", () => {
+    const input = completeInput(30);
+    input.study.expected_card_count = 10;
+    assert.throws(() => verifyGithubCoverage(input), /30-card or 300-card/);
 });
 
 test("reports complete 300-card coverage and CSV baseline coverage", () => {
@@ -34,6 +46,37 @@ test("reports complete 300-card coverage and CSV baseline coverage", () => {
     assert.equal(report.endpoints.commits.status_counts.EMPTY, 300);
     assert.equal(report.fields.language.status_counts.PRESENT, 150);
     assert.equal(report.fields.language.status_counts.EMPTY, 150);
+});
+
+test("reports complete persisted 30-card coverage with an exact denominator", () => {
+    const report = verifyGithubCoverage(completeInput(30));
+    assert.equal(report.card_v2_compatible, true);
+    assert.equal(report.denominator, 30);
+    assert.equal(report.endpoints.metadata.status_counts.PRESENT, 30);
+    assert.equal(report.persisted_run_card_count, 30);
+    assert.equal(report.persisted_snapshot_count, 30);
+});
+
+test("rejects wrong-count and cross-study coverage even when arrays are otherwise complete", () => {
+    const wrongCount = completeInput(30);
+    wrongCount.study.expected_card_count = 300;
+    const crossStudy = completeInput(30);
+    crossStudy.run.study_id = "other-study";
+
+    assert.equal(verifyGithubCoverage(wrongCount).card_v2_compatible, false);
+    const crossStudyReport = verifyGithubCoverage(crossStudy);
+    assert.equal(crossStudyReport.card_v2_compatible, false);
+    assert.ok(crossStudyReport.incompatibility_reasons.includes("RUN_STUDY_MISMATCH"));
+});
+
+test("rejects snapshot identity drift and pages outside persisted membership", () => {
+    const snapshotDrift = completeInput(30);
+    snapshotDrift.snapshots[0] = {...snapshotDrift.snapshots[0], snapshot_checksum: "wrong"};
+    const pageDrift = completeInput(30);
+    pageDrift.pages.push({...pageDrift.pages[0], pr_card_id: "other-card"});
+
+    assert.ok(verifyGithubCoverage(snapshotDrift).incompatibility_reasons.includes("SNAPSHOT_COUNT_MISMATCH"));
+    assert.ok(verifyGithubCoverage(pageDrift).incompatibility_reasons.includes("PAGE_SCOPE_MISMATCH"));
 });
 
 test("reports missing run cards and pages without treating them as empty", () => {
