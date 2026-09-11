@@ -197,7 +197,7 @@ test("rendered login responses include CSP and views have no inline scripts or h
         assert.equal(response.status, 200);
         assert.match(response.headers.get("content-security-policy") || "", /default-src 'self'/);
         assert.doesNotMatch(response.headers.get("content-security-policy") || "", /unsafe-(?:inline|eval)/);
-        assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+        assert.equal(response.headers.get("referrer-policy"), "strict-origin-when-cross-origin");
         assert.equal(response.headers.get("x-content-type-options"), "nosniff");
         assert.equal(response.headers.get("x-frame-options"), "DENY");
         assert.match(response.headers.get("cache-control") || "", /\bno-store\b/);

@@ -17,7 +17,7 @@ const createSecurityHeadersMiddleware = ({nodeEnv = process.env.NODE_ENV || "dev
     res.set({
         "Cache-Control": "no-store",
         "Content-Security-Policy": CONTENT_SECURITY_POLICY,
-        "Referrer-Policy": "no-referrer",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
     });
