@@ -190,7 +190,7 @@ test("progress and category creation use session ownership despite supplied iden
     }
 });
 
-test("empty canonical queue renders 200 without leaking identifiers", async () => {
+test("empty canonical queue renders completion with the authenticated participant controls", async () => {
     const pool = new StudyHttpPool({pending: null});
     const server = await start({pool});
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -199,6 +199,9 @@ test("empty canonical queue renders 200 without leaking identifiers", async () =
         const html = await response.text();
         assert.equal(response.status, 200);
         assert.match(html, /Classification queue complete/);
+        assert.match(html, /participant-a/);
+        assert.match(html, /<form class="ms-lg-3 py-2" action=\/logout method=post>/);
+        assert.match(html, /<button class="btn btn-outline-secondary" type=submit>Log out<\/button>/);
         assert.doesNotMatch(html, /participant-b/);
     } finally {
         await close(server);

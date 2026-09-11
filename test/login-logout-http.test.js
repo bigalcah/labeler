@@ -87,7 +87,7 @@ class AuthHttpPool {
 const sessionMiddleware = pool => (req, res, next) => {
     const id = readSessionCookie(req, sessionPolicy);
     const session = pool.sessions.get(id);
-    req.sessionContext = session ? {accountId: "account-1", studyId: "study-1", participantId: 12} : null;
+    req.sessionContext = session ? {accountId: "account-1", studyId: "study-1", participantId: 12, participantKey: "participant-a"} : null;
     req.csrfToken = session?.csrfToken || null;
     res.locals.sessionContext = req.sessionContext;
     res.locals.csrfToken = req.csrfToken;
@@ -113,6 +113,51 @@ const startServer = async pool => {
 const closeServer = server => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
 
 const cookieValue = (header, name) => header.match(new RegExp(`${name}=([^;]+)`))?.[1];
+
+test("anonymous Home retains Login without participant or logout controls", async () => {
+    const pool = new AuthHttpPool();
+    const server = await startServer(pool);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    try {
+        const response = await fetch(`${baseUrl}/`);
+        const html = await response.text();
+
+        assert.equal(response.status, 200);
+        assert.match(html, /<a href=(?:["'])?\/login(?:["'])?[^>]*>/);
+        assert.doesNotMatch(html, /<span>participant-a<\/span>/);
+        assert.doesNotMatch(html, /<form[^>]*action=(?:["'])?\/logout(?:["'])?[^>]*method=(?:["'])?post(?:["'])?[^>]*>/);
+    } finally {
+        await closeServer(server);
+    }
+});
+
+test("authenticated Home uses the signed session identity instead of client-supplied identity data", async () => {
+    const pool = new AuthHttpPool();
+    const server = await startServer(pool);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    pool.sessions.set(sessionId, {csrfToken: sessionCsrfToken});
+
+    try {
+        const response = await fetch(`${baseUrl}/?participantKey=client-form-query&participant_id=999`, {
+            headers: {
+                cookie: `__Host-session=${signedCookie(sessionId)}`,
+                "x-participant-key": "client-header",
+                "x-participant-id": "999",
+            },
+        });
+        const html = await response.text();
+
+        assert.equal(response.status, 200);
+        assert.match(html, /<span>participant-a<\/span>/);
+        assert.match(html, /<form[^>]*action=(?:["'])?\/logout(?:["'])?[^>]*method=(?:["'])?post(?:["'])?[^>]*>/);
+        assert.match(html, new RegExp(`<input[^>]*name=(?:["'])?csrf_token(?:["'])? value=(?:["'])?${sessionCsrfToken}(?:["'])?[^>]*>`));
+        assert.doesNotMatch(html, /<a href=(?:["'])?\/login(?:["'])?[^>]*>/);
+        assert.doesNotMatch(html, /client-form-query|client-header/);
+    } finally {
+        await closeServer(server);
+    }
+});
 
 test("public login is accessible, non-enumerating, and rejects missing or invalid CSRF before authentication", async () => {
     const pool = new AuthHttpPool();
@@ -148,13 +193,52 @@ test("public login is accessible, non-enumerating, and rejects missing or invali
         assert.equal(pool.ipAttempts, 0);
         assert.equal(pool.sessions.size, 0);
 
+        const rejected = await fetch(`${baseUrl}/login`, {
+            method: "POST",
+            headers: {cookie: `__Host-login-csrf=${contextId}`, origin: "http://127.0.0.1", "content-type": "application/x-www-form-urlencoded"},
+            body: `username=participant-a&password=incorrect&csrf_token=${token}`,
+            redirect: "manual",
+        });
+        const rejectedHtml = await rejected.text();
+        const alertIndex = rejectedHtml.indexOf("id=login-error");
+        const formIndex = rejectedHtml.indexOf("id=login-form");
+        assert.equal(rejected.status, 401);
+        assert.ok(alertIndex >= 0);
+        assert.ok(formIndex >= 0);
+        assert.ok(alertIndex < formIndex);
+        assert.match(rejectedHtml, /<div class="d-flex flex-column[^>]*"><p id=login-error/);
+        assert.match(rejectedHtml, /<form id=login-form[^>]*class="row g-3 mx-0 align-items-center"[^>]*>/);
+        assert.doesNotMatch(rejectedHtml, /row-cols-lg-auto/);
+        assert.match(rejectedHtml, /<label for=username>Username<\/label>/);
+        assert.match(rejectedHtml, /<input id=username\b/);
+        assert.match(rejectedHtml, /<label for=password>Password<\/label>/);
+        assert.match(rejectedHtml, /<input id=password\b/);
+        assert.match(rejectedHtml, /<button type=submit class="btn btn-dark">Start!<\/button>/);
+    } finally {
+        await closeServer(server);
+    }
+});
+
+test("valid login redirects to the queue while setting a session cookie", async () => {
+    const pool = new AuthHttpPool();
+    const server = await startServer(pool);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    try {
+        const page = await fetch(`${baseUrl}/login`);
+        const html = await page.text();
+        const csrfCookie = page.headers.get("set-cookie");
+        const contextId = cookieValue(csrfCookie || "", "__Host-login-csrf");
+        const token = html.match(/name=csrf_token value=([^ >]+)/)?.[1];
         const valid = await fetch(`${baseUrl}/login`, {
             method: "POST",
             headers: {cookie: `__Host-login-csrf=${contextId}`, origin: "http://127.0.0.1", "content-type": "application/x-www-form-urlencoded"},
             body: `username=participant-a&password=correct&csrf_token=${token}`,
             redirect: "manual",
         });
+
         assert.equal(valid.status, 302);
+        assert.equal(valid.headers.get("location"), "/queue");
         assert.match(valid.headers.get("set-cookie") || "", /^__Host-session=/);
         assert.equal(pool.sessions.size, 1);
     } finally {

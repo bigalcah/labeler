@@ -56,7 +56,8 @@ const validateCredentialManifest = (value, config) => {
     });
     if (new Set(accounts.map(account => account.participantKey)).size !== accounts.length
         || new Set(accounts.map(account => account.normalizedUsername)).size !== accounts.length
-        || accounts.some((account, index) => account.participantKey !== expectedParticipants[index])) fail();
+        || accounts.some((account, index) => account.participantKey !== expectedParticipants[index]
+            || account.normalizedUsername !== (config.loginUsernames?.[account.participantKey] ?? account.participantKey))) fail();
     return Object.freeze({
         manifestVersion: 1,
         studyKey: config.studyKey,

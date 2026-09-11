@@ -44,7 +44,7 @@ export const post = async (req, res) => {
     if (result.kind === "authenticated") {
         setSessionCookie(res, result.sessionId, sessionPolicy);
         clearLoginCsrfCookie(res);
-        res.redirect("/");
+        res.redirect("/queue");
         return;
     }
     if (result.kind === "rate_limited") {

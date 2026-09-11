@@ -10,7 +10,7 @@
         <%- include('./partials/header'); %>
         <main>
             <h1 class="text-center mb-3">Login</h1>
-            <div class="d-flex justify-content-center">
+            <div class="d-flex flex-column align-items-center">
                 <% if (authenticationFailed || csrfFailed) { %>
                     <p id="login-error" class="alert alert-danger" role="alert">
                         <%= csrfFailed ? "Your login form expired. Please try again." : "Invalid username or password." %>
@@ -21,7 +21,7 @@
                       method="post"
                       aria-describedby="<%= authenticationFailed || csrfFailed ? "login-error" : "" %>"
                       autocomplete="on"
-                      class="row row-cols-lg-auto g-3 mx-0 align-items-center"
+                      class="row g-3 mx-0 align-items-center"
                 >
                     <div class="col-12">
                         <label for="username">Username</label>

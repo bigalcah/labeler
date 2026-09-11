@@ -1,1 +1,7 @@
-export const get = async (_, res) => res.render("index");
+import {sessionParticipant} from "../util/study-runtime.js";
+
+export const get = async (req, res) => {
+    const participant = req.sessionContext ? sessionParticipant(req.sessionContext) : null;
+    res.locals.participant = participant;
+    res.render("index", {participant});
+};

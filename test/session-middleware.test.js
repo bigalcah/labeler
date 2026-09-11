@@ -83,6 +83,7 @@ test("valid PostgreSQL session derives an authoritative context and refreshes va
         participantKey: "participant-a",
     }});
     assert.equal(pool.queries.length, 2);
+    assert.match(pool.queries[0].sql, /SELECT session\.account_id, account\.study_id, account\.reviewer_id/);
     assert.match(pool.queries[0].sql, /FROM app_session session/);
     assert.match(pool.queries[0].sql, /INNER JOIN participant_account account/);
     assert.match(pool.queries[0].sql, /INNER JOIN study_participant participant/);
