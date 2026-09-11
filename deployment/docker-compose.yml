@@ -49,7 +49,7 @@ services:
     volumes:
       - ../plans/merged_after_rework_cards_seed_20260510.csv:/labeling/plans/prs.csv:ro
       - ${DATABASE_PASSWORD_HOST_PATH:?DATABASE_PASSWORD_HOST_PATH must point to the database password}:/run/secrets/database-password:ro
-      - ${STUDY_ACCOUNT_MANIFEST_HOST_PATH:?STUDY_ACCOUNT_MANIFEST_HOST_PATH must point to a protected account manifest}:/run/secrets/study-account-manifest.json:ro
+      - ${STUDY_ACCOUNT_MANIFEST_HOST_PATH:?STUDY_ACCOUNT_MANIFEST_HOST_PATH must point to the current protected account manifest}:/run/secrets/studies/current.json:ro
     environment:
       DATABASE_HOST: labeling-database
       DATABASE_PORT: 5432
@@ -59,7 +59,7 @@ services:
       STUDY_DATABASE_MODE: ${STUDY_DATABASE_MODE:-clean}
       STUDY_CSV_PATH: /labeling/plans/prs.csv
       STUDY_CONFIG_INPUT: ${STUDY_CONFIG_INPUT:-}
-      STUDY_ACCOUNT_MANIFEST_FILE: /run/secrets/study-account-manifest.json
+      STUDY_ACCOUNT_MANIFEST_FILE: /run/secrets/studies/current.json
       GITHUB_ENRICHMENT_ENABLED: ${GITHUB_ENRICHMENT_ENABLED:-false}
     depends_on:
       labeling-database:

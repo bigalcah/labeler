@@ -1,0 +1,65 @@
+{
+  "manifestVersion": 1,
+  "selectionAlgorithm": {
+    "name": "sha256-agent-nul-card-id",
+    "version": 1,
+    "encoding": "utf8",
+    "order": "required-agent-order-then-lowercase-hex-digest-then-card-id-code-point"
+  },
+  "requiredAgents": [
+    "Copilot",
+    "Devin",
+    "OpenAI_Codex",
+    "Cursor",
+    "Claude_Code"
+  ],
+  "source": {
+    "sha256": "4051c10c39a1634aa80d9018aa53b59fd6009fdc4d7f2526d5e73708b02f53ef",
+    "rowCount": 300,
+    "columnCount": 69
+  },
+  "subset": {
+    "sha256": "1607cfe84cb687a2cc7b4c56d3e0abf106b1a1044810d7390663ef1d691b63ab",
+    "rowCount": 30,
+    "columnCount": 69
+  },
+  "distribution": {
+    "Copilot": 6,
+    "Devin": 6,
+    "OpenAI_Codex": 6,
+    "Cursor": 6,
+    "Claude_Code": 6
+  },
+  "orderedCardIds": [
+    "3082820826-A",
+    "3142914272-A",
+    "3176871505-A",
+    "3271579785-A",
+    "3179782246-A",
+    "3228266614-A",
+    "2766513428-A",
+    "3006630991-A",
+    "3090861379-A",
+    "2840202434-A",
+    "2971908072-A",
+    "2824282372-A",
+    "3269427129-A",
+    "3236878089-A",
+    "3143630432-A",
+    "3234571524-A",
+    "3223043473-A",
+    "3071510323-A",
+    "3184110162-A",
+    "3133978465-A",
+    "3203378613-A",
+    "3130792767-A",
+    "3133836979-A",
+    "3217026130-A",
+    "3184725856-A",
+    "3078006902-A",
+    "3193198936-A",
+    "3269741497-A",
+    "3224085262-A",
+    "3235103212-A"
+  ]
+}

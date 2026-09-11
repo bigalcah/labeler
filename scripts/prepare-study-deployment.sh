@@ -5,6 +5,11 @@ set -eu
 GITHUB_ENRICHMENT_ENABLED="${GITHUB_ENRICHMENT_ENABLED:-false}"
 export GITHUB_ENRICHMENT_ENABLED
 
+if [ -n "${STUDY_PROFILES_INPUT:-}" ] && [ -n "${STUDY_CONFIG_INPUT:-}" ]; then
+  echo "STUDY_PROFILES_INPUT and STUDY_CONFIG_INPUT cannot be used together" >&2
+  exit 1
+fi
+
 case "${STUDY_DATABASE_MODE:-}" in
   clean|existing)
     ;;
@@ -14,7 +19,13 @@ case "${STUDY_DATABASE_MODE:-}" in
     ;;
 esac
 
-if [ -n "${STUDY_CONFIG_INPUT:-}" ]; then
+if [ -n "${STUDY_PROFILES_INPUT:-}" ]; then
+  if [ "${STUDY_DATABASE_MODE}" = "existing" ]; then
+    echo "STUDY_PROFILES_INPUT requires STUDY_DATABASE_MODE=clean" >&2
+    exit 1
+  fi
+  npm run validate:study-profiles
+elif [ -n "${STUDY_CONFIG_INPUT:-}" ]; then
   npm run validate:study-bootstrap -- "${STUDY_CSV_PATH:?STUDY_CSV_PATH is required}" "${STUDY_CONFIG_INPUT}"
 else
   npm run validate:study-bootstrap -- "${STUDY_CSV_PATH:?STUDY_CSV_PATH is required}"
@@ -44,7 +55,9 @@ case "${STUDY_DATABASE_MODE}" in
     ;;
 esac
 
-if [ -n "${STUDY_CONFIG_INPUT:-}" ]; then
+if [ -n "${STUDY_PROFILES_INPUT:-}" ]; then
+  npm run prepare:study-profiles
+elif [ -n "${STUDY_CONFIG_INPUT:-}" ]; then
   npm run bootstrap:study -- "${STUDY_CSV_PATH}" "${STUDY_CONFIG_INPUT}"
   npm run enrich:study -- "${STUDY_CSV_PATH}" "${STUDY_CONFIG_INPUT}"
 else
