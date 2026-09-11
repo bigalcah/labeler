@@ -37,6 +37,14 @@ const managedMigrations = Object.freeze([
         id: "010_study_scoped_participant_categories",
         url: new URL("../schema/migrations/010_study_scoped_participant_categories.sql", import.meta.url),
     },
+    {
+        id: "011_multi_study_cardinality",
+        url: new URL("../schema/migrations/011_multi_study_cardinality.sql", import.meta.url),
+    },
+    {
+        id: "012_global_normalized_username",
+        url: new URL("../schema/migrations/012_global_normalized_username.sql", import.meta.url),
+    },
 ]);
 const knownExternalMigrationIds = new Set([ "002_retire_legacy_labeler" ]);
 const advisoryLockKey = "labeler:study-schema";
@@ -116,6 +124,9 @@ const runStudyMigrations = async (pool, through) => {
             ledgerIds.push(migration.id);
         }
         return ledgerIds;
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
     } finally {
         await client.query("SELECT pg_advisory_unlock(hashtext($1))", [ advisoryLockKey ]);
         client.release();

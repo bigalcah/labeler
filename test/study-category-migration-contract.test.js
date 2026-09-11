@@ -11,8 +11,9 @@ const readMigration = () => readFile(migrationUrl, "utf8");
 
 test("migration 010 is registered immediately after 009", () => {
     const migrationIds = managedMigrations.map(migration => migration.id);
+    const migrationIndex = migrationIds.indexOf("010_study_scoped_participant_categories");
 
-    assert.deepEqual(migrationIds.slice(-2), [
+    assert.deepEqual(migrationIds.slice(migrationIndex - 1, migrationIndex + 1), [
         "009_csrf_contexts",
         "010_study_scoped_participant_categories",
     ]);
