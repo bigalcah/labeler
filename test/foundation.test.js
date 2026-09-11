@@ -81,8 +81,42 @@ test("reads valid study config from a JSON file when a path is supplied", async 
         const config = await readStudyConfig(configPath);
         assert.equal(config.studyKey, "configured-study");
         assert.deepEqual(config.participants, [ "one", "two", "three" ]);
+        assert.deepEqual(config.loginUsernames, {one: "one", two: "two", three: "three"});
     } finally {
         await rm(directory, {recursive: true});
+    }
+});
+
+test("Given a validation profile When login usernames are parsed Then visible keys and exact login handles remain separate", async () => {
+    const config = await readStudyConfig(JSON.stringify({
+        studyKey: "pr-card-sorting-validation-30",
+        expectedCardCount: 30,
+        participants: [ "javier", "diego", "pablo" ],
+        loginUsernames: {javier: "javier-30", diego: "diego-30", pablo: "pablo-30"},
+    }));
+
+    assert.deepEqual(config.participants, [ "javier", "diego", "pablo" ]);
+    assert.deepEqual(config.loginUsernames, {javier: "javier-30", diego: "diego-30", pablo: "pablo-30"});
+});
+
+test("Given an explicit login mapping When keys, handles, or uniqueness drift Then configuration is rejected", async () => {
+    const base = {
+        studyKey: "pr-card-sorting-validation-30",
+        expectedCardCount: 30,
+        participants: [ "javier", "diego", "pablo" ],
+    };
+    const invalidMappings = [
+        {javier: "javier-30", diego: "diego-30"},
+        {javier: "javier-30", diego: "diego-30", pablo: "pablo-30", extra: "extra-30"},
+        {javier: "shared-30", diego: "shared-30", pablo: "pablo-30"},
+        {javier: "Javier-30", diego: "diego-30", pablo: "pablo-30"},
+    ];
+
+    for (const loginUsernames of invalidMappings) {
+        await assert.rejects(
+            () => readStudyConfig(JSON.stringify({...base, loginUsernames})),
+            StudyConfigError,
+        );
     }
 });
 
@@ -97,8 +131,10 @@ test("rejects duplicate participant identifiers before bootstrap", async () => {
 });
 
 test("rejects local config drift when persisted config exists", () => {
-    const persisted = {...DEFAULT_STUDY_CONFIG, participants: [ "one", "two", "three" ]};
-    const requested = {...DEFAULT_STUDY_CONFIG, participants: [ "one", "two", "other" ]};
+    const persisted = {studyKey: DEFAULT_STUDY_CONFIG.studyKey, expectedCardCount: 300,
+        participants: [ "one", "two", "three" ]};
+    const requested = {studyKey: DEFAULT_STUDY_CONFIG.studyKey, expectedCardCount: 300,
+        participants: [ "one", "two", "other" ]};
 
     assert.throws(
         () => resolveAuthoritativeStudyConfig(requested, persisted),

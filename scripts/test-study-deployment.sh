@@ -16,6 +16,10 @@ docker info >/dev/null 2>&1 || fail_prerequisite "Docker daemon is unavailable; 
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 [ -r "$ROOT/plans/merged_after_rework_cards_seed_20260510.csv" ] || fail_prerequisite "the canonical 300-card CSV is missing"
+EVIDENCE_DIR=${HARNESS_EVIDENCE_DIR:-}
+if [ -n "$EVIDENCE_DIR" ] && [ ! -d "$EVIDENCE_DIR" ]; then
+  fail_prerequisite "HARNESS_EVIDENCE_DIR must name an existing directory"
+fi
 TEMP_BASE=${RUNNER_TEMP:-${TMPDIR:-/tmp}}
 [ -d "$TEMP_BASE" ] || fail_prerequisite "temporary directory $TEMP_BASE does not exist"
 
@@ -32,7 +36,10 @@ compose_for() {
   project=$1
   runtime=$2
   shift 2
-  if [ "${1:-}" = "-f" ]; then
+  if [ "$runtime" = "$CLEAN_DIR" ]; then
+    docker compose -p "$project" --env-file "$runtime/compose.env" \
+      -f "$ROOT/deployment/docker-compose.yml" -f "$ROOT/deployment/docker-compose.clean.yml" -f "$runtime/harness.yml" "$@"
+  elif [ "${1:-}" = "-f" ]; then
     extra=$2
     shift 2
     docker compose -p "$project" --env-file "$runtime/compose.env" \
@@ -71,6 +78,10 @@ cleanup() {
   cleanup_project "$CLEAN_PROJECT" "$CLEAN_DIR"
   cleanup_project "$EXISTING_PROJECT" "$EXISTING_DIR" "$ROOT/deployment/docker-compose.existing.yml"
   rm -rf "$WORK_DIR"
+  if [ -n "$EVIDENCE_DIR" ]; then
+    printf 'cleanup_status=%s\ntemporary_directory_removed=true\ntask_scoped_containers_removed=true\ntask_scoped_networks_removed=true\ntask_scoped_volumes_removed=true\ndestructive_down_v_used=false\n' \
+      "$status" > "$EVIDENCE_DIR/cleanup-receipt.txt"
+  fi
   trap - EXIT INT TERM
   exit "$status"
 }
@@ -115,8 +126,8 @@ NODE
 import {randomBytes} from "node:crypto";
 process.stdout.write(randomBytes(32).toString("base64url"));
 NODE
-  cat > "$runtime/study-config.json" <<JSON
-{"studyKey":"${project}","expectedCardCount":300,"participants":["participant-a","participant-b","participant-c"]}
+  cat > "$runtime/study-config.json" <<'JSON'
+{"studyKey":"pr-card-sorting-local","expectedCardCount":300,"participants":["javier","diego","pablo"]}
 JSON
   node --input-type=module > "$runtime/account-passwords.json" <<'NODE'
 import {randomBytes} from "node:crypto";
@@ -127,6 +138,20 @@ NODE
     --study-config "$runtime/study-config.json" \
     --output "$runtime/study-account-manifest.json" \
     < "$runtime/account-passwords.json" >/dev/null
+  if [ "$mode" = "clean" ]; then
+    cat > "$runtime/validation-study-config.json" <<'JSON'
+{"studyKey":"pr-card-sorting-validation-30","expectedCardCount":30,"participants":["javier","diego","pablo"],"loginUsernames":{"javier":"javier-30","diego":"diego-30","pablo":"pablo-30"}}
+JSON
+    npm run --silent credentials:generate -- \
+      --study-config "$runtime/validation-study-config.json" \
+      --output "$runtime/validation-study-account-manifest.json" \
+      < "$runtime/account-passwords.json" >/dev/null
+    cat > "$runtime/study-profiles.json" <<'JSON'
+{"profiles":[{"config":"/run/config/studies/current.json","csv":"/labeling/plans/prs.csv","accountManifest":"/run/secrets/studies/current.json","enrichmentEnabled":false},{"config":"/run/config/studies/validation-30.json","csv":"/labeling/plans/validation-30-cards.csv","accountManifest":"/run/secrets/studies/validation-30.json","enrichmentEnabled":false}]}
+JSON
+    chmod 0400 "$runtime/validation-study-config.json" "$runtime/study-profiles.json" \
+      "$runtime/validation-study-account-manifest.json"
+  fi
   chmod 0400 "$runtime/database-password" "$runtime/session-current" "$runtime/session-previous" \
     "$runtime/study-config.json" "$runtime/study-account-manifest.json"
   chmod 0444 "$runtime/database-password-postgres"
@@ -159,6 +184,14 @@ PUBLIC_HOSTNAME=harness.test
 APP_ORIGIN=https://harness.test:$HTTPS_PORT
 GITHUB_ENRICHMENT_ENABLED=false
 ENV
+  if [ "$mode" = "clean" ]; then
+    cat >> "$runtime/compose.env" <<ENV
+STUDY_VALIDATION_ACCOUNT_MANIFEST_HOST_PATH=$runtime/validation-study-account-manifest.json
+STUDY_PROFILES_INPUT_HOST_PATH=$runtime/study-profiles.json
+STUDY_CURRENT_CONFIG_HOST_PATH=$runtime/study-config.json
+STUDY_VALIDATION_CONFIG_HOST_PATH=$runtime/validation-study-config.json
+ENV
+  fi
   chmod 0600 "$runtime/compose.env"
 
   cat > "$runtime/harness.yml" <<YAML
@@ -206,10 +239,6 @@ YAML
     container_name: ${project}-prepare
     tmpfs: !override
       - /tmp:rw,noexec,nosuid,nodev,size=64m
-    volumes:
-      - $runtime/study-config.json:/run/config/study.json:ro
-    environment:
-      STUDY_CONFIG_INPUT: /run/config/study.json
   labeling-server:
     container_name: ${project}-server
     tmpfs: !override
@@ -267,9 +296,13 @@ verify_config() {
   else
     compose_for "$project" "$runtime" config --format json > "$runtime/rendered.json"
   fi
-  node --input-type=module - "$runtime/rendered.json" "$project" "$http_port" "$https_port" <<'NODE'
+  mode=existing
+  if [ "$runtime" = "$CLEAN_DIR" ]; then
+    mode=clean
+  fi
+  node --input-type=module - "$runtime/rendered.json" "$project" "$http_port" "$https_port" "$mode" <<'NODE'
 import {readFileSync} from "node:fs";
-const [configPath, project, httpPort, httpsPort] = process.argv.slice(2);
+const [configPath, project, httpPort, httpsPort, mode] = process.argv.slice(2);
 const config = JSON.parse(readFileSync(configPath, "utf8"));
 const services = config.services;
 if (config.name !== project) throw new Error("rendered Compose project is not isolated");
@@ -294,8 +327,35 @@ if (JSON.stringify(edgePorts) !== JSON.stringify([`${httpPort}:80`, `${httpsPort
 if (services["labeling-server"].depends_on["labeling-study-prepare"].condition !== "service_completed_successfully") {
     throw new Error("server is not gated by current preparation success");
 }
+const cleanOnlyTargets = new Set([
+    "/run/config/study-profiles.json", "/run/config/studies/current.json", "/run/config/studies/validation-30.json",
+    "/labeling/plans/validation-30-cards.csv", "/run/secrets/studies/validation-30.json",
+]);
+const profileTargets = new Set([
+    ...cleanOnlyTargets,
+    "/labeling/plans/prs.csv", "/run/secrets/studies/current.json",
+]);
+const prepareTargets = new Set((services["labeling-study-prepare"].volumes ?? []).map(volume => volume.target));
+if (mode === "clean") {
+    for (const target of profileTargets) {
+        if (!prepareTargets.has(target)) throw new Error(`prepare is missing profile mount ${target}`);
+    }
+}
+for (const serviceName of ["labeling-study-prepare", "labeling-server", "labeling-caddy"]) {
+    const targets = (services[serviceName].volumes ?? []).map(volume => volume.target);
+    if (mode === "existing" && targets.some(target => cleanOnlyTargets.has(target))) {
+        throw new Error(`${serviceName} receives a clean-only mount`);
+    }
+    if (mode === "clean" && serviceName !== "labeling-study-prepare" && targets.some(target => profileTargets.has(target))) {
+        throw new Error(`${serviceName} receives a profile mount`);
+    }
+}
 NODE
   chmod 0400 "$runtime/rendered.json"
+  if [ -n "$EVIDENCE_DIR" ] && [ "$runtime" = "$CLEAN_DIR" ]; then
+    printf 'prepare_clean_only_mounts_present=true\nserver_clean_only_mounts_present=false\ncaddy_clean_only_mounts_present=false\nserver_depends_on_prepare_success=true\n' \
+      > "$EVIDENCE_DIR/security-mount-assertions.txt"
+  fi
 }
 
 snapshot() {
@@ -321,8 +381,9 @@ wait_database_initialization() {
     done
 }
 
-SNAPSHOT_SQL="SELECT json_build_object('state',(SELECT bootstrap_state FROM study),'cards',(SELECT COUNT(*) FROM study_card),'members',(SELECT COUNT(*) FROM study_participant),'accounts',(SELECT COUNT(*) FROM participant_account),'account_digest',(SELECT md5(string_agg(normalized_username || ':' || credential_version || ':' || md5(password_hash),',' ORDER BY normalized_username)) FROM participant_account),'card_digest',(SELECT md5(string_agg(source_card_id || ':' || source_checksum,',' ORDER BY ordinal)) FROM study_card),'classifications',(SELECT COUNT(*) FROM pr_classification),'classification_digest',(SELECT md5(string_agg(pr_card_id::text || ':' || participant_id || ':' || remarks,',' ORDER BY pr_card_id,participant_id)) FROM pr_classification),'source_checksum',(SELECT source_checksum FROM study));"
-SEED_SQL="WITH target AS (SELECT study.id AS study_id, participant.reviewer_id, card.pr_card_id FROM study JOIN study_participant participant ON participant.study_id=study.id JOIN study_card card ON card.study_id=study.id WHERE participant.ordinal=0 AND card.ordinal=0), category AS (INSERT INTO participant_category(study_id,participant_id,raw_name,normalized_name) SELECT study_id,reviewer_id,'Harness preserved','harness preserved' FROM target RETURNING id,study_id,participant_id) INSERT INTO pr_classification(pr_card_id,participant_id,category_id,remarks,study_id) SELECT target.pr_card_id,target.reviewer_id,category.id,'preserve-across-restart',target.study_id FROM target JOIN category ON category.study_id=target.study_id;"
+SNAPSHOT_SQL="WITH target_study AS (SELECT id, bootstrap_state, source_checksum FROM study WHERE study_key='pr-card-sorting-local') SELECT json_build_object('state',(SELECT bootstrap_state FROM target_study),'cards',(SELECT COUNT(*) FROM study_card WHERE study_id=(SELECT id FROM target_study)),'members',(SELECT COUNT(*) FROM study_participant WHERE study_id=(SELECT id FROM target_study)),'accounts',(SELECT COUNT(*) FROM participant_account WHERE study_id=(SELECT id FROM target_study)),'account_digest',(SELECT md5(string_agg(normalized_username || ':' || credential_version || ':' || md5(password_hash),',' ORDER BY normalized_username)) FROM participant_account WHERE study_id=(SELECT id FROM target_study)),'card_digest',(SELECT md5(string_agg(source_card_id || ':' || source_checksum,',' ORDER BY ordinal)) FROM study_card WHERE study_id=(SELECT id FROM target_study)),'classifications',(SELECT COUNT(*) FROM pr_classification WHERE study_id=(SELECT id FROM target_study)),'classification_digest',(SELECT md5(string_agg(pr_card_id::text || ':' || participant_id || ':' || remarks,',' ORDER BY pr_card_id,participant_id)) FROM pr_classification WHERE study_id=(SELECT id FROM target_study)),'source_checksum',(SELECT source_checksum FROM target_study));"
+DUAL_SQL="SELECT json_agg(row_to_json(profile) ORDER BY profile.expected_card_count DESC) FROM (SELECT study_key, expected_card_count, bootstrap_state, (SELECT COUNT(*) FROM study_participant WHERE study_id=study.id) AS participants, (SELECT COUNT(*) FROM study_card WHERE study_id=study.id) AS cards, (SELECT COUNT(*) FROM participant_account WHERE study_id=study.id) AS accounts FROM study) profile;"
+SEED_SQL="WITH target AS (SELECT study.id AS study_id, participant.reviewer_id, card.pr_card_id FROM study JOIN study_participant participant ON participant.study_id=study.id JOIN study_card card ON card.study_id=study.id WHERE study.study_key='pr-card-sorting-local' AND participant.ordinal=0 AND card.ordinal=0), category AS (INSERT INTO participant_category(study_id,participant_id,raw_name,normalized_name) SELECT study_id,reviewer_id,'Harness preserved','harness preserved' FROM target RETURNING id,study_id,participant_id) INSERT INTO pr_classification(pr_card_id,participant_id,category_id,remarks,study_id) SELECT target.pr_card_id,target.reviewer_id,category.id,'preserve-across-restart',target.study_id FROM target JOIN category ON category.study_id=target.study_id;"
 
 assert_runtime_ports() {
   project=$1
@@ -359,20 +420,54 @@ chmod 0600 "$CLEAN_DIR/harness.yml"
 verify_config "$CLEAN_PROJECT" "$CLEAN_DIR" "$CLEAN_HTTP_PORT" "$CLEAN_HTTPS_PORT"
 compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" up --build --wait --wait-timeout 240
 assert_runtime_ports "$CLEAN_PROJECT" "$CLEAN_DIR" "$CLEAN_HTTPS_PORT"
+PREPARE_OUTPUT=$(compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" logs --no-color labeling-study-prepare)
+case "$PREPARE_OUTPUT" in
+  *"Study pr-card-sorting-local is READY"*"Study pr-card-sorting-validation-30 is READY"*) ;;
+  *) printf 'prepare log did not report both ordered READY profiles\n' >&2; exit 1 ;;
+esac
+if [ -n "$EVIDENCE_DIR" ]; then
+  printf 'Study pr-card-sorting-local is READY\nStudy pr-card-sorting-validation-30 is READY\nordered_profiles=300,30\n' \
+    > "$EVIDENCE_DIR/prepare.log"
+fi
+DUAL_STATE=$(compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" exec -T labeling-database psql -U labeling_harness -d labeling_harness -At -c "$DUAL_SQL")
+node --input-type=module - "$DUAL_STATE" <<'NODE'
+const profiles = JSON.parse(process.argv[2]);
+const expected = [
+    {study_key: "pr-card-sorting-local", expected_card_count: 300, bootstrap_state: "READY", participants: 3, cards: 300, accounts: 3},
+    {study_key: "pr-card-sorting-validation-30", expected_card_count: 30, bootstrap_state: "READY", participants: 3, cards: 30, accounts: 3},
+];
+if (JSON.stringify(profiles) !== JSON.stringify(expected)) throw new Error("dual-profile database state is invalid");
+NODE
 compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" exec -T labeling-database psql -v ON_ERROR_STOP=1 -U labeling_harness -d labeling_harness -c "$SEED_SQL" >/dev/null
 CLEAN_BEFORE=$(snapshot "$CLEAN_PROJECT" "$CLEAN_DIR")
-compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" restart labeling-database labeling-server labeling-caddy >/dev/null
-compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" up --wait --wait-timeout 180 >/dev/null
-[ "$(snapshot "$CLEAN_PROJECT" "$CLEAN_DIR")" = "$CLEAN_BEFORE" ] || { printf 'clean restart changed persisted state\n' >&2; exit 1; }
+if [ -n "$EVIDENCE_DIR" ]; then
+  printf '{"currentStudy":%s,"dualStudyState":%s}\n' "$CLEAN_BEFORE" "$DUAL_STATE" > "$EVIDENCE_DIR/study-fingerprints.json"
+fi
 compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" rm -sf labeling-study-prepare labeling-server labeling-caddy >/dev/null
-chmod 0600 "$CLEAN_DIR/study-config.json"
-printf '%s\n' "{\"studyKey\":\"$CLEAN_PROJECT\",\"expectedCardCount\":300,\"participants\":[\"participant-b\",\"participant-a\",\"participant-c\"]}" > "$CLEAN_DIR/study-config.json"
-chmod 0400 "$CLEAN_DIR/study-config.json"
+compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" up --wait --wait-timeout 180 >/dev/null
+[ "$(snapshot "$CLEAN_PROJECT" "$CLEAN_DIR")" = "$CLEAN_BEFORE" ] || { printf 'idempotent profile rerun changed current study\n' >&2; exit 1; }
+compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" rm -sf labeling-study-prepare labeling-server labeling-caddy >/dev/null
+compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" exec -T labeling-database psql -v ON_ERROR_STOP=1 -U labeling_harness -d labeling_harness \
+  -c "UPDATE study_participant SET participant_key='validation-drift' WHERE study_id=(SELECT id FROM study WHERE study_key='pr-card-sorting-validation-30') AND ordinal=0" >/dev/null
 if compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" up --wait --wait-timeout 180 >/dev/null 2>&1; then
-  printf 'clean drift unexpectedly passed\n' >&2
+  printf 'second-profile drift unexpectedly passed\n' >&2
   exit 1
 fi
-[ "$(snapshot "$CLEAN_PROJECT" "$CLEAN_DIR")" = "$CLEAN_BEFORE" ] || { printf 'clean drift changed persisted state\n' >&2; exit 1; }
+[ "$(snapshot "$CLEAN_PROJECT" "$CLEAN_DIR")" = "$CLEAN_BEFORE" ] || { printf 'second-profile drift changed current study\n' >&2; exit 1; }
+RUNNING_SERVICES=$(compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" ps --services --status running)
+case "$RUNNING_SERVICES" in
+  *labeling-server*|*labeling-caddy*) printf 'public services ran after failed second profile\n' >&2; exit 1 ;;
+esac
+if curl --max-time 2 --silent --show-error --insecure --noproxy '*' --resolve "harness.test:$CLEAN_HTTPS_PORT:127.0.0.1" \
+  "https://harness.test:$CLEAN_HTTPS_PORT/login" >/dev/null 2>&1; then
+  printf 'public readiness remained reachable after failed second profile\n' >&2
+  exit 1
+fi
+if [ -n "$EVIDENCE_DIR" ]; then
+  printf 'second_profile_drift_rejected=true\ncurrent_300_fprint_unchanged=true\nserver_running=false\ncaddy_running=false\npublic_readiness_reachable=false\n' \
+    > "$EVIDENCE_DIR/failure.log"
+fi
+printf 'DUAL_PROFILE_OK state=%s current_fingerprint_preserved=true idempotent=true failure_gated=true\n' "$DUAL_STATE"
 
 write_runtime "$EXISTING_DIR" "$EXISTING_PROJECT" existing "$EXISTING_HTTP_PORT" "$EXISTING_HTTPS_PORT"
 write_existing_inputs "$EXISTING_DIR" "$EXISTING_PROJECT"

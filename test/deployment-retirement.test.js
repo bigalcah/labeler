@@ -43,18 +43,24 @@ test("compose mounts production manifests and session secrets without mutable im
     assert.doesNotMatch(compose, /image:\s*[^\n]*:latest/);
 });
 
-test("compose requires an account manifest exclusively for study preparation", async () => {
+test("compose requires both account manifests exclusively for study preparation", async () => {
     const compose = await readRepositoryFile("deployment/docker-compose.yml");
+    const cleanOverride = await readRepositoryFile("deployment/docker-compose.clean.yml");
     const prepareBlock = compose.match(/ {2}labeling-study-prepare:[\s\S]*? {2}labeling-server:/)?.[0] || "";
+    const cleanPrepareBlock = cleanOverride.match(/ {2}labeling-study-prepare:[\s\S]*/)?.[0] || "";
     const serverBlock = compose.match(/ {2}labeling-server:[\s\S]*?\nvolumes:/)?.[0] || "";
 
     assert.match(
         prepareBlock,
-        /\$\{STUDY_ACCOUNT_MANIFEST_HOST_PATH:\?[^}]+\}:\/run\/secrets\/study-account-manifest\.json:ro/,
+        /\$\{STUDY_ACCOUNT_MANIFEST_HOST_PATH:\?[^}]+\}:\/run\/secrets\/studies\/current\.json:ro/,
     );
-    assert.match(prepareBlock, /STUDY_ACCOUNT_MANIFEST_FILE:\s*\/run\/secrets\/study-account-manifest\.json/);
-    assert.doesNotMatch(serverBlock, /STUDY_ACCOUNT_MANIFEST_(?:HOST_PATH|FILE)/);
-    assert.doesNotMatch(serverBlock, /\/run\/secrets\/study-account-manifest\.json/);
+    assert.match(
+        cleanPrepareBlock,
+        /\$\{STUDY_VALIDATION_ACCOUNT_MANIFEST_HOST_PATH:\?[^}]+\}:\/run\/secrets\/studies\/validation-30\.json:ro/,
+    );
+    assert.match(prepareBlock, /STUDY_ACCOUNT_MANIFEST_FILE:\s*\/run\/secrets\/studies\/current\.json/);
+    assert.doesNotMatch(serverBlock, /STUDY_(?:VALIDATION_)?ACCOUNT_MANIFEST_(?:HOST_PATH|FILE)/);
+    assert.doesNotMatch(serverBlock, /\/run\/secrets\/studies\//);
 });
 
 test("deployment preparation selects a guarded database path before bootstrap", async () => {
