@@ -1,5 +1,24 @@
 # Labeler
 
+## Estudio de clasificación de PR
+
+La preparación del estudio admite exactamente dos perfiles, en este orden:
+
+1. `pr-card-sorting-local`, con 300 tarjetas y los participantes visibles
+   `javier`, `diego` y `pablo`. Sus usernames de login son `javier`, `diego` y `pablo`.
+2. `pr-card-sorting-validation-30`, con 30 tarjetas y los mismos participantes visibles. Sus
+   usernames de login son `javier-30`, `diego-30` y `pablo-30`.
+
+La muestra de 300 tarjetas procede del CSV canónico. La muestra de 30 se deriva de ese CSV de
+forma determinista. Ambos perfiles usan la misma membresía ordenada para cada participante, pero
+sus categorías, clasificaciones, descartes, observaciones y progreso son privados y están
+acotados al `study_id` del estudio.
+
+El `study_id` autorizado procede de la cuenta y de la sesión de servidor. El username solo busca
+la cuenta y el sistema no interpreta el sufijo `-30`. No existe selector de participante ni de
+estudio, no se aceptan conteos arbitrarios y no hay UI administrativa. La aplicación tampoco
+ofrece exportación HTTP ni la ruta `/export`; el operador exporta desde fuera del servidor.
+
 ## Despliegue local y VPS
 
 El despliegue requiere Docker Compose, Node.js/npm, OpenSSL y un directorio externo para
@@ -32,11 +51,12 @@ openssl rand -hex 32 > "$LABELER_SECRETS/session-previous"
 chmod 0400 "$LABELER_SECRETS/session-current" "$LABELER_SECRETS/session-previous"
 ```
 
-### 2. Generar el manifiesto de cuentas
+### 2. Generar los manifiestos de cuentas
 
-El manifiesto se genera fuera de Docker y contiene únicamente hashes Argon2id. El archivo de
-contraseñas generado queda fuera del repositorio; sus líneas corresponden a `javier`, `diego` y
-`pablo`, en ese orden.
+Cada manifiesto se genera fuera de Docker y contiene únicamente hashes Argon2id. Los archivos de
+contraseñas quedan fuera del repositorio. El manifiesto del perfil actual usa `javier`, `diego` y
+`pablo`; el de validación usa `javier-30`, `diego-30` y `pablo-30`, en el orden de los
+participantes visibles.
 
 ```bash
 export LABELER_STUDY_CONFIG="$LABELER_SECRETS/study-config.json"
@@ -59,6 +79,10 @@ npm run credentials:generate -- \
   < "$LABELER_ACCOUNT_PASSWORDS"
 chmod 0400 "$LABELER_ACCOUNT_MANIFEST"
 ```
+
+El ejemplo genera el manifiesto del perfil actual. Para el perfil de validación usa un archivo de
+configuración y un manifiesto separados, con `expectedCardCount` igual a `30` y los usernames
+`javier-30`, `diego-30` y `pablo-30`. No reutilices el manifiesto ni las contraseñas entre perfiles.
 
 ### 3. Configurar `deployment/.env`
 
@@ -86,24 +110,29 @@ archivo `deployment/.env` está ignorado por Git. `DATABASE_PASSWORD_HOST_PATH` 
 por Node y `DATABASE_PASSWORD_DATABASE_HOST_PATH` por PostgreSQL; Compose monta la segunda como
 `POSTGRES_PASSWORD_FILE` y la primera como `DATABASE_PASS_FILE`.
 
-El bootstrap del estudio lee el CSV canónico de 300 tarjetas montado por Compose. Su configuración protegida crea o
-reutiliza los participantes mediante `reviewer`, persiste `pr_cards` y gobierna la membresía del estudio. `reviewer` se
-conserva mientras existan referencias estructurales desde membresías, cuentas, categorías o clasificaciones del MVP. El
-despliegue no carga fixtures legacy de labels o instancias.
+El bootstrap de perfiles valida todos los descriptores, CSV, manifests, checksums, conteos y
+asignaciones de login antes de escribir. Después prepara `pr-card-sorting-local` con 300 tarjetas
+y, solo si esa fase termina, `pr-card-sorting-validation-30` con 30. Cada perfil crea o reutiliza
+su estudio, participantes, tarjetas y membresía sin sobrescribir decisiones existentes. `reviewer`
+se conserva mientras existan referencias estructurales desde membresías, cuentas, categorías o
+clasificaciones del MVP. El despliegue no carga fixtures legacy de labels o instancias.
 
-El manifiesto contiene hashes, debe permanecer con permiso `0400` y Compose lo monta solo en
-`labeling-study-prepare` como `/run/secrets/study-account-manifest.json`. `labeling-server` no
-recibe el archivo ni las contraseñas de participantes.
+Los manifests contienen hashes, deben permanecer con permiso `0400` y Compose los monta solo en
+`labeling-study-prepare`. `labeling-server` no recibe los archivos ni las contraseñas de
+participantes.
 
 ### 4. Validar y levantar
 
 `STUDY_DATABASE_MODE` usa `clean` por defecto. Después de que PostgreSQL esté saludable, el servicio
 `labeling-study-prepare`:
 
-1. aplica la migración aditiva de base del estudio;
-2. inventaria objetos legacy del etiquetador anterior;
-3. falla si encuentra cualquier objeto legacy;
-4. prepara los participantes configurados y las tarjetas PR canónicas solo si la guarda anterior pasó.
+1. valida todos los insumos de los dos perfiles antes de iniciar escrituras;
+2. aplica las migraciones aditivas de base del estudio;
+3. inventaria objetos legacy del etiquetador anterior;
+4. prepara primero el perfil de 300 y después el de 30;
+5. deja ambos estudios en `READY` antes de que la aplicación y Caddy puedan quedar listos;
+6. falla si encuentra cualquier objeto legacy;
+7. prepara los participantes configurados y las tarjetas PR canónicas solo si la guarda anterior pasó.
 
 Valida la interpolación antes de crear contenedores:
 
@@ -223,25 +252,75 @@ La configuración, política de retención y verificación de restore se describ
 [`deployment/ROLLBACK.md`](deployment/ROLLBACK.md). La retención es responsabilidad del almacenamiento externo; la
 herramienta nunca elimina backups ni sobrescribe destinos existentes.
 
-## Local CSV validation
+## Validación local del CSV y perfiles
 
-The importer supports multiline quoted fields and embedded JSON:
+El importador admite campos multilinea entrecomillados y JSON incrustado. La validación del
+descriptor confirma que solo existen los perfiles aprobados, sus conteos, usernames y fuentes:
 
 ```bash
 npm ci
+npm run validate:study-profiles
 npm run import:csv -- plans/merged_after_rework_cards_seed_20260510.csv /tmp/pr-cards.json
+npm run docs:study-check -- --root .
 ```
 
-GitHub enrichment remains a separate provider concern; the deployment preserves the repository's GitHub fixture.
+La preparación coordinada se ejecuta después de validar el descriptor y procesa siempre 300 antes
+de 30:
 
-## GitHub enrichment
+```bash
+npm run prepare:study-profiles
+```
 
-The optional, prepare-only GitHub snapshot workflow, aliases, endpoint states, rerun
-rules, and rollback constraints are documented in
+El comando requiere `STUDY_PROFILES_INPUT` y las rutas montadas que se describen en el overlay
+`deployment/docker-compose.clean.yml`. El CSV selecciona las tarjetas. GitHub solo puede enriquecer
+snapshots de forma opcional durante `prepare`; no selecciona la muestra ni recibe llamadas desde la
+aplicación web o el navegador.
+
+## Enriquecimiento GitHub
+
+El flujo opcional y prepare-only de snapshots GitHub, sus aliases, estados de endpoints, reglas de
+repetición y restricciones de rollback están documentados en
 [`deployment/GITHUB-ENRICHMENT.md`](deployment/GITHUB-ENRICHMENT.md).
+La captura live sigue pendiente. Un perfil CSV-only no necesita token ni crea un run promovido.
+
+## Exportación offline
+
+El operador selecciona un único estudio con `--study-key` y un directorio externo que no exista.
+La exportación exige estado `READY` y decisión terminal para todas las tarjetas de todos los
+participantes configurados. Es una operación local y de solo lectura que genera
+`results.csv`, `categories.csv` y `manifest.json`; no existe descarga desde el navegador, ruta HTTP
+ni `/export`.
+
+```bash
+export STUDY_EXPORT_HMAC_SECRET_FILE="$HOME/.config/labeler/secrets/export-hmac"
+npm run export:study -- \
+  --study-key pr-card-sorting-validation-30 \
+  --output "$HOME/.config/labeler/exports/validation-30"
+```
+
+La operación completa y sus requisitos están descritos en
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+
+## Estado de la evidencia
+
+La implementación central y la validación E2E hostil aislada de los dos estudios están
+completadas. Eso no convierte en evidencia ejecutada los entornos que aún no se han comprobado.
+Siguen pendientes:
+
+- backup y restore externo verificables;
+- E2E hostil histórico de la tarea 10.2;
+- E2E completo en VPS o entorno público;
+- cierre documental histórico de la tarea 10.4;
+- captura live de GitHub.
+
+No se debe presentar ninguna de estas evidencias como completada hasta conservar sus resultados,
+alcance, fecha y entorno.
 
 ## Documentation
 
+- [Multi-study validation](docs/MULTI-STUDY-VALIDATION.md)
+- [Participant guide](docs/PARTICIPANT-GUIDE.md)
+- [Offline export runbook](docs/EXPORT-RUNBOOK.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Study workflow](docs/STUDY-WORKFLOW.md)
 - [Development](docs/DEVELOPMENT.md)
