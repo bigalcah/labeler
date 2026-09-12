@@ -142,15 +142,39 @@ NODE
     cat > "$runtime/validation-study-config.json" <<'JSON'
 {"studyKey":"pr-card-sorting-validation-30","expectedCardCount":30,"participants":["javier","diego","pablo"],"loginUsernames":{"javier":"javier-30","diego":"diego-30","pablo":"pablo-30"}}
 JSON
+    node --input-type=module > "$runtime/validation-account-passwords.json" <<'NODE'
+import {randomBytes} from "node:crypto";
+process.stdout.write(JSON.stringify(Array.from({length: 3}, () => randomBytes(32).toString("base64url"))));
+NODE
+    chmod 0400 "$runtime/validation-account-passwords.json"
     npm run --silent credentials:generate -- \
       --study-config "$runtime/validation-study-config.json" \
       --output "$runtime/validation-study-account-manifest.json" \
-      < "$runtime/account-passwords.json" >/dev/null
+      < "$runtime/validation-account-passwords.json" >/dev/null
+    node --input-type=module - "$runtime/account-passwords.json" "$runtime/validation-account-passwords.json" > "$runtime/multi-study-e2e-credentials.json" <<'NODE'
+import {readFileSync} from "node:fs";
+const [currentPath, validationPath] = process.argv.slice(2);
+const current = JSON.parse(readFileSync(currentPath, "utf8"));
+const validation = JSON.parse(readFileSync(validationPath, "utf8"));
+if (![current, validation].every(passwords => Array.isArray(passwords)
+    && passwords.length === 3 && passwords.every(password => typeof password === "string" && password))) {
+    throw new Error("task-scoped participant credentials are invalid");
+}
+process.stdout.write(`${JSON.stringify({
+    javier: current[0], diego: current[1], pablo: current[2],
+    "javier-30": validation[0], "diego-30": validation[1], "pablo-30": validation[2],
+})}\n`);
+NODE
+    node --input-type=module > "$runtime/multi-study-export-hmac-secret" <<'NODE'
+import {randomBytes} from "node:crypto";
+process.stdout.write(randomBytes(32).toString("base64url"));
+NODE
     cat > "$runtime/study-profiles.json" <<'JSON'
 {"profiles":[{"config":"/run/config/studies/current.json","csv":"/labeling/plans/prs.csv","accountManifest":"/run/secrets/studies/current.json","enrichmentEnabled":false},{"config":"/run/config/studies/validation-30.json","csv":"/labeling/plans/validation-30-cards.csv","accountManifest":"/run/secrets/studies/validation-30.json","enrichmentEnabled":false}]}
 JSON
     chmod 0400 "$runtime/validation-study-config.json" "$runtime/study-profiles.json" \
-      "$runtime/validation-study-account-manifest.json"
+      "$runtime/validation-study-account-manifest.json" "$runtime/multi-study-e2e-credentials.json" \
+      "$runtime/multi-study-export-hmac-secret"
   fi
   chmod 0400 "$runtime/database-password" "$runtime/session-current" "$runtime/session-previous" \
     "$runtime/study-config.json" "$runtime/study-account-manifest.json"
@@ -443,6 +467,37 @@ CLEAN_BEFORE=$(snapshot "$CLEAN_PROJECT" "$CLEAN_DIR")
 if [ -n "$EVIDENCE_DIR" ]; then
   printf '{"currentStudy":%s,"dualStudyState":%s}\n' "$CLEAN_BEFORE" "$DUAL_STATE" > "$EVIDENCE_DIR/study-fingerprints.json"
 fi
+CLEAN_DATABASE_HOST=$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${CLEAN_PROJECT}-database")
+[ -n "$CLEAN_DATABASE_HOST" ] || { printf 'isolated clean database IP is unavailable\n' >&2; exit 1; }
+MULTI_STUDY_E2E_LOG="$CLEAN_DIR/multi-study-hostile-e2e.log"
+MULTI_STUDY_E2E_OUTPUT="$CLEAN_DIR/multi-study-export"
+if ! env \
+  STUDY_MULTI_STUDY_E2E_ISOLATED_RUNTIME=true \
+  STUDY_MULTI_STUDY_E2E_BASE_URL="https://127.0.0.1:$CLEAN_HTTPS_PORT" \
+  STUDY_MULTI_STUDY_E2E_VIRTUAL_HOST=harness.test \
+  STUDY_MULTI_STUDY_E2E_CREDENTIALS_FILE="$CLEAN_DIR/multi-study-e2e-credentials.json" \
+  STUDY_MULTI_STUDY_E2E_DATABASE_HOST="$CLEAN_DATABASE_HOST" \
+  STUDY_MULTI_STUDY_E2E_DATABASE_PORT=5432 \
+  STUDY_MULTI_STUDY_E2E_DATABASE_USER=labeling_harness \
+  STUDY_MULTI_STUDY_E2E_DATABASE_NAME=labeling_harness \
+  STUDY_MULTI_STUDY_E2E_DATABASE_PASS_FILE="$CLEAN_DIR/database-password" \
+  STUDY_MULTI_STUDY_E2E_EXPORT_HMAC_SECRET_FILE="$CLEAN_DIR/multi-study-export-hmac-secret" \
+  STUDY_MULTI_STUDY_E2E_EXPORT_OUTPUT="$MULTI_STUDY_E2E_OUTPUT" \
+  node --test "$ROOT/test/multi-study-hostile-e2e.integration.js" > "$MULTI_STUDY_E2E_LOG" 2>&1; then
+  if [ -n "$EVIDENCE_DIR" ]; then
+    cp "$MULTI_STUDY_E2E_LOG" "$EVIDENCE_DIR/multi-study-hostile-e2e.log" || true
+  fi
+  printf 'MULTI_STUDY_HOSTILE_E2E_FAILED project=%s evidence_log=%s\n' "$CLEAN_PROJECT" "$MULTI_STUDY_E2E_LOG" >&2
+  cat "$MULTI_STUDY_E2E_LOG" >&2
+  exit 1
+fi
+if [ -n "$EVIDENCE_DIR" ]; then
+  cp "$MULTI_STUDY_E2E_LOG" "$EVIDENCE_DIR/multi-study-hostile-e2e.log"
+  cp "$MULTI_STUDY_E2E_OUTPUT/manifest.json" "$EVIDENCE_DIR/multi-study-export-manifest.json"
+  printf 'hostile_e2e=passed\ncredentials_outside_repository=true\ndatabase_host_port_published=false\nexport_output_outside_repository=true\n' \
+    > "$EVIDENCE_DIR/multi-study-hostile-e2e.txt"
+fi
+printf 'MULTI_STUDY_HOSTILE_E2E_OK project=%s\n' "$CLEAN_PROJECT"
 compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" rm -sf labeling-study-prepare labeling-server labeling-caddy >/dev/null
 compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" up --wait --wait-timeout 180 >/dev/null
 [ "$(snapshot "$CLEAN_PROJECT" "$CLEAN_DIR")" = "$CLEAN_BEFORE" ] || { printf 'idempotent profile rerun changed current study\n' >&2; exit 1; }
