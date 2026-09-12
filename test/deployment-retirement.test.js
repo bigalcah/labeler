@@ -13,7 +13,8 @@ test("compose gates server startup on the guarded study preparation service", as
     assert.match(compose, /labeling-study-prepare:/);
     assert.match(compose, /labeling-study-prepare:[\s\S]*labeling-database:\s*\n\s*condition: service_healthy/);
     assert.match(compose, /labeling-server:[\s\S]*labeling-study-prepare:\s*\n\s*condition: service_completed_successfully/);
-    assert.match(compose, /merged_after_rework_cards_seed_20260510\.csv:.*prs\.csv:ro/);
+    assert.match(compose, /STUDY_CSV_PATH:\s*\/labeling\/data\/pr-cards\.csv/);
+    assert.doesNotMatch(compose, /\.\.\/plans\//);
 });
 
 test("server image contains the guarded migration and bootstrap inputs", async () => {

@@ -170,7 +170,7 @@ import {randomBytes} from "node:crypto";
 process.stdout.write(randomBytes(32).toString("base64url"));
 NODE
     cat > "$runtime/study-profiles.json" <<'JSON'
-{"profiles":[{"config":"/run/config/studies/current.json","csv":"/labeling/plans/prs.csv","accountManifest":"/run/secrets/studies/current.json","enrichmentEnabled":false},{"config":"/run/config/studies/validation-30.json","csv":"/labeling/plans/validation-30-cards.csv","accountManifest":"/run/secrets/studies/validation-30.json","enrichmentEnabled":false}]}
+{"profiles":[{"config":"/run/config/studies/current.json","csv":"/labeling/data/pr-cards.csv","accountManifest":"/run/secrets/studies/current.json","enrichmentEnabled":false},{"config":"/run/config/studies/validation-30.json","csv":"/labeling/data/validation-30-cards.csv","accountManifest":"/run/secrets/studies/validation-30.json","enrichmentEnabled":false}]}
 JSON
     chmod 0400 "$runtime/validation-study-config.json" "$runtime/study-profiles.json" \
       "$runtime/validation-study-account-manifest.json" "$runtime/multi-study-e2e-credentials.json" \
@@ -353,16 +353,19 @@ if (services["labeling-server"].depends_on["labeling-study-prepare"].condition !
 }
 const cleanOnlyTargets = new Set([
     "/run/config/study-profiles.json", "/run/config/studies/current.json", "/run/config/studies/validation-30.json",
-    "/labeling/plans/validation-30-cards.csv", "/run/secrets/studies/validation-30.json",
+    "/run/secrets/studies/validation-30.json",
 ]);
 const profileTargets = new Set([
     ...cleanOnlyTargets,
-    "/labeling/plans/prs.csv", "/run/secrets/studies/current.json",
+    "/run/secrets/studies/current.json",
 ]);
 const prepareTargets = new Set((services["labeling-study-prepare"].volumes ?? []).map(volume => volume.target));
 if (mode === "clean") {
     for (const target of profileTargets) {
         if (!prepareTargets.has(target)) throw new Error(`prepare is missing profile mount ${target}`);
+    }
+    if (services["labeling-study-prepare"].environment.STUDY_PROFILES_INPUT !== "/run/config/study-profiles.json") {
+        throw new Error("prepare does not select the mounted profile descriptor");
     }
 }
 for (const serviceName of ["labeling-study-prepare", "labeling-server", "labeling-caddy"]) {

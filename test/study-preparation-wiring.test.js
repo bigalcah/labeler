@@ -159,7 +159,6 @@ test("existing Compose rendering needs no clean-only profile inputs or mounts", 
             assert.equal(targets.some(target => cleanOnlyTargets.has(target)), false, serviceName);
         }
         for (const target of [
-            "/labeling/plans/prs.csv",
             "/run/secrets/studies/current.json",
             "/run/secrets/database-password",
             "/run/secrets/legacy-retirement.pgpass",
@@ -167,6 +166,7 @@ test("existing Compose rendering needs no clean-only profile inputs or mounts", 
         ]) {
             assert.equal(prepareTargets.has(target), true, target);
         }
+        assert.equal(services["labeling-study-prepare"].environment.STUDY_CSV_PATH, "/labeling/data/pr-cards.csv");
         assert.equal(services["labeling-study-prepare"].environment.STUDY_PROFILES_INPUT, undefined);
     } finally {
         await rm(directory, {recursive: true, force: true});
