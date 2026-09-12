@@ -21,6 +21,7 @@
     "validate:study-bootstrap": "node scripts/validate-study-bootstrap.js",
     "validate:study-profiles": "node scripts/validate-study-profiles.js",
     "prepare:study-profiles": "node scripts/prepare-study-profiles.js",
+    "release:manifest": "node scripts/create-release-manifest.js",
     "docs:study-check": "node scripts/check-study-documentation.js",
     "enrich:study": "node scripts/enrich-study.js",
     "export:study": "node scripts/export-study.js",
