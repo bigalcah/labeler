@@ -19,7 +19,89 @@ la cuenta y el sistema no interpreta el sufijo `-30`. No existe selector de part
 estudio, no se aceptan conteos arbitrarios y no hay UI administrativa. La aplicación tampoco
 ofrece exportación HTTP ni la ruta `/export`; el operador exporta desde fuera del servidor.
 
-## Despliegue local y VPS
+## Release automático a la VPS
+
+Cada `push` a `master` inicia `.github/workflows/release.yml`. El job `quality` invoca la
+validación compartida y debe completar los gates de calidad, integración y E2E antes de que
+`build`, `publish` o `deploy` puedan avanzar. Un fallo termina el intento sin publicar imágenes ni
+contactar la VPS. `develop`, las ramas de pull request y cualquier otra rama no despliegan
+producción.
+
+El job `build` construye `labeling-server` y `labeling-database` desde el mismo commit. El job
+`publish` publica referencias con tag `sha-<GITHUB_SHA>` en GHCR, resuelve el digest y genera el paquete
+`release-package-<release-id>.tar.gz`, donde `<release-id>` es
+`<GITHUB_RUN_NUMBER>-<GITHUB_RUN_ATTEMPT>-<GITHUB_SHA>`. La etiqueta sirve para trazabilidad; la
+referencia efectiva siempre es `ghcr.io/<owner>/<image>:sha-<commit>@sha256:<64-hex>`. No uses `latest`,
+una etiqueta reutilizable ni un digest incompleto.
+
+El manifiesto que valida el launcher es `release-manifest.json` y debe ser inmutable dentro del
+paquete. Su contrato incluye `schemaVersion=1`, `releaseId`, `generation`, el commit de 40
+caracteres hexadecimales, `images.server` y `images.database` como referencias completas por
+digest, `csv.sha256` y `schemaCompatibility.produces` junto con
+`schemaCompatibility.applicationSupports`. El checksum corresponde al CSV canónico y los digests
+deben corresponder al commit del manifiesto.
+
+La entrada del paquete contiene exactamente `Caddyfile`, `docker-compose.yml` y
+`release-manifest.json`. El workflow transmite el archivo por la entrada estándar de un canal
+OpenSSH que solicita `deploy <release-id>`. La cuenta restringida no acepta comandos arbitrarios y
+deja que
+`deployment/deploy-vps.sh deploy <release-id>` haga el preflight. La VPS no necesita un checkout
+del repositorio y no debe reconstruir imágenes de producción.
+
+El job `deploy` usa el entorno protegido `production` y las secrets `VPS_HOST`, `VPS_USER`,
+`VPS_KNOWN_HOSTS` y `VPS_SSH_PRIVATE_KEY`. La cuenta SSH solo puede invocar el launcher autorizado.
+El token con permiso de lectura de GHCR y las credenciales de PostgreSQL, sesión, cuentas,
+enriquecimiento y backup permanecen en la VPS. GitHub Actions no recibe ni transfiere esos secretos.
+La VPS no ejecuta un runner autoalojado; las imágenes se construyen en runners administrados por
+GitHub.
+
+El launcher exige estas variables externas de host, sin secretos inline:
+
+```dotenv
+LABELER_DEPLOY_ROOT=/absolute/external/labeler
+LABELER_ENV_FILE=/absolute/external/labeler/deployment.env
+LABELER_BACKUP_COMMAND=/absolute/external/labeler/bin/backup-study
+LABELER_PUBLIC_BASE_URL=https://<PUBLIC_HOSTNAME>
+```
+
+`LABELER_BACKUP_COMMAND` debe ser un archivo ejecutable absoluto, fuera de `LABELER_DEPLOY_ROOT`,
+y su salida debe contener exactamente `STUDY_BACKUP_VERIFIED`. El launcher rechaza `PGPASSWORD` y
+`STUDY_BACKUP_ENCRYPTION_PASSPHRASE` como secretos inline.
+
+El layout persistente es:
+
+```text
+<LABELER_DEPLOY_ROOT>/
+  releases/<release-id>/
+  evidence/<release-id>/<utc-attempt>/
+  state/highest-generation
+  state/active-schema-version
+  state/deployment
+  locks/deploy.lock
+  current -> releases/<release-id>
+  previous -> releases/<release-id>
+```
+
+La secuencia fail-closed es: lock exclusivo, validación del paquete y del manifiesto, renderizado
+de `docker compose config`, descarga e inspección de imágenes, backup verificado, PostgreSQL
+saludable, `labeling-study-prepare`, servidor y Caddy con `--no-build --wait`, y smoke test HTTPS
+de `LABELER_PUBLIC_BASE_URL/login`. Solo después del smoke test se publican `current` y `previous`.
+Cada intento conserva manifiesto, configuración, pull, inspección, backup, health checks, smoke
+test y diagnósticos.
+
+La imagen del servidor contiene el CSV canónico en `/labeling/data/pr-cards.csv`; Compose usa esa
+ruta como `STUDY_CSV_PATH`. Por tanto, la preparación no depende de `plans/` ni de un workspace del
+runner en la VPS. El `.env`, los secretos externos y el volumen `labeling-data` quedan fuera del
+paquete y no se sustituyen durante la release.
+
+La recuperación de imagen solo puede usar `previous` si su manifiesto declara compatibilidad con el
+esquema activo. No revierte migraciones ni elimina `labeling-data`. Si la compatibilidad no está
+declarada, sigue [`deployment/ROLLBACK.md`](deployment/ROLLBACK.md) para restauración verificada en
+un destino separado. La adopción inicial de una VPS existente está separada del primer release
+automático: sigue el [`checklist de adopción`](docs/VPS-ADOPTION-CHECKLIST.md) y registra el digest
+activo sin inventar evidencia de backup, restore o despliegue público.
+
+## Despliegue local y configuración base
 
 El despliegue requiere Docker Compose, Node.js/npm, OpenSSL y un directorio externo para
 secretos. Nunca guardes contraseñas, tokens, cookies ni secretos de sesión en el repositorio.
@@ -121,7 +203,11 @@ Los manifests contienen hashes, deben permanecer con permiso `0400` y Compose lo
 `labeling-study-prepare`. `labeling-server` no recibe los archivos ni las contraseñas de
 participantes.
 
-### 4. Validar y levantar
+### 4. Validar y levantar en local
+
+Los comandos de esta sección son para un entorno local. En la VPS de producción no ejecutes
+`docker compose up --build` desde un checkout: usa el paquete, el launcher y `--no-build` del
+release automático.
 
 `STUDY_DATABASE_MODE` usa `clean` por defecto. Después de que PostgreSQL esté saludable, el servicio
 `labeling-study-prepare`:
@@ -328,5 +414,6 @@ alcance, fecha y entorno.
 - [Operations](docs/OPERATIONS.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Maintenance](docs/MAINTENANCE.md)
+- [Checklist de adopción y releases en VPS](docs/VPS-ADOPTION-CHECKLIST.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security](SECURITY.md)
