@@ -22,7 +22,7 @@ const PROFILE_CONTRACTS = Object.freeze([
 const DEFAULT_PROFILE_ROOTS = Object.freeze({
     descriptor: "/run/config",
     config: "/run/config/studies",
-    csv: "/labeling/plans",
+    csv: "/labeling/data",
     accountManifest: "/run/secrets/studies",
 });
 
