@@ -42,8 +42,8 @@ const completeResult = () => ({
         : {status: endpoint === "diff" ? "TRUNCATED" : "COMPLETE", pageRecords: [page(endpoint, endpoint === "diff" ? "TRUNCATED" : undefined)]}])),
 });
 
-const fakePersistence = events => ({
-    createRunningRun: async () => ({id: "run-id", cards: sources.map(({pr_card_id, ordinal}) => ({pr_card_id, ordinal}))}),
+const fakePersistence = (events, cardSources = sources) => ({
+    createRunningRun: async () => ({id: "run-id", cards: cardSources.map(({pr_card_id, ordinal}) => ({pr_card_id, ordinal}))}),
     stagePage: async (_client, options) => events.push(["stagePage", options]),
     upsertSnapshot: async (_client, options) => {
         events.push(["upsertSnapshot", options]);
@@ -106,6 +106,36 @@ test("enabled enrichment stages pages, snapshots, mappings, finalizes, and promo
     assert.equal(events.filter(([name, options]) => name === "stagePage" && options.state === "TRUNCATED").length, 300);
     assert.equal(events.at(-2)[0], "finalizeRun");
     assert.equal(events.at(-1)[0], "promoteRun");
+});
+
+test("enabled enrichment promotes exactly the persisted 30-card membership", async () => {
+    const expectedCardCount = 30;
+    const study30 = {...study, id: "study-30", expected_card_count: expectedCardCount};
+    const sources30 = sources.slice(0, expectedCardCount);
+    const events = [];
+    let createOptions;
+    const persistence = fakePersistence(events, sources30);
+    const create = persistence.createRunningRun;
+    persistence.createRunningRun = async options => {
+        createOptions = options;
+        return create(options);
+    };
+
+    const result = await enrichStudyWithGithub({
+        pool: {},
+        study: study30,
+        config,
+        githubClient: {fetchPullRequest: async () => completeResult()},
+        persistence,
+        loadCards: async () => sources30,
+        transaction: async operation => operation({}),
+    });
+
+    assert.equal(result.status, "PROMOTED");
+    assert.equal(createOptions.studyId, study30.id);
+    assert.equal(createOptions.expectedCardCount, expectedCardCount);
+    assert.equal(events.filter(([name]) => name === "recordRunCard").length, expectedCardCount);
+    assert.equal(events.at(-1)[1].studyId, study30.id);
 });
 
 test("omits a missing pull request and continues to promotion with its CSV baseline", async () => {

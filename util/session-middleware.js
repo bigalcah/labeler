@@ -67,7 +67,7 @@ const isValidSession = ({session, now, policy}) => {
 
 const loadSession = async ({pool, sessionId}) => {
     const {rows: [session]} = await pool.query(
-        `SELECT session.account_id, session.study_id, session.reviewer_id,
+        `SELECT session.account_id, account.study_id, account.reviewer_id,
                 session.credential_version AS session_credential_version,
                 session.csrf_token,
                 session.created_at, session.last_activity_at, session.expires_at, session.absolute_expires_at,
@@ -79,8 +79,8 @@ const loadSession = async ({pool, sessionId}) => {
              AND account.study_id = session.study_id
              AND account.reviewer_id = session.reviewer_id
          INNER JOIN study_participant participant
-             ON participant.study_id = session.study_id
-             AND participant.reviewer_id = session.reviewer_id
+             ON participant.study_id = account.study_id
+             AND participant.reviewer_id = account.reviewer_id
          WHERE session.session_id = $1`,
         [ sessionId ],
     );

@@ -6,7 +6,7 @@ services:
   labeling-database:
     container_name: labeling-database
     hostname: labeling-database
-    image: seart/labeling-database:1.0.0
+    image: ${LABELER_DATABASE_IMAGE:-seart/labeling-database:1.0.0}
     build:
       context: ../
       dockerfile: deployment/database/Dockerfile
@@ -40,16 +40,15 @@ services:
             pids: 200
 
   labeling-study-prepare:
-    image: seart/labeling-server:1.0.0
+    image: ${LABELER_SERVER_IMAGE:-seart/labeling-server:1.0.0}
     build:
       context: ../
       dockerfile: deployment/server/Dockerfile
     command: [ "sh", "scripts/prepare-study-deployment.sh" ]
     networks: [ default ]
     volumes:
-      - ../plans/merged_after_rework_cards_seed_20260510.csv:/labeling/plans/prs.csv:ro
       - ${DATABASE_PASSWORD_HOST_PATH:?DATABASE_PASSWORD_HOST_PATH must point to the database password}:/run/secrets/database-password:ro
-      - ${STUDY_ACCOUNT_MANIFEST_HOST_PATH:?STUDY_ACCOUNT_MANIFEST_HOST_PATH must point to a protected account manifest}:/run/secrets/study-account-manifest.json:ro
+      - ${STUDY_ACCOUNT_MANIFEST_HOST_PATH:?STUDY_ACCOUNT_MANIFEST_HOST_PATH must point to the current protected account manifest}:/run/secrets/studies/current.json:ro
     environment:
       DATABASE_HOST: labeling-database
       DATABASE_PORT: 5432
@@ -57,9 +56,9 @@ services:
       DATABASE_USER: ${DATABASE_USER}
       DATABASE_PASS_FILE: /run/secrets/database-password
       STUDY_DATABASE_MODE: ${STUDY_DATABASE_MODE:-clean}
-      STUDY_CSV_PATH: /labeling/plans/prs.csv
+      STUDY_CSV_PATH: /labeling/data/pr-cards.csv
       STUDY_CONFIG_INPUT: ${STUDY_CONFIG_INPUT:-}
-      STUDY_ACCOUNT_MANIFEST_FILE: /run/secrets/study-account-manifest.json
+      STUDY_ACCOUNT_MANIFEST_FILE: /run/secrets/studies/current.json
       GITHUB_ENRICHMENT_ENABLED: ${GITHUB_ENRICHMENT_ENABLED:-false}
     depends_on:
       labeling-database:
@@ -81,7 +80,7 @@ services:
   labeling-server:
     container_name: labeling-server
     hostname: labeling-server
-    image: seart/labeling-server:1.0.0
+    image: ${LABELER_SERVER_IMAGE:-seart/labeling-server:1.0.0}
     build:
       context: ../
       dockerfile: deployment/server/Dockerfile

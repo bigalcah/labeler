@@ -12,4 +12,5 @@ test("isolated clean and existing deployment scenarios preserve state and reject
 
     assert.equal(result.status, 0, evidence);
     assert.match(result.stdout, /DEPLOYMENT_HARNESS_OK/);
+    assert.match(result.stdout, /MULTI_STUDY_HOSTILE_E2E_OK/);
 });

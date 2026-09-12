@@ -1,6 +1,5 @@
 import {REQUIRED_ENDPOINTS} from "./github-pr-persistence.js";
 
-const EXPECTED_CARD_COUNT = 300;
 const ENDPOINTS = Object.freeze([
     ...REQUIRED_ENDPOINTS,
     "timeline",
@@ -87,9 +86,17 @@ const telemetryReport = telemetry => {
     };
 };
 
-const verifyGithubCoverage = ({cards, run, runCards = [], pages = [], snapshots = [], telemetry = null, sourceChecksum = null, expectedCardCount = EXPECTED_CARD_COUNT}) => {
+const verifyGithubCoverage = ({study, cards, run, runCards = [], pages = [], snapshots = [], telemetry = null}) => {
+    if (!study || ![30, 300].includes(study.expected_card_count)) {
+        throw new Error("Coverage verification requires a persisted 30-card or 300-card study");
+    }
+    const expectedCardCount = study.expected_card_count;
+    const sourceChecksum = study.source_checksum;
     const expected = [...cards].sort((left, right) => left.ordinal - right.ordinal);
+    const expectedIds = new Set(expected.map(card => card.source_card_id));
     const mappedIds = new Set(runCards.map(card => card.pr_card_id));
+    const snapshotIds = new Set(snapshots.map(snapshot => snapshot.pr_card_id));
+    const snapshotsById = new Map(snapshots.map(snapshot => [snapshot.pr_card_id, snapshot]));
     const pagesByCardEndpoint = new Map();
     for (const page of pages) {
         const key = `${page.pr_card_id}:${page.endpoint}`;
@@ -128,17 +135,36 @@ const verifyGithubCoverage = ({cards, run, runCards = [], pages = [], snapshots 
         reason: mappedIds.has(card.source_card_id) ? "GITHUB_PR_OMITTED" : "MISSING_RUN_CARD",
     }));
     const requiredComplete = expected.every(card => REQUIRED_ENDPOINTS.every(endpoint => ["PRESENT", "EMPTY"].includes(endpointReports[endpoint].cards.find(report => report.source_card_id === card.source_card_id)?.status)));
+    const mappingExact = runCards.length === expectedCardCount
+        && mappedIds.size === expectedCardCount
+        && runCards.every((card, ordinal) => expected[ordinal]?.source_card_id === card.pr_card_id
+            && expected[ordinal]?.ordinal === card.ordinal
+            && (card.study_id === undefined || card.study_id === study.id));
+    const snapshotsExact = snapshots.length === expectedCardCount
+        && snapshotIds.size === expectedCardCount
+        && snapshots.every(snapshot => expectedIds.has(snapshot.pr_card_id))
+        && runCards.every(card => {
+            const snapshot = snapshotsById.get(card.pr_card_id);
+            return snapshot
+                && (card.snapshot_id === undefined || snapshot.id === card.snapshot_id)
+                && (card.snapshot_checksum === undefined || snapshot.snapshot_checksum === card.snapshot_checksum);
+        });
+    const pagesScoped = pages.every(page => expectedIds.has(page.pr_card_id)
+        && (page.study_id === undefined || page.study_id === study.id));
     const compatible = expected.length === expectedCardCount
+        && run?.study_id === study.id
         && run?.state === "COMPLETED"
         && run?.source_checksum != null
-        && (sourceChecksum == null || run.source_checksum === sourceChecksum)
-        && mappedIds.size === expectedCardCount
+        && run.source_checksum === sourceChecksum
+        && mappingExact
         && expected.every(card => mappedIds.has(card.source_card_id))
-        && snapshots.length === expectedCardCount
+        && snapshotsExact
+        && pagesScoped
         && requiredComplete;
     return {
         verifier_version: 1,
-        run: {id: run?.id ?? null, state: run?.state ?? null, source_checksum: run?.source_checksum ?? null},
+        study: {id: study.id, source_checksum: sourceChecksum, expected_card_count: expectedCardCount},
+        run: {id: run?.id ?? null, study_id: run?.study_id ?? null, state: run?.state ?? null, source_checksum: run?.source_checksum ?? null},
         denominator: expectedCardCount,
         canonical_card_count: expected.length,
         persisted_run_card_count: runCards.length,
@@ -150,10 +176,12 @@ const verifyGithubCoverage = ({cards, run, runCards = [], pages = [], snapshots 
         card_v2_compatible: compatible,
         incompatibility_reasons: [
             expected.length !== expectedCardCount ? "CANONICAL_CARD_COUNT_MISMATCH" : null,
+            run?.study_id !== study.id ? "RUN_STUDY_MISMATCH" : null,
             run?.state !== "COMPLETED" ? "RUN_NOT_COMPLETED" : null,
-            sourceChecksum != null && run?.source_checksum !== sourceChecksum ? "SOURCE_CHECKSUM_MISMATCH" : null,
-            mappedIds.size !== expectedCardCount || expected.some(card => !mappedIds.has(card.source_card_id)) ? "RUN_CARD_MAPPING_MISMATCH" : null,
-            snapshots.length !== expectedCardCount ? "SNAPSHOT_COUNT_MISMATCH" : null,
+            run?.source_checksum !== sourceChecksum ? "SOURCE_CHECKSUM_MISMATCH" : null,
+            !mappingExact || expected.some(card => !mappedIds.has(card.source_card_id)) ? "RUN_CARD_MAPPING_MISMATCH" : null,
+            !snapshotsExact ? "SNAPSHOT_COUNT_MISMATCH" : null,
+            !pagesScoped ? "PAGE_SCOPE_MISMATCH" : null,
             !requiredComplete ? "REQUIRED_ENDPOINT_COVERAGE_INCOMPLETE" : null,
         ].filter(Boolean),
     };

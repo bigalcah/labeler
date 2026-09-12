@@ -1,0 +1,192 @@
+name: Production release
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/shared-validation.yml
+
+  build:
+    needs: quality
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the release revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Build release images from the validated commit
+        run: |
+          repository="${GITHUB_REPOSITORY,,}"
+          server_image="ghcr.io/${repository}-server:sha-${GITHUB_SHA}"
+          database_image="ghcr.io/${repository}-database:sha-${GITHUB_SHA}"
+          docker build --file deployment/server/Dockerfile --tag "$server_image" .
+          docker build --file deployment/database/Dockerfile --tag "$database_image" .
+          docker save --output "$RUNNER_TEMP/server-image.tar" "$server_image"
+          docker save --output "$RUNNER_TEMP/database-image.tar" "$database_image"
+
+      - name: Preserve the exact images for publication
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-images-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/server-image.tar
+            ${{ runner.temp }}/database-image.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      database-reference: ${{ steps.publish.outputs.database-reference }}
+      release-id: ${{ steps.package.outputs.release-id }}
+      server-reference: ${{ steps.publish.outputs.server-reference }}
+    steps:
+      - name: Check out release metadata
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node.js for release metadata
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Restore the validated release images
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-images-${{ github.sha }}
+          path: ${{ runner.temp }}/release-images
+
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Publish immutable SHA images and resolve their digests
+        id: publish
+        run: |
+          repository="${GITHUB_REPOSITORY,,}"
+          server_image="ghcr.io/${repository}-server:sha-${GITHUB_SHA}"
+          database_image="ghcr.io/${repository}-database:sha-${GITHUB_SHA}"
+          docker load --input "$RUNNER_TEMP/release-images/server-image.tar"
+          docker load --input "$RUNNER_TEMP/release-images/database-image.tar"
+          docker push "$server_image"
+          docker push "$database_image"
+          server_digest="$(docker buildx imagetools inspect "$server_image" --format '{{.Manifest.Digest}}')"
+          database_digest="$(docker buildx imagetools inspect "$database_image" --format '{{.Manifest.Digest}}')"
+          [[ "$server_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$database_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'server-reference=%s@%s\n' "$server_image" "$server_digest" >> "$GITHUB_OUTPUT"
+          printf 'database-reference=%s@%s\n' "$database_image" "$database_digest" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble the allowlisted release package
+        id: package
+        env:
+          DATABASE_REFERENCE: ${{ steps.publish.outputs.database-reference }}
+          SERVER_REFERENCE: ${{ steps.publish.outputs.server-reference }}
+        run: |
+          package_dir="$RUNNER_TEMP/release-package"
+          mkdir -p "$package_dir"
+          install -m 0644 deployment/docker-compose.yml "$package_dir/docker-compose.yml"
+          install -m 0644 deployment/Caddyfile "$package_dir/Caddyfile"
+          built_at="$(date --utc +'%Y-%m-%dT%H:%M:%SZ')"
+          npm run release:manifest -- \
+            --generation "$GITHUB_RUN_NUMBER" \
+            --attempt "$GITHUB_RUN_ATTEMPT" \
+            --commit "$GITHUB_SHA" \
+            --server-image "$SERVER_REFERENCE" \
+            --database-image "$DATABASE_REFERENCE" \
+            --csv plans/merged_after_rework_cards_seed_20260510.csv \
+            --schema-produces "study-schema-2" \
+            --schema-application-supports "study-schema-1,study-schema-2" \
+            --workflow "release/${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}" \
+            --created-at "$built_at" \
+            --output "$package_dir/release-manifest.json"
+          jq -e --arg commit "$GITHUB_SHA" '
+            (.images.server | test("^[a-z0-9][a-z0-9._/-]*:sha-" + $commit + "@sha256:[a-f0-9]{64}$"))
+            and (.images.database | test("^[a-z0-9][a-z0-9._/-]*:sha-" + $commit + "@sha256:[a-f0-9]{64}$"))
+          ' "$package_dir/release-manifest.json" > /dev/null
+          release_id="$(jq -er '.releaseId' "$package_dir/release-manifest.json")"
+          archive="$RUNNER_TEMP/release-package-${release_id}.tar.gz"
+          tar --create --gzip --file "$archive" --directory "$package_dir" Caddyfile docker-compose.yml release-manifest.json
+          printf 'RELEASE_ARCHIVE=%s\n' "$archive" >> "$GITHUB_ENV"
+          printf 'release-id=%s\n' "$release_id" >> "$GITHUB_OUTPUT"
+
+      - name: Reject unexpected or sensitive package contents
+        run: |
+          actual="$(tar --list --gzip --file "$RELEASE_ARCHIVE" | LC_ALL=C sort)"
+          expected="$(printf '%s\n' Caddyfile docker-compose.yml release-manifest.json | LC_ALL=C sort)"
+          test "$actual" = "$expected"
+          if tar --list --gzip --file "$RELEASE_ARCHIVE" | grep -E '(^|/)(\.env($|\.)|[^/]*(credential|private[-_]?key|secret|token|\.tmp$))' ; then
+            exit 1
+          fi
+
+      - name: Publish the release package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-package-${{ steps.package.outputs.release-id }}
+          path: ${{ env.RELEASE_ARCHIVE }}
+          if-no-files-found: error
+          retention-days: 30
+
+  deploy:
+    needs: publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    environment: production
+    steps:
+      - name: Download the immutable release package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-package-${{ needs.publish.outputs.release-id }}
+          path: ${{ runner.temp }}/release-package
+
+      - name: Configure the restricted SSH channel
+        env:
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+          VPS_SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+        run: |
+          umask 077
+          install -d "$RUNNER_TEMP/release-ssh"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$RUNNER_TEMP/release-ssh/known_hosts"
+          printf '%s\n' "$VPS_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/release-ssh/id_ed25519"
+
+      - name: Transfer and invoke the restricted deployment
+        env:
+          RELEASE_ID: ${{ needs.publish.outputs.release-id }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          archive="$RUNNER_TEMP/release-package/release-package-${RELEASE_ID}.tar.gz"
+          ssh_options=(
+            -i "$RUNNER_TEMP/release-ssh/id_ed25519"
+            -o BatchMode=yes
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+            -o UserKnownHostsFile="$RUNNER_TEMP/release-ssh/known_hosts"
+          )
+          ssh "${ssh_options[@]}" "$VPS_USER@$VPS_HOST" deploy "$RELEASE_ID" < "$archive"
+
+      - name: Remove the ephemeral SSH identity
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release-ssh/id_ed25519"

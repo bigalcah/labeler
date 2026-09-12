@@ -1,0 +1,10 @@
+services:
+  labeling-study-prepare:
+    volumes:
+      - ${STUDY_PROFILES_INPUT_HOST_PATH:?STUDY_PROFILES_INPUT_HOST_PATH must point to the non-secret profile descriptor}:/run/config/study-profiles.json:ro
+      - ${STUDY_CURRENT_CONFIG_HOST_PATH:?STUDY_CURRENT_CONFIG_HOST_PATH must point to the current study config}:/run/config/studies/current.json:ro
+      - ${STUDY_VALIDATION_CONFIG_HOST_PATH:?STUDY_VALIDATION_CONFIG_HOST_PATH must point to the validation study config}:/run/config/studies/validation-30.json:ro
+      - ${STUDY_VALIDATION_ACCOUNT_MANIFEST_HOST_PATH:?STUDY_VALIDATION_ACCOUNT_MANIFEST_HOST_PATH must point to the validation protected account manifest}:/run/secrets/studies/validation-30.json:ro
+    environment:
+      STUDY_PROFILES_INPUT: /run/config/study-profiles.json
+      STUDY_CONFIG_INPUT: ""

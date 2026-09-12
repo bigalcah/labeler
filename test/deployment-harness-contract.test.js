@@ -36,6 +36,22 @@ test("deployment harness scopes generated resources and cleanup to its unique pr
     assert.doesNotMatch(harness, /deployment\/\.env(?:\s|"|'|$)/);
 });
 
+test("clean dual-profile harness invokes the hostile E2E with external-only task inputs before drift", async () => {
+    const harness = await readFile(harnessUrl, "utf8");
+
+    assert.match(harness, /multi-study-e2e-credentials\.json/);
+    assert.match(harness, /multi-study-export-hmac-secret/);
+    assert.match(harness, /multi-study-export/);
+    assert.match(harness, /STUDY_MULTI_STUDY_E2E_ISOLATED_RUNTIME=true/);
+    assert.match(harness, /STUDY_MULTI_STUDY_E2E_BASE_URL="https:\/\/127\.0\.0\.1:\$CLEAN_HTTPS_PORT"/);
+    assert.match(harness, /STUDY_MULTI_STUDY_E2E_VIRTUAL_HOST=harness\.test/);
+    assert.match(harness, /STUDY_MULTI_STUDY_E2E_DATABASE_HOST="\$CLEAN_DATABASE_HOST"/);
+    assert.match(harness, /STUDY_MULTI_STUDY_E2E_EXPORT_HMAC_SECRET_FILE="\$CLEAN_DIR\/multi-study-export-hmac-secret"/);
+    assert.match(harness, /MULTI_STUDY_HOSTILE_E2E_OK/);
+    assert.ok(harness.indexOf("multi-study-hostile-e2e.integration.js") > harness.indexOf("SEED_SQL"));
+    assert.ok(harness.indexOf("multi-study-hostile-e2e.integration.js") < harness.indexOf("rm -sf labeling-study-prepare labeling-server labeling-caddy"));
+});
+
 test("deployment harness has a separate explicit package gate", () => {
     assert.equal(packageJson.scripts["test:deployment"],
         "node --test test/deployment-harness.integration.js");

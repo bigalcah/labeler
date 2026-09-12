@@ -1,21 +1,18 @@
 ## Why
 
-El MVP necesita una muestra histórica reproducible y una frontera clara entre la preparación del estudio y la clasificación. El CSV local contiene exactamente 300 PR lógicos, pero el flujo anterior dependía de una importación manual y de un `ON CONFLICT DO UPDATE` que podía cambiar una tarjeta ya clasificada. La base debe poder arrancar limpia o con datos existentes sin borrar trabajo ni declarar listo un estudio incompleto.
+El MVP necesita conservar el estudio actual de 300 PR y permitir una validación reproducible de 30 PR sin mezclar participantes, tarjetas ni resultados. El flujo debe mantener la frontera entre preparación y clasificación, proteger el trabajo existente y producir un paquete offline completo cuando todos los participantes hayan terminado.
 
 ## What Changes
 
-- Definir una configuración JSON de estudio con `studyKey`, `expectedCardCount` y `participants`; el valor predeterminado local es tres participantes.
-- Persistir `study`, `study_participant` y `study_card` además de las tarjetas y clasificaciones del MVP.
-- Ejecutar un bootstrap único después de la salud de PostgreSQL y antes de publicar la web: las migraciones crean estructura; el bootstrap prepara el estudio, participantes, tarjetas y membresía.
-- Validar todo el CSV antes de escribir, exigir exactamente 300 `source_card_id` únicos y guardar checksum de la fuente y de sus filas.
-- En una base limpia, crear participantes desde la configuración, importar `pr_cards` y asociar las mismas 300 tarjetas a cada participante mediante `study_card`.
-- En una base existente, tratar el estudio activo y su configuración persistida como autoridad; una configuración explícita solo puede crear un estudio nuevo. El drift falla sin borrar silenciosamente datos.
-- Fallar ante un cambio del contenido de un `source_card_id` existente, sin sobrescribir tarjetas o clasificaciones; nunca borrar automáticamente.
-- Usar cuentas locales preprovisionadas con hashes de contraseñas Argon2id. No habrá autorregistro ni MFA.
-- Mantener la identidad del participante solo cuando provenga de una sesión validada. Las sesiones opacas se almacenan en PostgreSQL y caducan tras ocho horas de inactividad o 24 horas de vida absoluta.
-- Exigir CSRF para las mutaciones y mantener las categorías planas privadas entre participantes.
-- Mantener categorías planas privadas y como máximo una clasificación por PR y participante; solo el estado terminal `CLASSIFIED` tiene exactamente una categoría privada, mientras `DISCARDED` no tiene clasificación. Las categorías, clasificaciones y descartes no se crean durante el bootstrap.
-- Mantener la frontera offline de snapshots de GitHub: la muestra se selecciona solo del CSV local y cualquier enriquecimiento de GitHub ocurre fuera del flujo interactivo del estudio. No habrá webhooks.
+- Definir perfiles de estudio con `studyKey`, `expectedCardCount` y `participants`, admitiendo únicamente los conteos 30 y 300. El estudio actual conserva tres participantes y 300 tarjetas.
+- Seleccionar de forma determinista una fixture de validación de 30 tarjetas desde el CSV canónico de 300, con seis tarjetas para cada agente `Copilot`, `Devin`, `OpenAI_Codex`, `Cursor` y `Claude_Code`.
+- Persistir estudios, participantes y membresías con conteo esperado por estudio, permitiendo dos filas distintas en estado `READY` al mismo tiempo en una base PostgreSQL.
+- Ejecutar una preparación secuencial y bloqueada para varios perfiles, después de validar todos sus insumos y antes de que la aplicación y Caddy puedan quedar listos.
+- Mantener las claves visibles `javier`, `diego` y `pablo`; conservar los usernames actuales `javier`, `diego`, `pablo` y usar `javier-30`, `diego-30`, `pablo-30` para la validación. El estudio autorizado será siempre el `study_id` persistido en la cuenta y la sesión.
+- Validar todo el CSV seleccionado antes de escribir y conservar checksum de fuente, membresía y filas sin sobrescribir tarjetas clasificadas.
+- Permitir enriquecimiento GitHub opcional, por estudio y solo durante la preparación, usando el conteo persistido de 30 o 300. La selección no hará captura live ni llamadas desde el navegador.
+- Mantener cuentas locales preprovisionadas con hashes Argon2id, sesiones opacas PostgreSQL, expiración, revocación, CSRF y categorías privadas. No habrá autorregistro ni MFA.
+- Añadir una exportación offline solo para operadores, condicionada a la finalización de todos los participantes, con `results.csv`, `categories.csv` y `manifest.json` reproducibles y sin secretos ni payloads crudos.
 - Publicar únicamente mediante Caddy en los puertos 80 y 443. La aplicación y PostgreSQL permanecerán en la red interna.
 - Documentar la retirada escalonada del flujo legacy sin eliminar sus objetos en este cambio.
 
@@ -27,15 +24,16 @@ El MVP necesita una muestra histórica reproducible y una frontera clara entre l
 
 ### Modified Capabilities
 
-- `github-pr-ingestion`: validación completa, importación conflict-safe y bootstrap de la muestra CSV.
-- `github-pr-explorer`: visualización local de la tarjeta de PR y evidencia disponible en el CSV.
-- `study-management`: configuración persistida, bootstrap, participantes y membresía de las 300 tarjetas.
-- `private-open-card-sorting`: categorías planas privadas y estados terminales personales `CLASSIFIED` o `DISCARDED`, con exactamente una categoría solo para `CLASSIFIED`.
+- `github-pr-ingestion`: validación completa, fixture determinista, importación conflict-safe y enriquecimiento opcional por estudio desde CSV.
+- `github-pr-explorer`: visualización local de la tarjeta de PR y evidencia disponible en el CSV, sin llamadas del navegador.
+- `study-management`: perfiles persistidos de 30 o 300 tarjetas, preparación secuencial, cuentas por estudio, sesiones autoritativas y gate de exportación.
+- `private-open-card-sorting`: cola privada según el conteo persistido y exportación offline completa protegida por el gate de finalización.
 
 ## Impact
 
-- Se añadirán tablas de estudio y membresía junto al esquema legado; las migraciones solo crean estructura y no cargan fixtures legacy.
-- El bootstrap será dueño de la carga de participantes, tarjetas y membresía. El servidor web no estará listo si el bootstrap falla o no deja el estudio listo.
-- El acceso usará cuentas locales preprovisionadas, sesiones opacas server-side con expiración por inactividad de ocho horas y expiración absoluta de 24 horas, identidad derivada solo de sesiones validadas y CSRF para mutaciones. No habrá autorregistro ni MFA.
-- La selección de muestra seguirá limitada a exactamente 300 PR del CSV, con la misma muestra para todos los participantes. Las categorías planas privadas y la frontera offline de snapshots de GitHub permanecen dentro del MVP; invitaciones, exportación, taxonomía jerárquica, normalización, acuerdo y adjudicación quedan fuera.
-- El retiro legacy será por etapas: primero aislar rutas y consultas nuevas, después migrar/retirar consumidores, y solo al final retirar objetos cuando no existan dependencias.
+- Se añadirá una migración posterior a `010_study_scoped_participant_categories` para permitir únicamente 30 y 300, retirar la restricción de un solo `READY` y preservar el estudio actual y sus datos.
+- El bootstrap será dueño de la carga de participantes, tarjetas y membresía. Una preparación de perfiles validará todos los insumos, procesará primero el perfil actual de 300 y después el de validación de 30, y no expondrá sus manifiestos al servidor web.
+- El acceso usará cuentas locales preprovisionadas con usernames distintos por estudio, sesiones opacas server-side con expiración por inactividad de ocho horas y expiración absoluta de 24 horas, identidad derivada solo de sesiones validadas y CSRF para mutaciones.
+- La muestra actual de 300 y la fixture de validación de 30 serán las únicas cardinalidades admitidas. Los tres participantes verán la misma membresía dentro de cada estudio y sus categorías, decisiones y descartes seguirán siendo privadas.
+- El exportador operator-only leerá un estudio específico en modo offline y generará resultados, nombres de categorías, observaciones de clasificación, motivos de descarte, URLs, pseudónimos, procedencia y checksums. No añadirá una ruta HTTP ni restaurará el JSONL legacy.
+- El retiro legacy será por etapas: primero aislar rutas y consultas nuevas, después migrar o retirar consumidores, y solo al final retirar objetos cuando no existan dependencias.

@@ -4,22 +4,18 @@ import path from "node:path";
 import test from "node:test";
 
 const root = path.resolve(new URL("..", import.meta.url).pathname);
-const workflowPath = path.join(root, ".github/workflows/pr-validation.yml");
-const readWorkflow = async () => {
-    try {
-        return await readFile(workflowPath, "utf8");
-    } catch (error) {
-        if (error.code === "ENOENT") {
-            assert.fail("A mandatory .github/workflows/pr-validation.yml workflow is required for pull requests.");
-        }
-        throw error;
-    }
-};
+const readWorkflow = name => readFile(path.join(root, ".github/workflows", name), "utf8");
 
-test("the mandatory PR validation workflow runs complete, fail-closed gates", async () => {
-    const workflow = await readWorkflow();
+test("Given any pull request When validation starts Then it delegates to the complete reusable gate", async () => {
+    const [caller, shared] = await Promise.all([
+        readWorkflow("pr-validation.yml"),
+        readWorkflow("shared-validation.yml"),
+    ]);
 
-    assert.match(workflow, /^on:\s*\n\s*pull_request:\s*$/m, "workflow must run for every pull request without path filters");
+    assert.match(caller, /^on:\s*\n\s*pull_request:\s*$/m);
+    assert.match(caller, /uses: \.\/\.github\/workflows\/shared-validation\.yml/);
+    assert.doesNotMatch(caller, /\bpaths(?:-ignore)?:/);
+    assert.match(shared, /^\s{2}workflow_call:\s*$/m);
     for (const command of [
         /npm ci/,
         /npm run lint(?:\s|$)/,
@@ -28,19 +24,63 @@ test("the mandatory PR validation workflow runs complete, fail-closed gates", as
         /docker compose .*--env-file .* -f deployment\/docker-compose\.yml config/,
         /hadolint .*deployment\/server\/Dockerfile.*deployment\/database\/Dockerfile/,
     ]) {
-        assert.match(workflow, command, `workflow must run ${command}`);
+        assert.match(shared, command, `shared workflow must run ${command}`);
     }
-    const composeUp = workflow.search(/docker compose .*up(?:\s|$)/);
-    const integration = workflow.search(/npm run test:integration(?:\s|$)/);
-    const e2e = workflow.search(/npm run test:e2e(?:\s|$)/);
+    const composeUp = shared.search(/docker compose .*up(?:\s|$)/);
 
-    assert.ok(composeUp >= 0, "workflow must create an ephemeral runtime");
-    assert.ok(integration > composeUp, "integration must run only after the ephemeral runtime exists");
-    assert.ok(e2e > composeUp, "E2E must run only after the ephemeral runtime exists");
+    assert.ok(composeUp >= 0);
+    assert.ok(shared.search(/npm run test:integration(?:\s|$)/) > composeUp);
+    assert.ok(shared.search(/npm run test:e2e(?:\s|$)/) > composeUp);
+});
 
-    assert.doesNotMatch(workflow, /\$\{\{\s*secrets\./i, "ephemeral CI must not require repository secrets");
-    assert.doesNotMatch(workflow, /continue-on-error:\s*true/i, "required gates must preserve failure status");
-    assert.doesNotMatch(workflow, /\|\|\s*true\b/, "required gates must preserve command exit codes");
-    assert.doesNotMatch(workflow, /\bset\s*\+e\b/, "required gates must preserve command exit codes");
-    assert.doesNotMatch(workflow, /\bexit\s+0\b/, "required gates must preserve command exit codes");
+test("Given shared validation When a gate fails Then no bypass or repository secret can hide it", async () => {
+    const shared = await readWorkflow("shared-validation.yml");
+
+    assert.match(shared, /^permissions:\s*\n\s{2}contents: read$/m);
+    assert.match(shared, /DATABASE_PASSWORD_DATABASE_HOST_PATH=\$runtime_dir\/database-password/);
+    assert.doesNotMatch(shared, /\$\{\{\s*secrets\./i);
+    assert.doesNotMatch(shared, /continue-on-error:\s*true|\|\|\s*true\b|\bset\s*\+e\b|\bexit\s+0\b/i);
+    for (const action of shared.matchAll(/uses:\s+([^\s#]+)/g)) {
+        assert.match(action[1], /@[0-9a-f]{40}$/);
+    }
+});
+
+test("Given a master push When release runs Then validation gates every fail-closed production stage", async () => {
+    const release = await readWorkflow("release.yml");
+
+    assert.match(release, /^\s{2}push:\s*\n\s{4}branches:\s*\n\s{6}- master$/m);
+    assert.doesNotMatch(release, /pull_request:|\bdevelop\b/);
+    assert.match(release, /quality:[\s\S]*?uses: \.\/\.github\/workflows\/shared-validation\.yml/);
+    assert.match(release, /build:\s*\n\s{4}needs: quality/);
+    assert.match(release, /publish:\s*\n\s{4}needs: build/);
+    assert.match(release, /deploy:\s*\n\s{4}needs: publish/);
+    assert.match(release, /environment: production/);
+    assert.match(release, /concurrency:[\s\S]*?cancel-in-progress: false/);
+    assert.equal((release.match(/packages: write/g) ?? []).length, 1);
+    assert.doesNotMatch(release, /ghcr\.io\/[^\s"']+:latest\b/);
+    for (const action of release.matchAll(/uses:\s+([^\s#]+)/g)) {
+        if (!action[1].startsWith("./")) assert.match(action[1], /@[0-9a-f]{40}$/);
+    }
+});
+
+test("Given published digests When packaging and deploying Then manifest and forced-command contracts stay exact", async () => {
+    const release = await readWorkflow("release.yml");
+
+    assert.equal((release.match(/:sha-\$\{GITHUB_SHA\}/g) ?? []).length, 4);
+    for (const option of [
+        "--generation", "--attempt", "--commit", "--server-image", "--database-image", "--csv",
+        "--schema-produces", "--schema-application-supports", "--workflow", "--created-at", "--output",
+    ]) {
+        assert.match(release, new RegExp(`\\s${option}\\s`), `manifest invocation must include ${option}`);
+    }
+    assert.match(release, /release_id="\$\(jq -er '\.releaseId' .*release-manifest\.json.*\)"/);
+    assert.doesNotMatch(release, /sub\(":sha-" \+ \$commit \+ "@"; "@"\)/);
+    assert.doesNotMatch(release, /release-manifest\.tmp/);
+    assert.match(release, /tar .*Caddyfile docker-compose\.yml release-manifest\.json/);
+    assert.doesNotMatch(release, /docker-compose\.clean\.yml/);
+    assert.doesNotMatch(release, /\bscp\b/);
+    assert.match(release, /ssh .* deploy "\$RELEASE_ID" < "\$archive"/);
+    assert.match(release, /StrictHostKeyChecking=yes/);
+    assert.match(release, /UserKnownHostsFile=/);
+    assert.doesNotMatch(release, /secrets\.(?:DATABASE|SESSION|GITHUB_TOKEN|BACKUP)/);
 });

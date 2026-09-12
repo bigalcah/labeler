@@ -5,6 +5,7 @@ services:
       - ${LEGACY_BACKUP_DIRECTORY:?LEGACY_BACKUP_DIRECTORY must point to the external legacy backup directory}:/legacy-backup:ro
     environment:
       STUDY_DATABASE_MODE: existing
+      STUDY_CONFIG_INPUT: ${STUDY_CONFIG_INPUT:-}
       LEGACY_RETIREMENT_CONFIRM: ${LEGACY_RETIREMENT_CONFIRM:-}
       PGPASSFILE: /run/secrets/legacy-retirement.pgpass
       PGHOST: labeling-database

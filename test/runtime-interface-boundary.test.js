@@ -76,6 +76,11 @@ test("file-routed legacy review, discard, conflict, and export interfaces are ab
     }));
 });
 
+test("offline study export has no HTTP route", async () => {
+    const routes = await collectFiles(fromRoot("routes"));
+    assert.equal(routes.some(file => file.includes(`${path.sep}export${path.sep}`)), false);
+});
+
 for (const [ method, route ] of removedRequests) {
     test(`${method} ${route} responds as an unregistered route`, async () => {
         const response = await fetch(`${baseUrl}${route}`, {method});

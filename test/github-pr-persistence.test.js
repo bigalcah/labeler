@@ -17,17 +17,19 @@ import {
 
 const studyId = "study-1";
 const sourceChecksum = "csv-checksum";
-const cards = Array.from({length: 300}, (_value, ordinal) => ({pr_card_id: `card-${ordinal}`, ordinal}));
+const cardsFor = expectedCardCount => Array.from({length: expectedCardCount}, (_value, ordinal) => ({pr_card_id: `card-${ordinal}`, ordinal}));
+const cards = cardsFor(300);
 
 class FakeDatabase {
-    constructor() {
+    constructor(expectedCardCount = 300) {
         this.runs = [];
         this.pages = [];
         this.snapshots = [];
         this.runCards = [];
         this.promotions = [];
         this.decisions = [];
-        this.study = {id: studyId, source_checksum: sourceChecksum, expected_card_count: 300};
+        this.study = {id: studyId, source_checksum: sourceChecksum, expected_card_count: expectedCardCount};
+        this.cards = cardsFor(expectedCardCount);
         this.nextId = 1;
     }
 
@@ -42,7 +44,7 @@ class FakeDatabase {
     async query(sql, params = []) {
         if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return {rows: []};
         if (/FROM study\s/.test(sql) && sql.includes("FOR UPDATE")) return {rows: [this.study]};
-        if (sql.includes("FROM study_card")) return {rows: cards};
+        if (sql.includes("FROM study_card")) return {rows: this.cards};
         if (sql.includes("FROM github_enrichment_run") && sql.includes("WHERE study_id = $1")) {
             return {rows: this.runs.filter(run => run.study_id === params[0] && run.state === "RUNNING")};
         }
@@ -134,10 +136,11 @@ const createRun = database => createRunningRun({
     sourceChecksum,
     configFingerprint: "config-fingerprint",
     normalizerVersion: "normalizer-1",
+    expectedCardCount: database.study.expected_card_count,
 });
 
 const addCompleteEvidence = async (database, run) => {
-    for (const card of cards) {
+    for (const card of database.cards) {
         for (const endpoint of ["metadata", "commits", "files", "reviews", "issueComments", "reviewComments"]) {
             await stagePage(database.client(), {
                 runId: run.id,
@@ -179,7 +182,20 @@ test("creates a run only for the study checksum and exact membership", async () 
     const database = new FakeDatabase();
     const run = await createRun(database);
     assert.equal(run.state, "RUNNING");
-    await assert.rejects(() => createRunningRun({pool: database.pool(), studyId, sourceChecksum: "different", configFingerprint: "f", normalizerVersion: "n"}), error => error.code === "STUDY_CHECKSUM_MISMATCH");
+    await assert.rejects(() => createRunningRun({pool: database.pool(), studyId, sourceChecksum: "different", configFingerprint: "f", normalizerVersion: "n", expectedCardCount: 300}), error => error.code === "STUDY_CHECKSUM_MISMATCH");
+    await assert.rejects(() => createRunningRun({pool: database.pool(), studyId, sourceChecksum, configFingerprint: "f", normalizerVersion: "n", expectedCardCount: 30}), error => error.code === "STUDY_CHECKSUM_MISMATCH");
+});
+
+test("creates, finalizes, and promotes an exact persisted 30-card run", async () => {
+    const database = new FakeDatabase(30);
+    const run = await createRun(database);
+    await addCompleteEvidence(database, run);
+    const completed = await finalizeRun({pool: database.pool(), runId: run.id});
+    const promotion = await promoteRun({pool: database.pool(), studyId, runId: run.id, sourceChecksum});
+
+    assert.equal(completed.state, "COMPLETED");
+    assert.equal(database.runCards.length, 30);
+    assert.equal(promotion.run_id, run.id);
 });
 
 test("reuses one compatible running run and rejects incompatible automatic resume", async () => {
@@ -193,6 +209,7 @@ test("reuses one compatible running run and rejects incompatible automatic resum
         sourceChecksum,
         configFingerprint: "different-policy",
         normalizerVersion: "normalizer-1",
+        expectedCardCount: 300,
     }), error => error.code === "INCOMPATIBLE_RUNNING_RUN");
 });
 
@@ -227,8 +244,18 @@ test("fails a run when a required endpoint is incomplete", async () => {
     const run = await createRun(database);
     await stagePage(database.client(), {runId: run.id, studyId, prCardId: "card-0", endpoint: "metadata", pageOrdinal: 0, requestFingerprint: "f", apiVersion: "v", accept: "a", state: "FAILED", normalizedPayload: null});
     await assert.rejects(() => finalizeRun({pool: database.pool(), runId: run.id}), error => error.code === "REQUIRED_ENDPOINT_INCOMPLETE");
-    const failed = await markRunFailed(database.pool(), run.id);
+    const failed = await markRunFailed(database.pool(), run.id, studyId);
     assert.equal(failed.state, "FAILED");
+});
+
+test("rejects cross-study failure updates", async () => {
+    const database = new FakeDatabase(30);
+    const run = await createRun(database);
+    await assert.rejects(
+        () => markRunFailed(database.pool(), run.id, "other-study"),
+        error => error.code === "RUN_SCOPE_MISMATCH",
+    );
+    assert.equal(run.state, "RUNNING");
 });
 
 test("promotes exactly 300 cards and associates the run, while rejecting repeat or decided promotion", async () => {

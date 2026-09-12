@@ -29,6 +29,8 @@ test("migration ledger accepts only ordered managed migrations and external reti
         "008_login_rate_limits",
         "009_csrf_contexts",
         "010_study_scoped_participant_categories",
+        "011_multi_study_cardinality",
+        "012_global_normalized_username",
     ]);
     assert.doesNotThrow(() => assertLedgerState([]));
     assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation" ]));
@@ -215,6 +217,8 @@ test("bootstrap requires all managed migrations before any write", async () => {
                 {migration_id: "008_login_rate_limits"},
                 {migration_id: "009_csrf_contexts"},
                 {migration_id: "010_study_scoped_participant_categories"},
+                {migration_id: "011_multi_study_cardinality"},
+                {migration_id: "012_global_normalized_username"},
             ],
         }),
     };

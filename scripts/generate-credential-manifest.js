@@ -20,7 +20,7 @@ try {
         studyKey: config.studyKey,
         accounts: await Promise.all(config.participants.map(async (participantKey, index) => ({
             participantKey,
-            normalizedUsername: participantKey.toLowerCase(),
+            normalizedUsername: config.loginUsernames[participantKey],
             passwordHash: await createPasswordHash(passwords[index]),
         }))),
     };

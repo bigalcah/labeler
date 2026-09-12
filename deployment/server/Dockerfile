@@ -3,6 +3,8 @@ FROM node:22.13.1-alpine AS build
 WORKDIR /build
 
 COPY public public/
+COPY plans/merged_after_rework_cards_seed_20260510.csv data/pr-cards.csv
+COPY plans/validation-30-cards.csv data/validation-30-cards.csv
 COPY routes routes/
 COPY scripts scripts/
 COPY schema/migrations schema/migrations/

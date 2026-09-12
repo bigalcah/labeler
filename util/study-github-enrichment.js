@@ -137,7 +137,6 @@ const enrichStudyWithGithub = async options => {
         study,
         config,
         githubClient,
-        expectedCardCount = study.expected_card_count ?? 300,
         persistence = {createRunningRun, stagePage, upsertSnapshot, recordRunCard, finalizeRun, markRunFailed, loadCommittedCardIds, loadRunPages, persistCheckpoint, promoteRun, recordTelemetryEvent},
         loadCards = loadStudyCardSources,
         transaction = operation => withTransaction(pool, operation),
@@ -146,6 +145,10 @@ const enrichStudyWithGithub = async options => {
         executionId = randomUUID(),
     } = options;
     if (!config.enabled) return {status: "DISABLED", study};
+    const expectedCardCount = study.expected_card_count;
+    if (![30, 300].includes(expectedCardCount)) {
+        throw new Error("GitHub enrichment requires a persisted study card count of 30 or 300");
+    }
     if (!githubClient || typeof githubClient.fetchPullRequest !== "function") {
         throw new Error("GitHub enrichment requires an injected client");
     }
@@ -173,13 +176,13 @@ const enrichStudyWithGithub = async options => {
         const sources = await loadCards(pool, study.id);
         assertCardSources(run.cards, sources, expectedCardCount);
         const committed = persistence.loadCommittedCardIds
-            ? await transaction(client => persistence.loadCommittedCardIds(client, run.id))
+            ? await transaction(client => persistence.loadCommittedCardIds(client, run.id, study.id))
             : [];
         const committedIds = new Set(committed.map(card => card.pr_card_id));
         for (const source of sources) {
             if (committedIds.has(source.pr_card_id)) continue;
             const checkpointPages = persistence.loadRunPages
-                ? await transaction(client => persistence.loadRunPages(client, run.id, source.pr_card_id))
+                ? await transaction(client => persistence.loadRunPages(client, run.id, study.id, source.pr_card_id))
                 : [];
             const result = await githubClient.fetchPullRequest({
                 repository: source.repository,
@@ -204,6 +207,7 @@ const enrichStudyWithGithub = async options => {
                     if (persistence.persistCheckpoint) {
                         await persistence.persistCheckpoint(client, {
                             runId: run.id,
+                            studyId: study.id,
                             checkpoint: {
                                 cardOrdinal: source.ordinal,
                                 endpoint: pausedEndpoint?.[0] || null,
@@ -237,22 +241,22 @@ const enrichStudyWithGithub = async options => {
             if (persistence.persistCheckpoint) {
                 await transaction(client => persistence.persistCheckpoint(client, {
                     runId: run.id,
+                    studyId: study.id,
                     checkpoint: {cardOrdinal: source.ordinal + 1, endpoint: null, pageOrdinal: null, nextUrl: null},
                     quota: result.quota,
                 }));
             }
         }
-        const completed = await persistence.finalizeRun({pool, runId: run.id, expectedCardCount});
+        const completed = await persistence.finalizeRun({pool, runId: run.id});
         const promotion = await persistence.promoteRun({
             pool,
             studyId: study.id,
             runId: run.id,
             sourceChecksum: study.source_checksum,
-            expectedCardCount,
         });
         return {status: "PROMOTED", run: completed, promotion, study};
     } catch (error) {
-        await persistence.markRunFailed(pool, run.id);
+        await persistence.markRunFailed(pool, run.id, study.id);
         throw error;
     }
 };
