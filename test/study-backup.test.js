@@ -114,8 +114,8 @@ test("study backup manifest binds encrypted archive, database, retention, and re
         query: async sql => {
             queries.push(sql);
             if (sql === "SELECT pg_export_snapshot() AS snapshot_id") return {rows: [ {snapshot_id: "snapshot-1"} ]};
-            if (sql.includes("FROM pr_cards")) return {rows: [ {source_card_id: "card-1", row_checksum: "checksum-1"} ]};
-            if (sql.includes("FROM pr_classification")) return {rows: [ {study_id: "study", pr_card_id: "card", participant_id: 1, category_id: "category", observation: null} ]};
+            if (sql.includes("FROM pr_cards")) return {rows: [ {source_card_id: "card-1", content_checksum: "checksum-1"} ]};
+            if (sql.includes("FROM pr_classification")) return {rows: [ {study_id: "study", pr_card_id: "card", participant_id: 1, category_id: "category", remarks: null} ]};
             if (sql.includes("FROM participant_account")) return {rows: [ {study_id: "study", reviewer_id: 1, normalized_username: "one", password_hash: "$argon2id$hash", enabled: true, credential_version: 4} ]};
             return {rows: []};
         },
@@ -141,6 +141,17 @@ test("study backup manifest binds encrypted archive, database, retention, and re
             now: () => new Date("2026-09-10T00:00:00.000Z"),
         });
 
+        const cardsQuery = queries.find(query => query.includes("FROM pr_cards"));
+        const classificationsQuery = queries.find(query => query.includes("FROM pr_classification"));
+        const credentialsQuery = queries.find(query => query.includes("FROM participant_account"));
+        assert.match(cardsQuery, /\bcontent_checksum\b/);
+        assert.doesNotMatch(cardsQuery, /\brow_checksum\b/);
+        assert.match(classificationsQuery, /\bremarks\b/);
+        assert.doesNotMatch(classificationsQuery, /\bobservation\b/);
+        assert.match(credentialsQuery, /\bnormalized_username\b/);
+        assert.match(credentialsQuery, /\bpassword_hash\b/);
+        assert.match(credentialsQuery, /\benabled\b/);
+        assert.match(credentialsQuery, /\bcredential_version\b/);
         assert.equal(manifest.encryption.cipher, "aes-256-cbc");
         assert.deepEqual(manifest.excludedTableData, [
             "public.app_session",
