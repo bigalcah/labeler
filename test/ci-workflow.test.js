@@ -97,6 +97,8 @@ test("Given published digests When packaging and deploying Then manifest and for
     assert.match(release, /deployment\/docker-compose\.release\.yml/);
     assert.doesNotMatch(release, /\bscp\b/);
     assert.match(release, /ssh .* deploy "\$RELEASE_ID" < "\$archive"/);
+    assert.match(release, /^\s+-o ServerAliveInterval=30\s*$/m);
+    assert.match(release, /^\s+-o ServerAliveCountMax=3\s*$/m);
     assert.match(release, /StrictHostKeyChecking=yes/);
     assert.match(release, /UserKnownHostsFile=/);
     assert.doesNotMatch(release, /secrets\.(?:DATABASE|SESSION|GITHUB_TOKEN|BACKUP)/);
