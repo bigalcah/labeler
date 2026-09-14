@@ -238,6 +238,9 @@ descartes, observaciones y progreso siguen privados por participante y `study_id
       `schemaCompatibility.produces` con `schemaCompatibility.applicationSupports`.
 - [ ] Confirmar que el paquete transferido contiene la composición y el `Caddyfile`, pero no
       `.env`, secretos, claves ni temporales del runner.
+- [ ] Confirmar que la composición empaquetada procede de `deployment/docker-compose.release.yml`
+      y monta el descriptor, las dos configuraciones y los dos manifests únicamente en
+      `labeling-study-prepare`.
 - [ ] Confirmar que el paquete contiene exactamente `Caddyfile`, `docker-compose.yml` y
       `release-manifest.json`, y que el ingreso remoto invoca `deploy <release-id>`.
 - [ ] Confirmar que la VPS no necesita un checkout del repositorio y que producción usa

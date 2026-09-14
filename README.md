@@ -94,6 +94,11 @@ ruta como `STUDY_CSV_PATH`. Por tanto, la preparación no depende de `plans/` ni
 runner en la VPS. El `.env`, los secretos externos y el volumen `labeling-data` quedan fuera del
 paquete y no se sustituyen durante la release.
 
+La composición que viaja en el paquete procede de `deployment/docker-compose.release.yml`. Incluye
+el descriptor de perfiles, las configuraciones de 300 y 30 tarjetas y ambos manifests como mounts
+externos parametrizados, todos limitados a `labeling-study-prepare`. El servidor y Caddy no reciben
+esos archivos; la ruta local `docker-compose.clean.yml` continúa siendo un overlay separado.
+
 La recuperación de imagen solo puede usar `previous` si su manifiesto declara compatibilidad con el
 esquema activo. No revierte migraciones ni elimina `labeling-data`. Si la compatibilidad no está
 declarada, sigue [`deployment/ROLLBACK.md`](deployment/ROLLBACK.md) para restauración verificada en
