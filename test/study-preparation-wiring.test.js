@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 const compose = await readFile(new URL("../deployment/docker-compose.yml", import.meta.url), "utf8");
+const releaseCompose = await readFile(new URL("../deployment/docker-compose.release.yml", import.meta.url), "utf8");
 const cleanOverride = await readFile(new URL("../deployment/docker-compose.clean.yml", import.meta.url), "utf8");
 const existingOverride = await readFile(new URL("../deployment/docker-compose.existing.yml", import.meta.url), "utf8");
 const enrichmentOverride = await readFile(new URL("../deployment/docker-compose.github-enrichment.yml", import.meta.url), "utf8");
@@ -52,6 +53,23 @@ test("GitHub configuration and secret wiring is limited to study preparation", (
     assert.match(prepare, /npm run bootstrap:study[\s\S]*npm run enrich:study/);
     assert.equal(packageJson.scripts["enrich:study"], "node scripts/enrich-study.js");
     assert.doesNotMatch(compose, /owner\/repository/);
+});
+
+test("release Compose wires both clean profiles only into study preparation", () => {
+    const prepareBlock = releaseCompose.match(/ {2}labeling-study-prepare:[\s\S]*? {2}labeling-server:/)?.[0] || "";
+    assert.match(prepareBlock, /STUDY_PROFILES_INPUT: \/run\/config\/study-profiles\.json/);
+    for (const target of [
+        "/run/config/study-profiles.json",
+        "/run/config/studies/current.json",
+        "/run/config/studies/validation-30.json",
+        "/run/secrets/studies/current.json",
+        "/run/secrets/studies/validation-30.json",
+    ]) {
+        assert.match(prepareBlock, new RegExp(target.replaceAll("/", "\\/")));
+    }
+    assert.doesNotMatch(releaseCompose, /\.\.\/plans\//);
+    const runtimeBlock = releaseCompose.slice(releaseCompose.indexOf("  labeling-server:"));
+    assert.doesNotMatch(runtimeBlock, /study-profiles|studies\/current|studies\/validation/);
 });
 
 test("enrichment is a separate post-bootstrap command with an explicit disabled guard", () => {

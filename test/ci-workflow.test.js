@@ -77,7 +77,7 @@ test("Given published digests When packaging and deploying Then manifest and for
     assert.doesNotMatch(release, /sub\(":sha-" \+ \$commit \+ "@"; "@"\)/);
     assert.doesNotMatch(release, /release-manifest\.tmp/);
     assert.match(release, /tar .*Caddyfile docker-compose\.yml release-manifest\.json/);
-    assert.doesNotMatch(release, /docker-compose\.clean\.yml/);
+    assert.match(release, /deployment\/docker-compose\.release\.yml/);
     assert.doesNotMatch(release, /\bscp\b/);
     assert.match(release, /ssh .* deploy "\$RELEASE_ID" < "\$archive"/);
     assert.match(release, /StrictHostKeyChecking=yes/);
