@@ -15,6 +15,10 @@ const waitForProcess = (child, label) => new Promise((resolve, reject) => {
     });
 });
 
+const terminateProcess = child => {
+    if (child.pid && child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+};
+
 const pipeCommands = async (producer, consumer, environment) => {
     const source = spawn(producer.command, producer.args, {
         env: environment,
@@ -24,11 +28,29 @@ const pipeCommands = async (producer, consumer, environment) => {
         env: environment,
         stdio: [ "pipe", "ignore", "ignore" ],
     });
-    source.stdout.pipe(destination.stdin);
-    await Promise.all([
+    const processes = [
         waitForProcess(source, producer.command),
         waitForProcess(destination, consumer.command),
-    ]);
+    ];
+    const pipeFailure = new Promise((_resolve, reject) => {
+        const rejectTransportError = error => {
+            if (error.code !== "EPIPE") reject(error);
+        };
+        source.stdout.on("error", rejectTransportError);
+        destination.stdin.on("error", rejectTransportError);
+    });
+
+    try {
+        source.stdout.pipe(destination.stdin);
+        await Promise.race([Promise.all(processes), pipeFailure]);
+    } catch (error) {
+        source.stdout.unpipe(destination.stdin);
+        destination.stdin.destroy();
+        terminateProcess(source);
+        terminateProcess(destination);
+        await Promise.allSettled(processes);
+        throw error;
+    }
 };
 
 const opensslDecrypt = (archivePath, encryptionKeyFile) => ({
@@ -66,7 +88,7 @@ const createEncryptedArchive = options => {
 
 const inspectEncryptedArchive = options => pipeCommands(
     opensslDecrypt(options.archivePath, options.encryptionKeyFile),
-    {command: "pg_restore", args: [ "--list", "-" ]},
+    {command: "pg_restore", args: [ "--list" ]},
     options.environment,
 );
 

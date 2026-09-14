@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
+import {watch} from "node:fs";
+import {access, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,7 +10,7 @@ import {
     resolveStudyBackupInputs,
     verifyStudyBackup,
 } from "../util/study-backup.js";
-import {buildCreatePipeline, buildRestorePipeline} from "../util/study-backup-process.js";
+import {buildCreatePipeline, buildRestorePipeline, inspectEncryptedArchive} from "../util/study-backup-process.js";
 
 const root = path.resolve(new URL("..", import.meta.url).pathname);
 const database = {host: "db", port: "5432", database: "labeling", user: "labeler"};
@@ -20,6 +21,17 @@ const createProtectedFile = async (directory, name, content) => {
     await writeFile(filePath, content, {mode: 0o400});
     return filePath;
 };
+const createExecutable = async (directory, name, content) => {
+    const executablePath = path.join(directory, name);
+    await writeFile(executablePath, content, {mode: 0o700});
+};
+const waitForFile = filePath => new Promise((resolve, reject) => {
+    let done = false;
+    const finish = error => { if (done) return; done = true; clearTimeout(timeout); watcher.close(); error ? reject(error) : resolve(); };
+    const watcher = watch(path.dirname(filePath), (_event, fileName) => { if (fileName === path.basename(filePath)) finish(); });
+    const timeout = setTimeout(() => finish(new Error(`Timed out waiting for ${path.basename(filePath)}`)), 1_000);
+    access(filePath).then(() => finish()).catch(() => {});
+});
 
 test("study backup inputs require external destinations, file secrets, encryption, and retention", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "labeler-study-backup-input-"));
@@ -103,6 +115,50 @@ test("backup and restore pipelines stream encryption and address only the isolat
     assert.equal(restorePipeline.consumer.args.includes("--host=isolated-db"), true);
     assert.equal(restorePipeline.consumer.args.includes("--dbname=labeling_restore"), true);
     assert.equal(restorePipeline.consumer.args.includes("--dbname=labeling"), false);
+});
+
+test("Given encrypted archive inspection, when pg_restore lists standard input, then it receives only --list", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "labeler-study-backup-inspect-args-"));
+    try {
+        await createExecutable(directory, "openssl", "#!/bin/sh\nexit 0\n");
+        await createExecutable(directory, "pg_restore", "#!/bin/sh\n[ \"$#\" -eq 1 ] && [ \"$1\" = \"--list\" ] || exit 41\n");
+        await assert.doesNotReject(() => inspectEncryptedArchive({archivePath: path.join(directory, "study.dump.enc"),
+            encryptionKeyFile: path.join(directory, "backup.key"), environment: {PATH: directory}}));
+    } finally {
+        await rm(directory, {recursive: true});
+    }
+});
+
+test("Given a live decryptor, when pg_restore fails early, then inspection rejects and terminates the decryptor", {timeout: 2_000}, async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "labeler-study-backup-inspect-teardown-"));
+    const producerPidPath = path.join(directory, "producer.pid");
+    const producerStartedPath = path.join(directory, "producer.started"); const producerTerminatedPath = path.join(directory, "producer.terminated");
+    let rejectionTimeout; let testError;
+    try {
+        await createExecutable(directory, "openssl", `#!${process.execPath}\nconst {writeFileSync} = require("node:fs");\nwriteFileSync(process.env.PRODUCER_PID_FILE, String(process.pid));\nwriteFileSync(process.env.PRODUCER_STARTED_FILE, "");\nprocess.on("SIGTERM", () => { writeFileSync(process.env.PRODUCER_TERMINATED_FILE, ""); process.exit(0); });\nsetInterval(() => {}, 1_000);\n`);
+        await createExecutable(directory, "pg_restore", "#!/bin/sh\nwhile [ ! -f \"$PRODUCER_STARTED_FILE\" ]; do :; done\nexit 47\n");
+        const inspection = inspectEncryptedArchive({archivePath: path.join(directory, "study.dump.enc"),
+            encryptionKeyFile: path.join(directory, "backup.key"), environment: {PATH: directory,
+                PRODUCER_PID_FILE: producerPidPath, PRODUCER_STARTED_FILE: producerStartedPath, PRODUCER_TERMINATED_FILE: producerTerminatedPath}});
+        await assert.rejects(() => Promise.race([
+            inspection,
+            new Promise((_resolve, reject) => { rejectionTimeout = setTimeout(() => reject(new Error("inspection did not reject promptly")), 500); }),
+        ]), /pg_restore failed with exit code 47/);
+        await waitForFile(producerTerminatedPath);
+    } catch (error) { testError = error; }
+    clearTimeout(rejectionTimeout); let cleanupError;
+    try {
+        const producerPid = Number(await readFile(producerPidPath, "utf8"));
+        try {
+            process.kill(producerPid, "SIGTERM");
+        } catch (error) {
+            if (error.code !== "ESRCH") throw error;
+        }
+        await waitForFile(producerTerminatedPath);
+    } catch (error) { cleanupError = error; } finally {
+        await rm(directory, {recursive: true}).catch(error => { cleanupError ??= error; });
+    }
+    if (testError) throw testError; if (cleanupError) throw cleanupError;
 });
 
 test("study backup manifest binds encrypted archive, database, retention, and required data identities", async () => {
