@@ -1,0 +1,180 @@
+version: "3.9"
+name: "labeling"
+
+services:
+
+  labeling-database:
+    container_name: labeling-database
+    hostname: labeling-database
+    image: ${LABELER_DATABASE_IMAGE:-seart/labeling-database:1.0.0}
+    build:
+      context: ../
+      dockerfile: deployment/database/Dockerfile
+    volumes:
+      - data:/var/lib/postgresql/data
+      - ${DATABASE_PASSWORD_DATABASE_HOST_PATH:?DATABASE_PASSWORD_DATABASE_HOST_PATH must point to the database password readable by PostgreSQL}:/run/secrets/database-password:ro
+    networks: [ default ]
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME}
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD_FILE: /run/secrets/database-password
+    restart: always
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+      - /var/run/postgresql:rw,noexec,nosuid,nodev,size=16m,uid=70,gid=70,mode=0775
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+      - SETUID
+      - SETGID
+    pids_limit: 200
+    deploy:
+        resources:
+          limits:
+            cpus: "1.00"
+            memory: 512mb
+            pids: 200
+
+  labeling-study-prepare:
+    image: ${LABELER_SERVER_IMAGE:-seart/labeling-server:1.0.0}
+    build:
+      context: ../
+      dockerfile: deployment/server/Dockerfile
+    command: [ "sh", "scripts/prepare-study-deployment.sh" ]
+    networks: [ default ]
+    volumes:
+      - ${DATABASE_PASSWORD_HOST_PATH:?DATABASE_PASSWORD_HOST_PATH must point to the database password}:/run/secrets/database-password:ro
+      - ${STUDY_ACCOUNT_MANIFEST_HOST_PATH:?STUDY_ACCOUNT_MANIFEST_HOST_PATH must point to the current protected account manifest}:/run/secrets/studies/current.json:ro
+      - ${STUDY_PROFILES_INPUT_HOST_PATH:?STUDY_PROFILES_INPUT_HOST_PATH must point to the non-secret profile descriptor}:/run/config/study-profiles.json:ro
+      - ${STUDY_CURRENT_CONFIG_HOST_PATH:?STUDY_CURRENT_CONFIG_HOST_PATH must point to the current study config}:/run/config/studies/current.json:ro
+      - ${STUDY_VALIDATION_CONFIG_HOST_PATH:?STUDY_VALIDATION_CONFIG_HOST_PATH must point to the validation study config}:/run/config/studies/validation-30.json:ro
+      - ${STUDY_VALIDATION_ACCOUNT_MANIFEST_HOST_PATH:?STUDY_VALIDATION_ACCOUNT_MANIFEST_HOST_PATH must point to the validation protected account manifest}:/run/secrets/studies/validation-30.json:ro
+    environment:
+      DATABASE_HOST: labeling-database
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${DATABASE_NAME}
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASS_FILE: /run/secrets/database-password
+      STUDY_DATABASE_MODE: ${STUDY_DATABASE_MODE:-clean}
+      STUDY_PROFILES_INPUT: /run/config/study-profiles.json
+      STUDY_CONFIG_INPUT: ""
+      STUDY_CSV_PATH: /labeling/data/pr-cards.csv
+      STUDY_ACCOUNT_MANIFEST_FILE: /run/secrets/studies/current.json
+      GITHUB_ENRICHMENT_ENABLED: ${GITHUB_ENRICHMENT_ENABLED:-false}
+    depends_on:
+      labeling-database:
+        condition: service_healthy
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    cap_drop:
+      - ALL
+    pids_limit: 100
+    deploy:
+        resources:
+          limits:
+            cpus: "0.50"
+            memory: 256mb
+            pids: 100
+
+  labeling-server:
+    container_name: labeling-server
+    hostname: labeling-server
+    image: ${LABELER_SERVER_IMAGE:-seart/labeling-server:1.0.0}
+    build:
+      context: ../
+      dockerfile: deployment/server/Dockerfile
+    networks: [ default ]
+    volumes:
+      - ${SESSION_SECRET_CURRENT_HOST_PATH:?SESSION_SECRET_CURRENT_HOST_PATH must point to the current session secret}:/run/secrets/session-current:ro
+      - ${SESSION_SECRET_PREVIOUS_HOST_PATH:?SESSION_SECRET_PREVIOUS_HOST_PATH must point to the previous session secret}:/run/secrets/session-previous:ro
+      - ${DATABASE_PASSWORD_HOST_PATH:?DATABASE_PASSWORD_HOST_PATH must point to the database password}:/run/secrets/database-password:ro
+    environment:
+      NODE_ENV: production
+      APP_ORIGIN: ${APP_ORIGIN:?APP_ORIGIN must be an HTTPS origin}
+      TRUST_PROXY_HOPS: "1"
+      SESSION_SECRET_FILE: /run/secrets/session-current
+      SESSION_SECRET_PREVIOUS_FILE: /run/secrets/session-previous
+      DATABASE_HOST: labeling-database
+      DATABASE_PORT: 5432
+      DATABASE_NAME: ${DATABASE_NAME}
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASS_FILE: /run/secrets/database-password
+    depends_on:
+      labeling-study-prepare:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+      - /labeling/logs:rw,noexec,nosuid,nodev,size=32m,uid=1000,gid=1000,mode=0755
+    cap_drop:
+      - ALL
+    pids_limit: 200
+    deploy:
+        restart_policy:
+          condition: on-failure
+          max_attempts: 3
+        resources:
+          limits:
+            cpus: "0.50"
+            memory: 256mb
+            pids: 200
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000/actuator/health || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  labeling-caddy:
+    container_name: labeling-caddy
+    hostname: labeling-caddy
+    image: caddy:2.8.4-alpine
+    networks: [ default ]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      PUBLIC_HOSTNAME: ${PUBLIC_HOSTNAME:?PUBLIC_HOSTNAME must be the public DNS hostname}
+    depends_on:
+      labeling-server:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    pids_limit: 100
+    deploy:
+        resources:
+          limits:
+            cpus: "0.25"
+            memory: 128mb
+            pids: 100
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  data:
+    name: labeling-data
+  caddy-data:
+  caddy-config:
+
+networks:
+  default:
+    name: labeling-network
