@@ -40,6 +40,11 @@ test("Given shared validation When a gate fails Then no bypass or repository sec
     assert.match(shared, /DATABASE_PASSWORD_DATABASE_HOST_PATH=\$runtime_dir\/database-password/);
     assert.doesNotMatch(shared, /\$\{\{\s*secrets\./i);
     assert.doesNotMatch(shared, /continue-on-error:\s*true|\|\|\s*true\b|\bset\s*\+e\b|\bexit\s+0\b/i);
+    assert.match(shared, /"loginUsernames":\{"javier":"javier","diego":"diego","pablo":"pablo"\}/);
+    assert.match(shared, /JSON\.stringify\(Array\.from\(\{length: 3\}/);
+    assert.match(shared, /--output "\$runtime_dir\/study-account-manifest\.json" \\\n\s+< "\$runtime_dir\/account-passwords"/);
+    assert.doesNotMatch(shared, /--password-fd\s+3|3<"\$runtime_dir\/account-passwords"/);
+    assert.match(shared, /if \[\[ -f "\$CI_RUNTIME_DIR\/compose\.env" \]\]; then/);
     for (const action of shared.matchAll(/uses:\s+([^\s#]+)/g)) {
         assert.match(action[1], /@[0-9a-f]{40}$/);
     }

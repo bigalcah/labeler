@@ -64,16 +64,16 @@ jobs:
           chmod 0400 "$runtime_dir"/*
 
           cat > "$runtime_dir/study-config.json" <<'JSON'
-          {"studyKey":"pr-card-sorting-local","expectedCardCount":300,"participants":["javier","diego","pablo"]}
+          {"studyKey":"pr-card-sorting-local","expectedCardCount":300,"participants":["javier","diego","pablo"],"loginUsernames":{"javier":"javier","diego":"diego","pablo":"pablo"}}
           JSON
           node --input-type=module > "$runtime_dir/account-passwords" <<'NODE'
           import {randomBytes} from "node:crypto";
-          for (let index = 0; index < 3; index += 1) process.stdout.write(`${randomBytes(32).toString("base64url")}\n`);
+          process.stdout.write(JSON.stringify(Array.from({length: 3}, () => randomBytes(32).toString("base64url"))));
           NODE
           npm run credentials:generate -- \
             --study-config "$runtime_dir/study-config.json" \
             --output "$runtime_dir/study-account-manifest.json" \
-            --password-fd 3 3<"$runtime_dir/account-passwords"
+            < "$runtime_dir/account-passwords"
           chmod 0400 "$runtime_dir/study-account-manifest.json"
 
           cat > "$runtime_dir/compose.env" <<EOF
@@ -205,5 +205,7 @@ jobs:
       - name: Remove the ephemeral runtime
         if: always() && env.CI_RUNTIME_DIR != ''
         run: |
-          docker compose --project-name "$CI_COMPOSE_PROJECT" --env-file "$CI_RUNTIME_DIR/compose.env" -f "$CI_RUNTIME_DIR/docker-compose.yml" down --volumes --remove-orphans
+          if [[ -f "$CI_RUNTIME_DIR/compose.env" ]]; then
+            docker compose --project-name "$CI_COMPOSE_PROJECT" --env-file "$CI_RUNTIME_DIR/compose.env" -f "$CI_RUNTIME_DIR/docker-compose.yml" down --volumes --remove-orphans
+          fi
           rm -rf "$CI_RUNTIME_DIR"
