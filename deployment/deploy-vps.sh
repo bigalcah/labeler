@@ -256,6 +256,15 @@ preflight_compose() {
         and .services["labeling-server"].image == $server
         and .services["labeling-caddy"].container_name == "labeling-caddy"
         and (.services["labeling-caddy"].environment.PUBLIC_HOSTNAME | type == "string" and length > 0)
+        and .services["labeling-study-prepare"].environment.STUDY_PROFILES_INPUT == "/run/config/study-profiles.json"
+        and .services["labeling-study-prepare"].environment.STUDY_CONFIG_INPUT == ""
+        and ([.services["labeling-study-prepare"].volumes[] | .target] | sort) == [
+            "/run/config/studies/current.json", "/run/config/studies/validation-30.json",
+            "/run/config/study-profiles.json", "/run/secrets/database-password",
+            "/run/secrets/studies/current.json", "/run/secrets/studies/validation-30.json"
+        ]
+        and ([.services["labeling-server"].volumes[] | .target | select(startswith("/run/config/") or startswith("/run/secrets/studies/"))] | length) == 0
+        and ([.services["labeling-caddy"].volumes[] | .target | select(startswith("/run/config/") or startswith("/run/secrets/studies/"))] | length) == 0
         and .volumes.data.name == "labeling-data"
         and .networks.default.name == "labeling-network"
         and ([.services["labeling-database"].volumes[]
