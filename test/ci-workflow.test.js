@@ -50,6 +50,11 @@ test("Given shared validation When a gate fails Then no bypass or repository sec
     assert.match(shared, /psql -U labeling_ci -d labeling_ci -qAt -c "INSERT INTO participant_category\(study_id, participant_id, raw_name, normalized_name\) VALUES \('\$study_id', \$reviewer_id/);
     assert.match(shared, /exec -T -e "SESSION_ID=\$session_id" labeling-server node --input-type=module <<'NODE'[\s\S]*?readFileSync\("\/run\/secrets\/session-current", "utf8"\)/);
     assert.doesNotMatch(shared, /SESSION_SECRET_FILE="\$CI_RUNTIME_DIR\/session-current" node/);
+    assert.match(shared, /CI_RUNTIME_BASE_URL=https:\/\/localhost:18443/);
+    assert.match(shared, /PUBLIC_HOSTNAME=localhost/);
+    assert.match(shared, /APP_ORIGIN=https:\/\/localhost:18443/);
+    assert.match(shared, /https:\/\/localhost \{/);
+    assert.doesNotMatch(shared, /https:\/\/127\.0\.0\.1/);
     assert.match(shared, /up --build --wait --wait-timeout 180/);
     assert.match(shared, /if \[\[ -f "\$CI_RUNTIME_DIR\/compose\.env" \]\]; then/);
     for (const action of shared.matchAll(/uses:\s+([^\s#]+)/g)) {

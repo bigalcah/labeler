@@ -42,7 +42,7 @@ jobs:
           project="labeler-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           printf 'CI_RUNTIME_DIR=%s\n' "$runtime_dir" >> "$GITHUB_ENV"
           printf 'CI_COMPOSE_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
-          printf 'CI_RUNTIME_BASE_URL=https://127.0.0.1:18443\n' >> "$GITHUB_ENV"
+          printf 'CI_RUNTIME_BASE_URL=https://localhost:18443\n' >> "$GITHUB_ENV"
 
           node --input-type=module > "$runtime_dir/database-password" <<'NODE'
           import {randomBytes} from "node:crypto";
@@ -86,8 +86,8 @@ jobs:
           STUDY_ACCOUNT_MANIFEST_HOST_PATH=$runtime_dir/study-account-manifest.json
           PGPASSFILE_HOST_PATH=$runtime_dir/legacy-retirement.pgpass
           GITHUB_TOKEN_HOST_PATH=$runtime_dir/github-token
-          PUBLIC_HOSTNAME=127.0.0.1
-          APP_ORIGIN=https://127.0.0.1:18443
+          PUBLIC_HOSTNAME=localhost
+          APP_ORIGIN=https://localhost:18443
           GITHUB_ENRICHMENT_ENABLED=false
           EOF
 
@@ -97,7 +97,7 @@ jobs:
             /runtime/github-token /runtime/study-account-manifest.json
 
           cat > "$runtime_dir/Caddyfile" <<'CADDY'
-          https://127.0.0.1 {
+          https://localhost {
               tls internal
               reverse_proxy labeling-server:3000
           }
