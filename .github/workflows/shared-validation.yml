@@ -162,10 +162,10 @@ jobs:
           process.stdout.write(randomBytes(32).toString("base64url"));
           NODE
           )"
-          session_cookie="$(SESSION_ID="$session_id" SESSION_SECRET_FILE="$CI_RUNTIME_DIR/session-current" node --input-type=module <<'NODE'
+          session_cookie="$(docker compose --project-name "$CI_COMPOSE_PROJECT" --env-file "$CI_RUNTIME_DIR/compose.env" -f "$CI_RUNTIME_DIR/docker-compose.yml" exec -T -e "SESSION_ID=$session_id" labeling-server node --input-type=module <<'NODE'
           import {createHmac} from "node:crypto";
           import {readFileSync} from "node:fs";
-          const secret = Buffer.from(readFileSync(process.env.SESSION_SECRET_FILE, "utf8").trim(), "base64url");
+          const secret = Buffer.from(readFileSync("/run/secrets/session-current", "utf8").trim(), "base64url");
           const tag = createHmac("sha256", secret).update(process.env.SESSION_ID, "ascii").digest("base64url");
           process.stdout.write(`__Host-session=${process.env.SESSION_ID}.${tag}`);
           NODE
