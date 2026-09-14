@@ -245,8 +245,8 @@ verify_image_digest() {
 preflight_compose() {
     local config_path="$EVIDENCE_DIR/compose-config.json"
     local public_hostname actual_csv reported_csv
-    run_stage compose-config docker "${COMPOSE_ARGS[@]}" config --format json
-    cp -- "$EVIDENCE_DIR/compose-config.log" "$config_path"
+    STAGE=compose-config
+    docker "${COMPOSE_ARGS[@]}" config --format json > "$config_path" 2> "$EVIDENCE_DIR/compose-config.log"
     jq -e --arg server "$SERVER_IMAGE" --arg database "$DATABASE_IMAGE" --arg deployRoot "$DEPLOY_ROOT" '
         .name == "labeling"
         and .services["labeling-database"].container_name == "labeling-database"
