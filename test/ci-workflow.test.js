@@ -44,6 +44,7 @@ test("Given shared validation When a gate fails Then no bypass or repository sec
     assert.match(shared, /JSON\.stringify\(Array\.from\(\{length: 3\}/);
     assert.match(shared, /--output "\$runtime_dir\/study-account-manifest\.json" \\\n\s+< "\$runtime_dir\/account-passwords"/);
     assert.doesNotMatch(shared, /--password-fd\s+3|3<"\$runtime_dir\/account-passwords"/);
+    assert.match(shared, /docker run --rm --user 0:0 -v "\$runtime_dir:\/runtime" node:22\.13\.1-alpine \\\n\s+chown 1000:1000/);
     assert.match(shared, /if \[\[ -f "\$CI_RUNTIME_DIR\/compose\.env" \]\]; then/);
     for (const action of shared.matchAll(/uses:\s+([^\s#]+)/g)) {
         assert.match(action[1], /@[0-9a-f]{40}$/);

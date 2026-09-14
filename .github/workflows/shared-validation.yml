@@ -91,6 +91,11 @@ jobs:
           GITHUB_ENRICHMENT_ENABLED=false
           EOF
 
+          docker run --rm --user 0:0 -v "$runtime_dir:/runtime" node:22.13.1-alpine \
+            chown 1000:1000 \
+            /runtime/database-password /runtime/session-current /runtime/session-previous \
+            /runtime/github-token /runtime/study-account-manifest.json
+
           cat > "$runtime_dir/Caddyfile" <<'CADDY'
           https://127.0.0.1 {
               tls internal
