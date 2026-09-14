@@ -102,6 +102,7 @@ jobs:
               reverse_proxy labeling-server:3000
           }
           CADDY
+          chmod 0444 "$runtime_dir/Caddyfile"
 
           CI_RUNTIME_DIR="$runtime_dir" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" python3 <<'PYTHON'
           import os
