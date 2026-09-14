@@ -48,6 +48,11 @@ test("Node and PostgreSQL runtimes retain pinned, non-root, internally healthy i
     assert.match(serverDockerfile, /COPY --from=build build \./);
     assert.match(serverDockerfile, /^USER node$/m);
     assert.match(serverDockerfile, /HEALTHCHECK[\s\S]*http:\/\/localhost:3000\/actuator\/health/);
+    assert.match(
+        serverDockerfile,
+        /^FROM node:22\.13\.1-alpine$[\s\S]*?^ {8}openssl(?:[=~][^\s]*)?(?:\s|$)/m,
+        "production server runtime must install OpenSSL for encrypted backups",
+    );
     assert.match(databaseDockerfile, /^FROM postgres:17\.6-alpine$/m);
     assert.match(databaseDockerfile, /HEALTHCHECK[\s\S]*pg_isready/);
     assert.doesNotMatch(`${serverDockerfile}\n${databaseDockerfile}`, /^FROM .*:latest$/m);

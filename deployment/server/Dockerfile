@@ -39,6 +39,7 @@ RUN apk update --quiet && \
     apk add --quiet --no-cache \
         curl=~8.14 \
         jq=~1.7 \
+        openssl=3.3.7-r0 \
         postgresql17-client=17.11-r0 && \
     npm prune --omit=dev --quiet && \
     mkdir -p /labeling/logs && \
