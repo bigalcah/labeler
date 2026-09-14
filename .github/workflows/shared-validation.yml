@@ -150,7 +150,7 @@ jobs:
           test "${#card_ids[@]}" -eq 3
           category_id="$(
             docker compose --project-name "$CI_COMPOSE_PROJECT" --env-file "$CI_RUNTIME_DIR/compose.env" -f "$CI_RUNTIME_DIR/docker-compose.yml" exec -T labeling-database \
-              psql -U labeling_ci -d labeling_ci -At -c "INSERT INTO participant_category(study_id, participant_id, raw_name, normalized_name) VALUES ('$study_id', $reviewer_id, 'CI category', 'ci category') RETURNING id"
+              psql -U labeling_ci -d labeling_ci -qAt -c "INSERT INTO participant_category(study_id, participant_id, raw_name, normalized_name) VALUES ('$study_id', $reviewer_id, 'CI category', 'ci category') RETURNING id"
           )"
           session_id="$(node --input-type=module <<'NODE'
           import {randomBytes} from "node:crypto";

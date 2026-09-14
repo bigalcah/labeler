@@ -47,7 +47,7 @@ test("Given shared validation When a gate fails Then no bypass or repository sec
     assert.match(shared, /chmod 0400 "\$runtime_dir"\/\*/);
     assert.match(shared, /docker run --rm --user 0:0 -v "\$runtime_dir:\/runtime" node:22\.13\.1-alpine \\\n\s+chown 1000:1000/);
     assert.match(shared, /chmod 0444 "\$runtime_dir\/Caddyfile"/);
-    assert.match(shared, /INSERT INTO participant_category\(study_id, participant_id, raw_name, normalized_name\) VALUES \('\$study_id', \$reviewer_id/);
+    assert.match(shared, /psql -U labeling_ci -d labeling_ci -qAt -c "INSERT INTO participant_category\(study_id, participant_id, raw_name, normalized_name\) VALUES \('\$study_id', \$reviewer_id/);
     assert.match(shared, /exec -T -e "SESSION_ID=\$session_id" labeling-server node --input-type=module <<'NODE'[\s\S]*?readFileSync\("\/run\/secrets\/session-current", "utf8"\)/);
     assert.doesNotMatch(shared, /SESSION_SECRET_FILE="\$CI_RUNTIME_DIR\/session-current" node/);
     assert.match(shared, /up --build --wait --wait-timeout 180/);
