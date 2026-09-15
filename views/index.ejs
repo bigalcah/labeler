@@ -7,49 +7,54 @@
         <%- include('./partials/head/noscript'); %>
     </head>
     <body class="min-vh-100 mw-100 d-flex flex-column justify-content-between">
-        <%- include('./partials/header'); %>
+        <% if (participant) { %>
+            <%- include('./partials/header'); %>
+        <% } %>
         <main>
-            <div class="container">
-                <div class="row">
-                    <div class="col">
-                        <div class="my-3 text-center text-nowrap">
-                            <span class="display-1 text-light bg-dark ps-4 pe-2">LA</span><span class="display-1 text-dark">BELER</span>
+            <% if (participant) { %>
+                <div class="container">
+                    <div class="row">
+                        <div class="col">
+                            <div class="my-3 text-center text-nowrap">
+                                <span class="display-1 text-light bg-dark ps-4 pe-2">LA</span><span class="display-1 text-dark">BELER</span>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 justify-content-center g-4">
-                    <% if (!participant) { %>
+                    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 justify-content-center g-4">
                         <div class="col">
                             <div class="card">
-                                <a href="/login" class="fs-4 card-link link-secondary text-decoration-none">
-                                    <%- include('./partials/placeholder', { class: "card-img", text: "Login", title: "Login" }); %>
+                                <a href="/queue" class="fs-4 card-link link-secondary text-decoration-none">
+                                    <%- include('./partials/placeholder', { class: "card-img", text: "PR cards", title: "PR cards" }); %>
                                 </a>
                             </div>
                         </div>
-                    <% } %>
-                    <div class="col">
-                        <div class="card">
-                            <a href="/queue" class="fs-4 card-link link-secondary text-decoration-none">
-                                <%- include('./partials/placeholder', { class: "card-img", text: "PR cards", title: "PR cards" }); %>
-                            </a>
+                        <div class="col">
+                            <div class="card">
+                                <a href="/queue" class="fs-4 card-link link-secondary text-decoration-none">
+                                    <%- include('./partials/placeholder', { class: "card-img", text: "Pending cards", title: "Pending cards" }); %>
+                                </a>
+                            </div>
                         </div>
-                    </div>
-                    <div class="col">
-                        <div class="card">
-                            <a href="/queue" class="fs-4 card-link link-secondary text-decoration-none">
-                                <%- include('./partials/placeholder', { class: "card-img", text: "Pending cards", title: "Pending cards" }); %>
-                            </a>
-                        </div>
-                    </div>
-                    <div class="col">
-                        <div class="card">
-                            <a href="/progress" class="fs-4 card-link link-secondary text-decoration-none">
-                                <%- include('./partials/placeholder', { class: "card-img", text: "Progress", title: "Progress" }); %>
-                            </a>
+                        <div class="col">
+                            <div class="card">
+                                <a href="/progress" class="fs-4 card-link link-secondary text-decoration-none">
+                                    <%- include('./partials/placeholder', { class: "card-img", text: "Progress", title: "Progress" }); %>
+                                </a>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
+            <% } else { %>
+                <section aria-labelledby="welcome-title" class="container">
+                    <div class="row justify-content-center">
+                        <div class="col-12 col-md-10 col-lg-8 my-5 text-center">
+                            <h1 id="welcome-title" class="display-4">Welcome to Labeling</h1>
+                            <p class="lead">Labeling is a research study for classifying pull requests into categories created by each participant. Your work is private to you. Log in to begin reviewing PR cards and <span class="text-nowrap">track your progress.</span></p>
+                            <a href="/login" class="btn btn-dark">Login</a>
+                        </div>
+                    </div>
+                </section>
+            <% } %>
         </main>
         <%- include('./partials/footer'); %>
         <%- include('./partials/scripts/bootstrap'); %>

@@ -114,19 +114,51 @@ const closeServer = server => new Promise((resolve, reject) => server.close(erro
 
 const cookieValue = (header, name) => header.match(new RegExp(`${name}=([^;]+)`))?.[1];
 
-test("anonymous Home retains Login without participant or logout controls", async () => {
+test("anonymous Home emits only the welcome and one Login action despite client-supplied identity data", async () => {
     const pool = new AuthHttpPool();
     const server = await startServer(pool);
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
 
     try {
-        const response = await fetch(`${baseUrl}/`);
+        const response = await fetch(`${baseUrl}/?participantKey=client-form-query&participant_id=999`, {
+            headers: {
+                "x-participant-key": "client-header",
+                "x-participant-id": "999",
+            },
+        });
         const html = await response.text();
 
         assert.equal(response.status, 200);
+        assert.match(html, /<section[^>]*aria-labelledby=(?:["'])?welcome-title(?:["'])?[^>]*>/);
+        assert.match(html, /<h1[^>]*id=(?:["'])?welcome-title(?:["'])?[^>]*>Welcome to Labeling<\/h1>/);
+        assert.match(html, /<p[^>]*>Labeling is a research study for classifying pull requests into categories created by each participant\. Your work is private to you\. Log in to begin reviewing PR cards and (?:<span[^>]*>)?track your progress\.(?:<\/span>)?<\/p>/);
+        assert.equal((html.match(/<a\b[^>]*\bhref=(?:["'])?\/login(?:["'])?[^>]*>Login<\/a>/g) || []).length, 1);
         assert.match(html, /<a href=(?:["'])?\/login(?:["'])?[^>]*>/);
+        assert.doesNotMatch(html, /<header\b/);
+        assert.doesNotMatch(html, /(?:navbar-toggler|data-bs-target=(?:["'])?#navbar)/);
+        assert.doesNotMatch(html, /<(?:a|form)\b[^>]*\b(?:href|action)=(?:["'])?\/(?:queue|progress|logout)(?:["'])?/);
+        assert.doesNotMatch(html, /<div\b[^>]*\bclass=(?:["'])?[^>]*\bcard\b/);
         assert.doesNotMatch(html, /<span>participant-a<\/span>/);
         assert.doesNotMatch(html, /<form[^>]*action=(?:["'])?\/logout(?:["'])?[^>]*method=(?:["'])?post(?:["'])?[^>]*>/);
+        assert.doesNotMatch(html, /client-form-query|client-header/);
+    } finally {
+        await closeServer(server);
+    }
+});
+
+test("anonymous Queue and Progress requests remain unauthorized", async () => {
+    const pool = new AuthHttpPool();
+    const server = await startServer(pool);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    try {
+        const [queue, progress] = await Promise.all([
+            fetch(`${baseUrl}/queue`),
+            fetch(`${baseUrl}/progress`),
+        ]);
+
+        assert.equal(queue.status, 401);
+        assert.equal(progress.status, 401);
     } finally {
         await closeServer(server);
     }
@@ -147,9 +179,17 @@ test("authenticated Home uses the signed session identity instead of client-supp
             },
         });
         const html = await response.text();
+        const header = html.match(/<header\b[\s\S]*?<\/header>/)?.[0] || "";
 
         assert.equal(response.status, 200);
+        assert.match(html, /<header\b/);
+        assert.match(header, /<a\b[^>]*\bhref=(?:["'])?\/(?:["'])?[^>]*>Home<\/a>/);
+        assert.match(header, /<a\b[^>]*\bhref=(?:["'])?\/queue(?:["'])?[^>]*>PR cards<\/a>/);
+        assert.match(header, /<a\b[^>]*\bhref=(?:["'])?\/progress(?:["'])?[^>]*>Progress<\/a>/);
         assert.match(html, /<span>participant-a<\/span>/);
+        assert.match(html, /<div\b[^>]*\bclass=(?:["'])?[^>]*\bcard\b[^>]*>[\s\S]*?<a\b[^>]*\bhref=(?:["'])?\/queue(?:["'])?[^>]*>[\s\S]*?<title>PR cards<\/title>/);
+        assert.match(html, /<div\b[^>]*\bclass=(?:["'])?[^>]*\bcard\b[^>]*>[\s\S]*?<a\b[^>]*\bhref=(?:["'])?\/queue(?:["'])?[^>]*>[\s\S]*?<title>Pending cards<\/title>/);
+        assert.match(html, /<div\b[^>]*\bclass=(?:["'])?[^>]*\bcard\b[^>]*>[\s\S]*?<a\b[^>]*\bhref=(?:["'])?\/progress(?:["'])?[^>]*>[\s\S]*?<title>Progress<\/title>/);
         assert.match(html, /<form[^>]*action=(?:["'])?\/logout(?:["'])?[^>]*method=(?:["'])?post(?:["'])?[^>]*>/);
         assert.match(html, new RegExp(`<input[^>]*name=(?:["'])?csrf_token(?:["'])? value=(?:["'])?${sessionCsrfToken}(?:["'])?[^>]*>`));
         assert.doesNotMatch(html, /<a href=(?:["'])?\/login(?:["'])?[^>]*>/);
