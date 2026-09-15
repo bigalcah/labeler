@@ -17,7 +17,7 @@
 ## 3. Implementación mínima de Home
 
 - [x] 3.1 `views/index.ejs`: incluir `partials/header.ejs` una sola vez dentro de `if (participant)` y dejar un único `main` con dos ramas mutuamente exclusivas para los estados autenticado y anónimo.
-- [x] 3.2 `views/index.ejs`: implementar la rama anónima con `section[aria-labelledby="welcome-title"]`, `h1#welcome-title`, las tres frases requeridas y un único enlace `href="/login"` con clases `btn btn-dark`, sin emitir navegación ni acciones privadas.
+- [x] 3.2 `views/index.ejs`: implementar la rama anónima con `section[aria-labelledby="welcome-title"]`, `h1#welcome-title`, el párrafo histórico `Labeling is a research study for classifying pull requests into categories created by each participant. Your work is private to you. Log in to begin reviewing PR cards and track your progress.` y un único enlace `href="/login"` con clases `btn btn-dark`, sin emitir navegación ni acciones privadas.
 - [x] 3.3 `views/index.ejs`: conservar en la rama autenticada el logotipo, las tarjetas `PR cards`, `Pending cards` y `Progress`, la navegación, la identidad y logout existentes, sin mostrar Login.
 
 ## 4. Verificación de entrega
@@ -27,12 +27,22 @@
 - [x] 4.3 Ejecutar `openspec validate "anonymous-home-login-only" --strict` y confirmar que la validación estricta termina correctamente.
 - [x] 4.4 Realizar QA manual en Chromium sobre Home anónima y autenticada a 375, 768 y 1280 píxeles, activar Login desde el estado anónimo, comprobar que no hay desbordamiento horizontal y verificar que no aparecen controles privados para una persona anónima.
 
-## 5. Corrección normativa de copy y wrapping
+## 5. Corrección normativa de copy y wrapping, historial
 
-Las tareas completadas de las secciones anteriores se conservan como historial de la implementación previa. La corrección siguiente sigue abierta porque la revisión visual independiente detectó que falta la explicación de categorías y privacidad en `views/index.ejs`, además de una viuda de una palabra en 375px. `spec.md:9` es normativo y prevalece sobre cualquier texto exacto obsoleto de estos registros históricos.
+Las tareas completadas de esta sección documentan el trabajo ya implementado para el párrafo histórico anterior. No afirman que el nuevo copy sobre agentes de IA esté implementado ni probado; esa corrección es la única pendiente y está en la sección 6.
 
-- [x] 5.1 `proposal.md`, `design.md` y `tasks.md`: reconciliar los artefactos con el párrafo canónico `Labeling is a research study for classifying pull requests into categories created by each participant. Your work is private to you. Log in to begin reviewing PR cards and track your progress.` y dejar explícito que `spec.md:9` tiene precedencia normativa.
-- [x] 5.2 `test/login-logout-http.test.js` y `test/home-login.browser.test.js`: añadir o reabrir primero las aserciones failing-first para exigir el párrafo canónico, su contenido de categorías y privacidad, y la ausencia de la viuda en 375px; ejecutarlas contra la implementación actual y confirmar el fallo antes de tocar la vista.
-- [x] 5.3 `views/index.ejs`: sustituir el copy anónimo obsoleto por un único párrafo canónico y envolver exactamente `track your progress.` con Bootstrap `text-nowrap` para evitar la viuda a 375px, sin CSS propio ni cambios de rutas, sesión, dependencias o alcance.
-- [x] 5.4 Ejecutar los gates finales de la corrección: pruebas HTTP y de navegador enfocadas, comprobación de 375, 768 y 1280 píxeles, `npm run lint:js` y `openspec validate "anonymous-home-login-only" --strict`; no marcar esta corrección como completa mientras falte cualquier gate.
-- [x] 5.5 Realizar QA visual independiente después de aplicar la corrección, comprobando en Chromium que el párrafo explica categorías y privacidad, que `track your progress.` no queda viudo a 375px, que no hay desbordamiento horizontal y que Home autenticada conserva su experiencia previa.
+- [x] 5.1 `proposal.md`, `design.md` y `tasks.md`: documentar la implementación previa con el párrafo histórico `Labeling is a research study for classifying pull requests into categories created by each participant. Your work is private to you. Log in to begin reviewing PR cards and track your progress.`.
+- [x] 5.2 `test/login-logout-http.test.js` y `test/home-login.browser.test.js`: añadir o reabrir primero las aserciones failing-first para exigir el párrafo histórico, su privacidad del trabajo, la ausencia de la viuda en 375px y la separación entre estados anónimo y autenticado; ejecutarlas contra la implementación histórica y confirmar el fallo antes de tocar la vista.
+- [x] 5.3 `views/index.ejs`: implementar el párrafo histórico y envolver exactamente `track your progress.` con `<span class="text-nowrap">track your progress.</span>` para evitar la viuda a 375px, sin CSS propio ni cambios de rutas, sesión, dependencias o alcance.
+- [x] 5.4 Ejecutar los gates finales de la implementación histórica: pruebas HTTP y de navegador enfocadas, comprobación de 375, 768 y 1280 píxeles, `npm run lint:js` y `openspec validate "anonymous-home-login-only" --strict`.
+- [x] 5.5 Realizar QA visual independiente de la implementación histórica, comprobando en Chromium el párrafo de categorías creadas por cada participante y privacidad, que `track your progress.` no queda viudo a 375px, que no hay desbordamiento horizontal y que Home autenticada conserva su experiencia previa.
+
+## 6. Implementación y verificación de la corrección aprobada
+
+- [x] 6.1 `test/login-logout-http.test.js`: añadir primero las aserciones failing-first para exigir el párrafo canónico exacto, exactamente una acción Login a `/login`, la ausencia de header y marcado privado en Home anónima, la conservación de Home autenticada y el estado HTTP 401 de `/queue` y `/progress`; ejecutar y registrar el fallo antes de editar la vista.
+- [x] 6.2 `test/home-login.browser.test.js`: añadir primero las aserciones failing-first con Chromium real para los estados anónimo y autenticado a 375, 768 y 1280 píxeles, incluido el texto canónico, la ausencia de header y marcado privado anónimo, la conservación de Home autenticada, el span `text-nowrap` exacto y la ausencia de desbordamiento horizontal; ejecutar y registrar el fallo antes de editar la vista.
+- [x] 6.3 `views/index.ejs`: aplicar el cambio mínimo en la rama anónima para mostrar el párrafo canónico, envolver exactamente `track your progress.` con `<span class="text-nowrap">track your progress.</span>` y conservar un único Login, sin modificar la rama autenticada, rutas, sesión, CSS ni dependencias.
+- [x] 6.4 Ejecutar de nuevo las pruebas HTTP y de navegador enfocadas, junto con `npm run lint:js`, y confirmar que pasan los estados anónimo y autenticado, el wrapping exacto, las tres anchuras y la protección de las rutas privadas.
+- [x] 6.5 Realizar QA responsive manual en Chromium a 375, 768 y 1280 píxeles para Home anónima y autenticada, activar Login desde la visita anónima, comprobar que no hay header ni controles privados anónimos, que el párrafo no crea una viuda y que no existe desbordamiento horizontal.
+- [ ] 6.6 Ejecutar la verificación del release con el flujo existente, incluyendo los gates de calidad, la construcción desde el commit revisado, la publicación de imágenes por digest y la inspección del paquete para confirmar trazabilidad y ausencia de cambios fuera de este alcance.
+- [ ] 6.7 Tras una promoción autorizada a producción, verificar por HTTPS la Home anónima y autenticada, el único Login, la ausencia de marcado privado anónimo, el párrafo canónico, el wrapping responsive y el acceso protegido a `/queue` y `/progress`; conservar la evidencia y activar rollback si algún smoke test falla.
