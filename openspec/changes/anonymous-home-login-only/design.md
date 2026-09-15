@@ -1,0 +1,52 @@
+## Context
+
+`routes/index.js` ya obtiene `participant` exclusivamente con `sessionParticipant(req.sessionContext)` cuando existe una sesión, lo deja en `res.locals` y lo pasa a `index.ejs`. Ese valor es la única señal de autenticación que debe usar Home. No se deben aceptar parámetros de consulta, campos de formulario ni cabeceras del cliente para decidir la identidad.
+
+`views/index.ejs` incluye ahora siempre `partials/header.ejs`. El header contiene la navegación privada, la identidad del participante y el cierre de sesión. Además, Home solo oculta la tarjeta Login después de autenticar, pero sigue emitiendo las tarjetas y enlaces privados. `/queue` y `/progress` ya llaman a `requireStudySession` y responden `401` sin sesión.
+
+## Goals/Non-Goals
+
+### Goals
+
+1. Emitir para una visita anónima únicamente una bienvenida semántica, una explicación breve del proyecto y una acción Login.
+2. Conservar para un participante autenticado el header compartido, su identidad derivada de la sesión, la navegación privada, las tarjetas existentes y el cierre de sesión.
+3. Evitar que los enlaces privados aparezcan en el HTML anónimo. No basta con ocultarlos mediante CSS, `aria-hidden` o JavaScript.
+4. Verificar el contrato con pruebas HTTP y de navegador, incluyendo los anchos de 375, 768 y 1280 píxeles.
+
+### Non-Goals
+
+1. Cambiar `routes/index.js`, el middleware o la semántica de sesión.
+2. Cambiar las protecciones de `/queue` o `/progress`, el esquema de base de datos, las rutas, las dependencias o la configuración.
+3. Rediseñar la aplicación, añadir CSS propio o introducir un nuevo sistema de diseño.
+
+## Decisions
+
+1. **Señal de autenticación.** La plantilla usará `participant` tal como lo entrega `routes/index.js`. Un objeto no nulo producido desde el contexto de sesión representa el estado autenticado válido; `null` representa el estado anónimo. La ruta conservará su derivación server-side sin cambios.
+
+2. **Header condicional sin duplicación.** `views/index.ejs` incluirá una sola vez `partials/header.ejs`, dentro de una condición `if (participant)`. Así, el header completo, incluida su navegación privada, nunca se emite para visitantes. El footer y los scripts comunes pueden permanecer fuera de la condición.
+
+3. **Dos ramas exclusivas de Home.** Dentro de un único `main` habrá exactamente dos ramas:
+   
+   * La rama autenticada conservará el logotipo actual y la cuadrícula Bootstrap con `PR cards`, `Pending cards` y `Progress`. No mostrará la acción Login. El header ya podrá mostrar Home, los enlaces privados, el nombre de `participant` y el formulario de logout según sus condiciones existentes.
+   * La rama anónima no contendrá logotipo de navegación, tarjetas privadas ni ningún enlace a `/queue`, `/progress` o `/logout`. Renderizará un `section` con `aria-labelledby="welcome-title"`, un `h1` con `id="welcome-title"` y el texto visible exacto `Welcome to Labeling`, seguido de un único párrafo con el texto canónico `Labeling is a research study for classifying pull requests into categories created by each participant. Your work is private to you. Log in to begin reviewing PR cards and track your progress.`. `spec.md:9` es normativo y prevalece sobre cualquier texto exacto obsoleto de otros artefactos. El marcado envolverá exactamente `track your progress.` con `<span class="text-nowrap">track your progress.</span>` para evitar la viuda de una palabra a 375px, sin CSS propio. Cerrará con un único enlace `href="/login"`, clase `btn btn-dark` y texto `Login`.
+
+4. **Presentación.** La bienvenida usará únicamente clases Bootstrap existentes, por ejemplo `container`, `row`, `justify-content-center`, `col-12`, `col-md-10`, `col-lg-8`, `text-center`, `display-4` y `lead`. No se añadirán selectores CSS, fuentes, iconos, dependencias ni JavaScript para resolver la visibilidad.
+
+5. **Pruebas failing-first.** Primero se añadirán o ajustarán las aserciones y se ejecutarán para confirmar que fallan con la plantilla actual. Después se aplicará la plantilla y se repetirán las pruebas. Las pruebas HTTP de `GET /` comprobarán `200`, el contenido de bienvenida, un único Login y la ausencia de `header`, `/queue`, `/progress`, `/logout` y tarjetas privadas para el estado anónimo. Con una sesión válida comprobarán la identidad server-side, el header, los enlaces privados, las tarjetas y logout, además de la ausencia de Login. Las pruebas HTTP anónimas de `GET /queue` y `GET /progress` conservarán la expectativa `401`.
+
+6. **Pruebas de navegador.** El flujo de navegador cargará Home con Chromium real en 375, 768 y 1280 píxeles. Para el estado anónimo comprobará que el contenido semántico y Login son visibles, que el header y los enlaces privados no existen en el DOM y que no hay desbordamiento horizontal. Para el estado autenticado comprobará la presencia del header, la identidad, la navegación y las acciones privadas en los tres anchos. Las aserciones de ausencia se harán sobre nodos no emitidos, no sobre visibilidad calculada por CSS.
+
+## Risks/Trade-offs
+
+1. Ocultar el header completo para visitantes también oculta su enlace público a Home y la marca SEART. Se acepta porque evita emitir una navegación que contiene destinos privados y mantiene una única inclusión compartida, sin una versión anónima duplicada.
+2. La decisión depende del contrato existente de `sessionParticipant`. Si no existe un participante derivado de una sesión válida, la plantilla permanece en la rama anónima y no intenta reparar ni reinterpretar la sesión.
+3. La prueba de HTML será más estricta que una comprobación visual. Esto protege contra regresiones en las que un enlace privado siga en la respuesta aunque se esconda con Bootstrap.
+
+## Migration Plan
+
+1. Crear primero las pruebas HTTP y de navegador descritas en esta propuesta y confirmar su fallo contra `views/index.ejs` actual.
+2. Ajustar únicamente `views/index.ejs`: condicionar el include único del header, separar las dos ramas exclusivas y conservar las clases y acciones autenticadas existentes.
+3. Ejecutar de nuevo las pruebas HTTP y de navegador en 375, 768 y 1280 píxeles. Confirmar también que `/queue` y `/progress` siguen devolviendo `401` sin sesión.
+4. No hay migración de datos, cambios de dependencias, middleware, rutas ni despliegue especial. El rollback consiste en restaurar la plantilla anterior si las comprobaciones fallan.
+
+No quedan preguntas materiales sin resolver.
