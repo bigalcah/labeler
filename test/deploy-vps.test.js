@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 // allow: SIZE_OK - these launcher contracts share one isolated fake VPS harness.
 import {execFile} from "node:child_process";
 import {promisify} from "node:util";
-import {chmod, link, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile} from "node:fs/promises";
+import {chmod, link, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -314,6 +314,27 @@ test("runtime failure restores the active application with its own Compose relea
         assert.notEqual(result.status, 0);
         assert.equal(await currentRelease(fixture.deployRoot), `releases/${baseline.releaseId}`);
         assert.match(commands, new RegExp(`-f ${baselineCompose} up -d --no-build --no-deps --wait labeling-server labeling-caddy`));
+    } finally {
+        await rm(fixture.root, {recursive: true, force: true});
+    }
+});
+
+test("an identical retry makes a retained Caddyfile readable before publishing the release", async () => {
+    const fixture = await createFixture();
+    try {
+        const manifest = releaseManifest("release-24", 24, "schema-1");
+        const failed = await deploy(fixture, manifest, {...fixture.environment, FAKE_RUNTIME_FAIL: "1"});
+        const caddyfile = path.join(fixture.deployRoot, "releases", manifest.releaseId, "Caddyfile");
+
+        assert.notEqual(failed.status, 0);
+        assert.equal(await currentRelease(fixture.deployRoot), undefined);
+        await chmod(caddyfile, 0o600);
+
+        const retried = await deploy(fixture, manifest);
+
+        assert.equal(retried.status, 0, retried.stderr);
+        assert.equal((await stat(caddyfile)).mode & 0o777, 0o444);
+        assert.equal(await currentRelease(fixture.deployRoot), `releases/${manifest.releaseId}`);
     } finally {
         await rm(fixture.root, {recursive: true, force: true});
     }

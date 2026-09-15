@@ -215,6 +215,8 @@ receive_release() {
     else
         mv -- "$STAGING_DIR" "$DEPLOY_ROOT/releases/$RELEASE_ID"
     fi
+    chmod 0444 -- "$DEPLOY_ROOT/releases/$RELEASE_ID/Caddyfile" \
+        || fail "installed Caddyfile permissions could not be normalized"
     STAGING_DIR=""
 }
 
