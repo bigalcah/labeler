@@ -151,6 +151,7 @@ jobs:
     needs: publish
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     environment: production
