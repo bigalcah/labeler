@@ -74,27 +74,209 @@ superado esa edad. La herramienta nunca poda ni reemplaza archivos.
 
 ## Verificación de restore aislado
 
-Precrea una base vacía en un PostgreSQL desechable que no use el host, puerto y nombre de la base productiva. Su passfile
-debe ser externo y protegido. Configura, además de las variables del backup y la identidad productiva anterior:
+La producción debe seguir ejecutándose y permanecer intacta durante toda esta prueba. En una VPS sin checkout, no
+detengas ni reinicies el stack, no uses `labeling-data`, no uses la red productiva y no montes sus credenciales. La fuente
+de verdad de la referencia es `images.server` en
+`<LABELER_DEPLOY_ROOT>/current/release-manifest.json`; comprueba que coincide con la referencia del contenedor activo
+`labeling-server` y úsala exactamente, siempre fijada por digest. No la sustituyas por `latest`, una etiqueta reutilizable
+ni una imagen reconstruida. Usa también la imagen `labeling-database` activa, fijada por digest.
+
+Conserva el par de backup fuera del directorio de release. El archivo cifrado, el manifiesto, la clave y el passfile deben
+seguir con permisos `0400` o `0600`, según su propietario y consumidor. Comprueba esos permisos y no los relajes para
+resolver errores de un bind mount. Bajo user namespaces, un bind mount puede ser ilegible dentro de Docker aunque el
+archivo sea legible en el host. El patrón seguro es transmitir cada entrada por stdin a volúmenes Docker efímeros.
+
+Define rutas externas y valores no secretos que coincidan con el manifiesto, sin poner contraseñas en variables, argumentos
+ni logs:
 
 ```dotenv
-STUDY_RESTORE_CONFIRM=isolated-restore
-STUDY_RESTORE_PGHOST=<host-aislado>
-STUDY_RESTORE_PGPORT=5432
+STUDY_BACKUP_ARCHIVE=/absolute/external/backups/study-<timestamp>.dump.enc
+STUDY_BACKUP_MANIFEST=/absolute/external/backups/study-<timestamp>.manifest.json
+STUDY_BACKUP_ENCRYPTION_KEY_FILE=/absolute/external/backup-encryption-key
+STUDY_RESTORE_PGPASSFILE=/absolute/external/restore.pgpass
+ISOLATED_POSTGRES_PASSWORD_FILE=/absolute/external/isolated-postgres-password
+PGHOST=<host-produccion-del-manifiesto>
+PGPORT=5432
+PGDATABASE=<base-produccion-del-manifiesto>
+PGUSER=<rol-del-manifiesto>
 STUDY_RESTORE_PGDATABASE=<base-vacia-aislada>
 STUDY_RESTORE_PGUSER=<rol-restore>
-STUDY_RESTORE_PGPASSFILE=/absolute/external/restore.pgpass
 ```
 
-Ejecuta `npm run restore:study:verify`. Antes de escribir, el comando verifica manifiesto, checksum, cifrado, legibilidad
-del archive e identidad de producción; rechaza el mismo nombre de base o un destino que ya contenga tablas en `public`.
-Después restaura exclusivamente con las credenciales del destino y compara conteos y fingerprints de tarjetas,
-clasificaciones y credenciales. Un resultado válido imprime `ISOLATED_STUDY_RESTORE_VERIFIED`.
+Ejecuta en la VPS el siguiente patrón. El passfile externo debe contener la entrada del destino aislado, y el archivo de
+`ISOLATED_POSTGRES_PASSWORD_FILE` debe contener únicamente la contraseña de ese destino. No se muestran valores reales.
 
-No uses `labeling-data`, el Compose productivo ni sus credenciales como destino. Conserva como evidencia operativa la
-pareja archivo/manifiesto, la identidad no secreta del destino aislado, la salida final y un snapshot del volumen
-productivo antes y después. Sin esa ejecución real, la aceptación de restore de OpenSpec 9.5 permanece abierta. La
-presencia de la herramienta y este runbook no equivale a una restauración aceptada.
+```bash
+set -eu
+
+attempt_utc="$(date -u +%Y%m%dT%H%M%SZ)"
+restore_id="${attempt_utc}-$$"
+evidence_dir="/absolute/external/evidence/study-restore-${restore_id}"
+mkdir -p "$evidence_dir"
+chmod 0700 "$evidence_dir"
+
+current_server_image="$(docker inspect --format '{{.Config.Image}}' labeling-server)"
+current_database_image="$(docker inspect --format '{{.Config.Image}}' labeling-database)"
+case "$current_server_image" in *@sha256:*) ;; *) exit 1 ;; esac
+case "$current_database_image" in *@sha256:*) ;; *) exit 1 ;; esac
+manifest_server_line="$(grep -F '"server":' /absolute/external/labeler/current/release-manifest.json)"
+case "$manifest_server_line" in *"$current_server_image"*) ;; *) exit 1 ;; esac
+printf '%s\n' "$manifest_server_line" > "$evidence_dir/current-manifest-server-line.txt"
+printf '%s\n' "$attempt_utc" > "$evidence_dir/utc.txt"
+printf '%s\n' "$current_server_image" > "$evidence_dir/current-server-image.txt"
+printf '%s\n' "$current_database_image" > "$evidence_dir/current-database-image.txt"
+
+for input_file in \
+    "$STUDY_BACKUP_ARCHIVE" \
+    "$STUDY_BACKUP_MANIFEST" \
+    "$STUDY_BACKUP_ENCRYPTION_KEY_FILE" \
+    "$STUDY_RESTORE_PGPASSFILE" \
+    "$ISOLATED_POSTGRES_PASSWORD_FILE"; do
+    mode="$(stat -c '%a' "$input_file")"
+    case "$mode" in 400|600) ;; *) exit 1 ;; esac
+done
+sha256sum "$STUDY_BACKUP_ARCHIVE" "$STUDY_BACKUP_MANIFEST" > "$evidence_dir/backup-checksums.sha256"
+archive_basename="$(basename -- "$STUDY_BACKUP_ARCHIVE")"
+manifest_basename="$(basename -- "$STUDY_BACKUP_MANIFEST")"
+manifest_archive_file="$(awk -F'"' '$2 == "archiveFile" {print $4; exit}' "$STUDY_BACKUP_MANIFEST")"
+manifest_archive_basename="$(basename -- "$manifest_archive_file")"
+archive_container_path="/restore-inputs/$archive_basename"
+manifest_container_path="/restore-inputs/$manifest_basename"
+test -n "$archive_basename"
+test -n "$manifest_basename"
+test "$manifest_archive_file" = "$manifest_archive_basename"
+test "$archive_basename" = "$manifest_archive_basename"
+
+network="labeling-restore-net-${restore_id}"
+database_volume="labeling-restore-db-${restore_id}"
+init_volume="labeling-restore-init-${restore_id}"
+input_volume="labeling-restore-input-${restore_id}"
+secret_volume="labeling-restore-secret-${restore_id}"
+database_container="labeling-restore-db-${restore_id}"
+verifier_container="labeling-restore-verifier-${restore_id}"
+for volume_name in "$database_volume" "$init_volume" "$input_volume" "$secret_volume"; do
+    if docker volume inspect "$volume_name" >/dev/null 2>&1; then exit 1; fi
+done
+if docker network inspect "$network" >/dev/null 2>&1; then exit 1; fi
+test "$database_volume" != labeling-data
+
+docker volume create "$database_volume" >/dev/null
+docker volume create "$init_volume" >/dev/null
+docker volume create "$input_volume" >/dev/null
+docker volume create "$secret_volume" >/dev/null
+docker network create --internal "$network" >/dev/null
+
+cleanup() {
+    exit_code="$?"
+    docker rm -f "$verifier_container" "$database_container" >/dev/null 2>&1 || true
+    docker volume rm "$input_volume" "$secret_volume" "$init_volume" "$database_volume" >/dev/null 2>&1 || true
+    docker network rm "$network" >/dev/null 2>&1 || true
+    printf '%s\n' "$exit_code" > "$evidence_dir/cleanup.exit"
+    trap - EXIT
+    exit "$exit_code"
+}
+trap cleanup EXIT
+
+server_user="$(docker image inspect --format '{{.Config.User}}' "$current_server_image")"
+test -n "$server_user"
+stage_input() {
+    source_path="$1"
+    target_path="$2"
+    docker run --rm --interactive --user 0 \
+        --mount "type=volume,src=$input_volume,dst=/restore-inputs" \
+        --entrypoint sh "$current_server_image" \
+        -eu -c 'umask 077; cat > "$1"; chmod 0600 "$1"; chown "$2" "$1"' \
+        sh "$target_path" "$server_user" < "$source_path"
+}
+stage_input "$STUDY_BACKUP_ARCHIVE" "$archive_container_path"
+stage_input "$STUDY_BACKUP_MANIFEST" "$manifest_container_path"
+stage_input "$STUDY_BACKUP_ENCRYPTION_KEY_FILE" /restore-inputs/backup-encryption-key
+stage_input "$STUDY_RESTORE_PGPASSFILE" /restore-inputs/restore.pgpass
+
+docker run --rm --interactive --user 0 \
+    --mount "type=volume,src=$secret_volume,dst=/restore-secret" \
+    --entrypoint sh "$current_server_image" \
+    -eu -c 'umask 077; cat > /restore-secret/postgres-password; chmod 0600 /restore-secret/postgres-password' \
+    < "$ISOLATED_POSTGRES_PASSWORD_FILE"
+
+docker run --detach --name "$database_container" \
+    --network "$network" --network-alias isolated-postgres \
+    --mount "type=volume,src=$database_volume,dst=/var/lib/postgresql/data" \
+    --mount "type=volume,src=$init_volume,dst=/docker-entrypoint-initdb.d,volume-nocopy" \
+    --mount "type=volume,src=$secret_volume,dst=/run/secrets,readonly" \
+    --env POSTGRES_DB="$STUDY_RESTORE_PGDATABASE" \
+    --env POSTGRES_USER="$STUDY_RESTORE_PGUSER" \
+    --env POSTGRES_PASSWORD_FILE=/run/secrets/postgres-password \
+    "$current_database_image" >/dev/null
+
+for readiness_attempt in $(seq 1 120); do
+    if docker exec --user postgres "$database_container" \
+        psql --no-psqlrc --dbname="$STUDY_RESTORE_PGDATABASE" --tuples-only --no-align \
+        --command='SELECT 1' > "$evidence_dir/target-select-1.txt" 2> "$evidence_dir/target-select-1.err" \
+        && grep -Fxq 1 "$evidence_dir/target-select-1.txt"; then
+        break
+    fi
+    if [ "$readiness_attempt" -eq 120 ]; then exit 1; fi
+    sleep 1
+done
+
+docker inspect "$database_container" > "$evidence_dir/isolated-database.inspect.json"
+docker volume inspect labeling-data > "$evidence_dir/production-volume-before.json"
+
+set +e
+docker run --name "$verifier_container" \
+    --network "$network" \
+    --mount "type=volume,src=$input_volume,dst=/restore-inputs,readonly" \
+    --env STUDY_RESTORE_CONFIRM=isolated-restore \
+    --env STUDY_BACKUP_ARCHIVE="$archive_container_path" \
+    --env STUDY_BACKUP_MANIFEST="$manifest_container_path" \
+    --env STUDY_BACKUP_ENCRYPTION_KEY_FILE=/restore-inputs/backup-encryption-key \
+    --env STUDY_RESTORE_PGPASSFILE=/restore-inputs/restore.pgpass \
+    --env PGPASSFILE=/restore-inputs/restore.pgpass \
+    --env PGHOST="$PGHOST" --env PGPORT="$PGPORT" \
+    --env PGDATABASE="$PGDATABASE" --env PGUSER="$PGUSER" \
+    --env STUDY_RESTORE_PGHOST=isolated-postgres \
+    --env STUDY_RESTORE_PGPORT=5432 \
+    --env STUDY_RESTORE_PGDATABASE="$STUDY_RESTORE_PGDATABASE" \
+    --env STUDY_RESTORE_PGUSER="$STUDY_RESTORE_PGUSER" \
+    --entrypoint node "$current_server_image" scripts/verify-study-restore.js \
+    > "$evidence_dir/verify.stdout" 2> "$evidence_dir/verify.stderr"
+verify_exit="$?"
+set -e
+printf '%s\n' "$verify_exit" > "$evidence_dir/verify.exit"
+docker inspect "$verifier_container" > "$evidence_dir/isolated-verifier.inspect.json" || true
+docker network inspect "$network" > "$evidence_dir/isolated-network.inspect.json" || true
+docker volume inspect labeling-data > "$evidence_dir/production-volume-after.json"
+set +e
+sha256sum --check "$evidence_dir/backup-checksums.sha256" > "$evidence_dir/backup-checksums.raw.txt" 2>&1
+checksum_exit="$?"
+set -e
+awk -F': ' '{if ($NF == "OK") print "OK"; else if ($NF == "FAILED") print "FAILED"; else print "ERROR"}' \
+    "$evidence_dir/backup-checksums.raw.txt" > "$evidence_dir/backup-checksums.verify.txt"
+rm -f "$evidence_dir/backup-checksums.raw.txt"
+printf '%s\n' "$checksum_exit" > "$evidence_dir/backup-checksums.exit"
+
+if [ "$verify_exit" -ne 0 ] || [ "$checksum_exit" -ne 0 ] \
+    || ! grep -Fxq ISOLATED_STUDY_RESTORE_VERIFIED "$evidence_dir/verify.stdout"; then
+    exit 1
+fi
+grep -Fx ISOLATED_STUDY_RESTORE_VERIFIED "$evidence_dir/verify.stdout" > "$evidence_dir/marker.txt"
+```
+
+La red creada con `--internal` solo contiene el PostgreSQL desechable y el verificador. El volumen de PostgreSQL es
+único y distinto de `labeling-data`; el volumen de entradas solo se monta de lectura en el verificador. El contenedor de
+PostgreSQL recibe únicamente su propio secreto de contraseña, nunca el archivo cifrado, el manifiesto, la clave o el
+passfile del backup. El volumen de inicialización vacío evita sembrar tablas antes de la prueba.
+
+`pg_isready` puede indicar que el servidor acepta conexiones antes de que exista la base solicitada. Por eso el bucle
+anterior no lo trata como prueba de existencia: espera un `SELECT 1` real contra `STUDY_RESTORE_PGDATABASE`. El verificador
+comprueba que el destino está vacío, restaura con las credenciales aisladas y compara tarjetas, clasificaciones y
+credenciales, incluida `credential_version`. La evidencia debe conservar checksum, UTC, código de salida, marcador,
+volumen productivo antes y después, imágenes, montajes, red y limpieza. La pareja archivo/manifiesto original se conserva.
+
+Un resultado válido debe contener exactamente `ISOLATED_STUDY_RESTORE_VERIFIED`. Hasta ejecutar esta prueba real y revisar
+esa evidencia, la aceptación de restore de OpenSpec 9.5 permanece `PENDING`; este runbook no reclama evidencia runtime ni
+cambia las tareas 10.2 a 10.4.
 
 ## Rollback de imagen mediante el launcher
 
