@@ -16,7 +16,10 @@ const waitForProcess = (child, label) => new Promise((resolve, reject) => {
 });
 
 const terminateProcess = child => {
-    if (child.pid && child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+    if (child.pid && child.exitCode === null && child.signalCode === null) {
+        return child.kill("SIGTERM");
+    }
+    return false;
 };
 
 const pipeCommands = async (producer, consumer, environment) => {
@@ -28,12 +31,11 @@ const pipeCommands = async (producer, consumer, environment) => {
         env: environment,
         stdio: [ "pipe", "ignore", "ignore" ],
     });
-    const processes = [
-        waitForProcess(source, producer.command),
-        waitForProcess(destination, consumer.command),
-    ];
+    const sourceCompletion = waitForProcess(source, producer.command);
+    const destinationCompletion = waitForProcess(destination, consumer.command);
+    let rejectTransportError;
     const pipeFailure = new Promise((_resolve, reject) => {
-        const rejectTransportError = error => {
+        rejectTransportError = error => {
             if (error.code !== "EPIPE") reject(error);
         };
         source.stdout.on("error", rejectTransportError);
@@ -42,14 +44,33 @@ const pipeCommands = async (producer, consumer, environment) => {
 
     try {
         source.stdout.pipe(destination.stdin);
-        await Promise.race([Promise.all(processes), pipeFailure]);
+        const firstCompletion = await Promise.race([
+            sourceCompletion.then(() => "source"),
+            destinationCompletion.then(() => "destination"),
+            pipeFailure,
+        ]);
+        if (firstCompletion === "source") {
+            await Promise.race([destinationCompletion, pipeFailure]);
+            return;
+        }
+        source.stdout.unpipe(destination.stdin);
+        destination.stdin.destroy();
+        const sourceTerminationRequested = terminateProcess(source);
+        try {
+            await sourceCompletion;
+        } catch (error) {
+            if (!sourceTerminationRequested || source.signalCode !== "SIGTERM") throw error;
+        }
     } catch (error) {
         source.stdout.unpipe(destination.stdin);
         destination.stdin.destroy();
         terminateProcess(source);
         terminateProcess(destination);
-        await Promise.allSettled(processes);
+        await Promise.allSettled([sourceCompletion, destinationCompletion]);
         throw error;
+    } finally {
+        source.stdout.removeListener("error", rejectTransportError);
+        destination.stdin.removeListener("error", rejectTransportError);
     }
 };
 
