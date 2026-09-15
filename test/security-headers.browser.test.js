@@ -49,28 +49,49 @@ class BrowserSecurityPool {
 
 const browserLayoutProbe = `
 const control = selector => document.querySelector(selector);
-const rect = selector => {
-    const {top, bottom} = control(selector).getBoundingClientRect();
-    return {top, bottom};
+const rect = element => {
+    if (!element) return null;
+    const {top, right, bottom, left, width, height} = element.getBoundingClientRect();
+    return {top, right, bottom, left, width, height};
 };
 const error = control("#login-error");
 const form = control("#login-form");
 const username = control("#username");
 const password = control("#password");
 const submit = control('#login-form button[type="submit"]');
+const main = control("main");
+const cards = [...document.querySelectorAll("main .card")];
+const links = selector => [...document.querySelectorAll(selector)].map(link => link.getAttribute("href"));
 const result = {
-    alert: {role: error.getAttribute("role"), text: error.textContent.trim(), ...rect("#login-error")},
-    alertBeforeForm: Boolean(error.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING),
-    form: {ariaDescribedBy: form.getAttribute("aria-describedby"), ...rect("#login-form")},
+    viewportWidth: window.innerWidth,
+    hasHorizontalOverflow: document.documentElement.scrollWidth > window.innerWidth,
+    main: rect(main),
+    cardCount: cards.length,
+    card: rect(cards[0]),
+    cardContainsForm: cards[0]?.contains(form) === true,
+    alert: error ? {role: error.getAttribute("role"), text: error.textContent.trim(), ...rect(error)} : null,
+    alertBeforeForm: error ? Boolean(error.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING) : false,
+    headerCount: document.querySelectorAll("header").length,
+    privateNavigationLinks: links('a[href="/queue"], a[href="/progress"]'),
+    logoutActionCount: document.querySelectorAll('form[action="/logout"]').length,
+    form: {ariaDescribedBy: form.getAttribute("aria-describedby"), ...rect(form)},
+    formSemantics: {
+        action: form.getAttribute("action"),
+        method: form.getAttribute("method"),
+        autocomplete: form.getAttribute("autocomplete"),
+        usernameAutocomplete: username.getAttribute("autocomplete"),
+        passwordAutocomplete: password.getAttribute("autocomplete"),
+        hasCsrfToken: control('input[type="hidden"][name="csrf_token"]') !== null,
+    },
     bootstrapGridEnabled: getComputedStyle(form).display === "flex",
     labels: {
         username: username.labels.length === 1 && username.labels[0].htmlFor === username.id,
         password: password.labels.length === 1 && password.labels[0].htmlFor === password.id,
     },
     controls: {
-        username: rect("#username"),
-        password: rect("#password"),
-        submit: rect('#login-form button[type="submit"]'),
+        usernameInputGroup: rect(username.closest(".input-group")),
+        password: rect(password),
+        submit: rect(submit),
     },
 };
 requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -158,10 +179,26 @@ const readLayoutProbe = stdout => {
 };
 
 const assertVerticalControlOrder = ({viewport, controls}) => {
-    assert.ok(controls.username.top < controls.password.top, `${viewport}px username must be above password`);
-    assert.ok(controls.username.bottom <= controls.password.top, `${viewport}px username must not overlap password`);
+    assert.ok(controls.usernameInputGroup.top < controls.password.top, `${viewport}px username must be above password`);
+    assert.ok(controls.usernameInputGroup.bottom <= controls.password.top, `${viewport}px username must not overlap password`);
     assert.ok(controls.password.top < controls.submit.top, `${viewport}px password must be above submit`);
     assert.ok(controls.password.bottom <= controls.submit.top, `${viewport}px password must not overlap submit`);
+};
+
+const assertCenteredCard = ({viewport, viewportWidth, main, card}) => {
+    const centerTolerancePx = 16;
+    assert.ok(card, `${viewport}px login must render a card`);
+    assert.ok(Math.abs((card.left + card.right) / 2 - viewportWidth / 2) <= centerTolerancePx,
+        `${viewport}px login card must be horizontally centered`);
+    assert.ok(Math.abs((card.top + card.bottom) / 2 - (main.top + main.bottom) / 2) <= centerTolerancePx,
+        `${viewport}px login card must be vertically centered within main`);
+};
+
+const assertEqualControlWidths = ({viewport, controls}) => {
+    const widthTolerancePx = 1;
+    const widths = [controls.usernameInputGroup.width, controls.password.width, controls.submit.width];
+    assert.ok(widths.every(width => Math.abs(width - widths[0]) <= widthTolerancePx),
+        `${viewport}px username, password, and Start! must have equal rendered widths`);
 };
 
 test("browser loads the login page without CSP violations", async () => {
@@ -179,16 +216,60 @@ test("browser loads the login page without CSP violations", async () => {
     }
 });
 
-test("Given invalid login credentials When the browser renders the error Then controls remain vertically ordered at narrow and wide viewports", async () => {
+test("Given an anonymous GET login When Chromium renders the default state Then the public card is centered and semantic", async () => {
+    const chrome = await findChrome();
+    const server = await startServer();
+    const url = `http://127.0.0.1:${server.address().port}/login`;
+
+    try {
+        for (const viewport of [375, 768, 1280]) {
+            const {stdout} = await runBrowser(chrome, [`--window-size=${viewport},800`, url]);
+            const layout = readLayoutProbe(stdout);
+
+            assert.equal(layout.headerCount, 0, `${viewport}px anonymous login must not render a header`);
+            assert.deepEqual(layout.privateNavigationLinks, [], `${viewport}px anonymous login must not render private navigation`);
+            assert.equal(layout.logoutActionCount, 0, `${viewport}px anonymous login must not render logout`);
+            assert.equal(layout.hasHorizontalOverflow, false, `${viewport}px login must not overflow horizontally`);
+            assert.equal(layout.cardCount, 1, `${viewport}px login must render exactly one card`);
+            assert.equal(layout.cardContainsForm, true, `${viewport}px login card must contain the form`);
+            assertCenteredCard({viewport, viewportWidth: layout.viewportWidth, main: layout.main, card: layout.card});
+            assertEqualControlWidths({viewport, controls: layout.controls});
+            assert.equal(layout.alert, null, `${viewport}px default login must not render an alert`);
+            assert.equal(layout.alertBeforeForm, false, `${viewport}px default login must not reserve an alert position`);
+            assert.equal(layout.form.ariaDescribedBy, "");
+            assert.deepEqual(layout.formSemantics, {
+                action: "/login",
+                method: "post",
+                autocomplete: "on",
+                usernameAutocomplete: "username",
+                passwordAutocomplete: "current-password",
+                hasCsrfToken: true,
+            });
+            assert.equal(layout.labels.username, true);
+            assert.equal(layout.labels.password, true);
+            assert.equal(layout.bootstrapGridEnabled, true, `${viewport}px requires the Bootstrap grid stylesheet`);
+            assertVerticalControlOrder({viewport, controls: layout.controls});
+        }
+    } finally {
+        await closeServer(server);
+    }
+});
+
+test("Given invalid login credentials When the browser renders the error Then the public Bootstrap card remains centered and accessible", async () => {
     const chrome = await findChrome();
     const server = await startServer();
     const url = `http://127.0.0.1:${server.address().port}/browser-login-submit`;
 
     try {
-        for (const viewport of [375, 1280]) {
+        for (const viewport of [375, 768, 1280]) {
             const {stdout} = await runBrowser(chrome, [`--window-size=${viewport},800`, url]);
             const layout = readLayoutProbe(stdout);
 
+            assert.equal(layout.hasHorizontalOverflow, false, `${viewport}px login must not overflow horizontally`);
+            assert.equal(layout.cardCount, 1, `${viewport}px login must render exactly one card`);
+            assert.equal(layout.cardContainsForm, true, `${viewport}px login card must contain the form`);
+            assertCenteredCard({viewport, viewportWidth: layout.viewportWidth, main: layout.main, card: layout.card});
+            assertEqualControlWidths({viewport, controls: layout.controls});
             assert.equal(layout.alert.role, "alert");
             assert.match(layout.alert.text, /Invalid username or password\./);
             assert.equal(layout.alertBeforeForm, true);
