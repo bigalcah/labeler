@@ -126,7 +126,6 @@ const buildRestorePipeline = options => ({
             `--port=${options.targetDatabase.port}`,
             `--username=${options.targetDatabase.user}`,
             `--dbname=${options.targetDatabase.database}`,
-            "-",
         ],
     },
 });

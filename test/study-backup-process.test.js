@@ -99,6 +99,25 @@ test("backup and restore pipelines stream encryption and address only the isolat
     assert.equal(restorePipeline.consumer.args.includes("--dbname=labeling"), false);
 });
 
+test("Given an isolated restore target, when building the restore pipeline, then pg_restore receives no archive operand", () => {
+    const restorePipeline = buildRestorePipeline({
+        archivePath: "/external/study.dump.enc",
+        encryptionKeyFile: "/external/backup.key",
+        targetDatabase: {...database, host: "isolated-db", database: "labeling_restore", user: "restore"},
+    });
+
+    assert.deepEqual(restorePipeline.consumer.args, [
+        "--exit-on-error",
+        "--no-owner",
+        "--no-privileges",
+        "--no-password",
+        "--host=isolated-db",
+        "--port=5432",
+        "--username=restore",
+        "--dbname=labeling_restore",
+    ]);
+});
+
 test("Given encrypted archive inspection, when pg_restore lists standard input, then it receives only --list", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "labeler-study-backup-inspect-args-"));
     try {
