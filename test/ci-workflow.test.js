@@ -71,6 +71,7 @@ test("Given a master push When release runs Then validation gates every fail-clo
     assert.match(release, /build:\s*\n\s{4}needs: quality/);
     assert.match(release, /publish:\s*\n\s{4}needs: build/);
     assert.match(release, /deploy:\s*\n\s{4}needs: publish/);
+    assert.match(release, /^ {2}deploy:\n(?:(?!^ {2}\w).)*?^ {4}timeout-minutes:\s*10\s*$/ms);
     assert.match(release, /environment: production/);
     assert.match(release, /concurrency:[\s\S]*?cancel-in-progress: false/);
     assert.equal((release.match(/packages: write/g) ?? []).length, 1);
