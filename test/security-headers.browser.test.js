@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {execFile} from "node:child_process";
 import {once} from "node:events";
-import {access} from "node:fs/promises";
+import {access, mkdtemp, rm} from "node:fs/promises";
 import test from "node:test";
+import {tmpdir} from "node:os";
+import path from "node:path";
 import {promisify} from "node:util";
 import {createApp} from "../app.js";
 
@@ -160,17 +162,25 @@ const findChrome = async () => {
     throw new Error("A Chrome or Chromium executable is required; set CHROME_BIN to run the browser regression");
 };
 
-const runBrowser = (chrome, arguments_) => executeFile(chrome, [
-    "--headless=new",
-    "--disable-background-networking",
-    "--disable-default-apps",
-    "--disable-extensions",
-    "--enable-logging=stderr",
-    "--no-first-run",
-    "--virtual-time-budget=1000",
-    "--dump-dom",
-    ...arguments_,
-], {maxBuffer: 1024 * 1024});
+const runBrowser = async (chrome, arguments_) => {
+    const userDataDirectory = await mkdtemp(path.join(tmpdir(), "labeler-security-chrome-"));
+    try {
+        return await executeFile(chrome, [
+            "--headless=new",
+            "--disable-background-networking",
+            "--disable-default-apps",
+            "--disable-extensions",
+            "--enable-logging=stderr",
+            "--no-first-run",
+            `--user-data-dir=${userDataDirectory}`,
+            "--virtual-time-budget=1000",
+            "--dump-dom",
+            ...arguments_,
+        ], {maxBuffer: 1024 * 1024});
+    } finally {
+        await rm(userDataDirectory, {recursive: true, force: true});
+    }
+};
 
 const readLayoutProbe = stdout => {
     const match = stdout.match(/<output id="login-layout-probe">([^<]+)<\/output>/);
