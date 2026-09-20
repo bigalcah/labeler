@@ -407,7 +407,6 @@ Siguen pendientes:
 No se debe presentar ninguna de estas evidencias como completada hasta conservar sus resultados,
 alcance, fecha y entorno.
 
-
 ## Documentation
 
 - [Multi-study validation](docs/MULTI-STUDY-VALIDATION.md)
