@@ -42,7 +42,7 @@ jobs:
           project="labeler-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           printf 'CI_RUNTIME_DIR=%s\n' "$runtime_dir" >> "$GITHUB_ENV"
           printf 'CI_COMPOSE_PROJECT=%s\n' "$project" >> "$GITHUB_ENV"
-          printf 'CI_RUNTIME_BASE_URL=https://127.0.0.1:18443\n' >> "$GITHUB_ENV"
+          printf 'CI_RUNTIME_BASE_URL=https://localhost:18443\n' >> "$GITHUB_ENV"
 
           node --input-type=module > "$runtime_dir/database-password" <<'NODE'
           import {randomBytes} from "node:crypto";
@@ -64,16 +64,16 @@ jobs:
           chmod 0400 "$runtime_dir"/*
 
           cat > "$runtime_dir/study-config.json" <<'JSON'
-          {"studyKey":"pr-card-sorting-local","expectedCardCount":300,"participants":["javier","diego","pablo"]}
+          {"studyKey":"pr-card-sorting-local","expectedCardCount":300,"participants":["javier","diego","pablo"],"loginUsernames":{"javier":"javier","diego":"diego","pablo":"pablo"}}
           JSON
           node --input-type=module > "$runtime_dir/account-passwords" <<'NODE'
           import {randomBytes} from "node:crypto";
-          for (let index = 0; index < 3; index += 1) process.stdout.write(`${randomBytes(32).toString("base64url")}\n`);
+          process.stdout.write(JSON.stringify(Array.from({length: 3}, () => randomBytes(32).toString("base64url"))));
           NODE
           npm run credentials:generate -- \
             --study-config "$runtime_dir/study-config.json" \
             --output "$runtime_dir/study-account-manifest.json" \
-            --password-fd 3 3<"$runtime_dir/account-passwords"
+            < "$runtime_dir/account-passwords"
           chmod 0400 "$runtime_dir/study-account-manifest.json"
 
           cat > "$runtime_dir/compose.env" <<EOF
@@ -86,17 +86,23 @@ jobs:
           STUDY_ACCOUNT_MANIFEST_HOST_PATH=$runtime_dir/study-account-manifest.json
           PGPASSFILE_HOST_PATH=$runtime_dir/legacy-retirement.pgpass
           GITHUB_TOKEN_HOST_PATH=$runtime_dir/github-token
-          PUBLIC_HOSTNAME=127.0.0.1
-          APP_ORIGIN=https://127.0.0.1:18443
+          PUBLIC_HOSTNAME=localhost
+          APP_ORIGIN=https://localhost:18443
           GITHUB_ENRICHMENT_ENABLED=false
           EOF
 
+          docker run --rm --user 0:0 -v "$runtime_dir:/runtime" node:22.13.1-alpine \
+            chown 1000:1000 \
+            /runtime/database-password /runtime/session-current /runtime/session-previous \
+            /runtime/github-token /runtime/study-account-manifest.json
+
           cat > "$runtime_dir/Caddyfile" <<'CADDY'
-          https://127.0.0.1 {
+          https://localhost {
               tls internal
               reverse_proxy labeling-server:3000
           }
           CADDY
+          chmod 0444 "$runtime_dir/Caddyfile"
 
           CI_RUNTIME_DIR="$runtime_dir" GITHUB_WORKSPACE="$GITHUB_WORKSPACE" python3 <<'PYTHON'
           import os
@@ -144,7 +150,7 @@ jobs:
           test "${#card_ids[@]}" -eq 3
           category_id="$(
             docker compose --project-name "$CI_COMPOSE_PROJECT" --env-file "$CI_RUNTIME_DIR/compose.env" -f "$CI_RUNTIME_DIR/docker-compose.yml" exec -T labeling-database \
-              psql -U labeling_ci -d labeling_ci -At -c "INSERT INTO participant_category(participant_id, raw_name, normalized_name) VALUES ($reviewer_id, 'CI category', 'ci category') RETURNING id"
+              psql -U labeling_ci -d labeling_ci -qAt -c "INSERT INTO participant_category(study_id, participant_id, raw_name, normalized_name) VALUES ('$study_id', $reviewer_id, 'CI category', 'ci category') RETURNING id"
           )"
           session_id="$(node --input-type=module <<'NODE'
           import {randomBytes} from "node:crypto";
@@ -156,10 +162,10 @@ jobs:
           process.stdout.write(randomBytes(32).toString("base64url"));
           NODE
           )"
-          session_cookie="$(SESSION_ID="$session_id" SESSION_SECRET_FILE="$CI_RUNTIME_DIR/session-current" node --input-type=module <<'NODE'
+          session_cookie="$(docker compose --project-name "$CI_COMPOSE_PROJECT" --env-file "$CI_RUNTIME_DIR/compose.env" -f "$CI_RUNTIME_DIR/docker-compose.yml" exec -T -e "SESSION_ID=$session_id" labeling-server node --input-type=module <<'NODE'
           import {createHmac} from "node:crypto";
           import {readFileSync} from "node:fs";
-          const secret = Buffer.from(readFileSync(process.env.SESSION_SECRET_FILE, "utf8").trim(), "base64url");
+          const secret = Buffer.from(readFileSync("/run/secrets/session-current", "utf8").trim(), "base64url");
           const tag = createHmac("sha256", secret).update(process.env.SESSION_ID, "ascii").digest("base64url");
           process.stdout.write(`__Host-session=${process.env.SESSION_ID}.${tag}`);
           NODE
@@ -205,5 +211,9 @@ jobs:
       - name: Remove the ephemeral runtime
         if: always() && env.CI_RUNTIME_DIR != ''
         run: |
-          docker compose --project-name "$CI_COMPOSE_PROJECT" --env-file "$CI_RUNTIME_DIR/compose.env" -f "$CI_RUNTIME_DIR/docker-compose.yml" down --volumes --remove-orphans
+          teardown_status=0
+          if [[ -f "$CI_RUNTIME_DIR/compose.env" ]]; then
+            docker compose --project-name "$CI_COMPOSE_PROJECT" --env-file "$CI_RUNTIME_DIR/compose.env" -f "$CI_RUNTIME_DIR/docker-compose.yml" down --volumes --remove-orphans || teardown_status=$?
+          fi
           rm -rf "$CI_RUNTIME_DIR"
+          exit "$teardown_status"
