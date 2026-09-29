@@ -59,6 +59,126 @@
                         </div>
                     </section>
                 <% } %>
+
+                <section class="pr-section" aria-labelledby="progress-list-title">
+                    <div class="pr-section-heading">
+                        <div>
+                            <span class="pr-section-eyebrow">Private card list</span>
+                            <h2 class="h4 mb-0" id="progress-list-title">All assigned cards</h2>
+                        </div>
+                        <span class="badge rounded-pill text-bg-light border" data-progress-total="true"><%= progressPage.total %> assigned cards</span>
+                    </div>
+
+                    <% if (progressPage.rows.length > 0) { %>
+                        <ul class="list-unstyled pr-card-list mb-0" data-progress-list="true">
+                            <% progressPage.rows.forEach(row => { %>
+                                <li data-progress-row="true"
+                                    data-ordinal="<%= row.ordinal %>"
+                                    data-card-id="<%= row.id %>"
+                                    data-status="<%= row.status %>">
+                                    <a class="pr-list-item" href="/queue/<%= encodeURIComponent(row.id) %>">
+                                        <span class="pr-list-main">
+                                            <span class="pr-meta-label d-block">Card <%= row.ordinal + 1 %></span>
+                                            <span class="d-block fw-semibold"><%= row.title %></span>
+                                            <% if (row.status === "CLASSIFIED") { %>
+                                                <span class="text-muted small">Classified as <%= row.own_category || "a personal category" %></span>
+                                            <% } else if (row.status === "DISCARDED") { %>
+                                                <span class="text-muted small">Discarded: <%= row.discard_reason || "no reason supplied" %></span>
+                                            <% } else { %>
+                                                <span class="text-muted small">Pending your private response</span>
+                                            <% } %>
+                                        </span>
+                                        <span class="pr-list-status text-md-end">
+                                            <span class="badge <%= row.status === "CLASSIFIED" ? "text-bg-success" : row.status === "DISCARDED" ? "text-bg-secondary" : "text-bg-warning" %>"><%= row.status %></span>
+                                        </span>
+                                    </a>
+                                </li>
+                            <% }); %>
+                        </ul>
+                    <% } else { %>
+                        <div class="pr-progress-card text-center" data-progress-empty="true" role="status">
+                            <p class="fw-semibold mb-1">No cards on this page.</p>
+                            <p class="text-muted mb-0">This page is outside the assigned card range. Use the pagination controls to return to a valid page.</p>
+                        </div>
+                    <% } %>
+
+                    <nav class="mt-3" aria-label="Progress pages">
+                        <ul class="pagination justify-content-center mb-2">
+                            <% if (progressPage.page > 1) { %>
+                                <li class="page-item">
+                                    <a class="page-link" rel="prev" href="/progress?page=<%= progressPage.page - 1 %>&limit=<%= progressPage.limit %>" aria-label="Previous page">Previous</a>
+                                </li>
+                            <% } else { %>
+                                <li class="page-item disabled">
+                                    <span class="page-link" aria-disabled="true">Previous</span>
+                                </li>
+                            <% } %>
+                            <%
+                                const lastPage = Math.max(progressPage.totalPages, 1);
+                                const candidatePages = [ 1, lastPage, progressPage.page - 1, progressPage.page, progressPage.page + 1 ]
+                                    .filter(number => number >= 1 && (number <= lastPage || number === progressPage.page));
+                                const pageNumbers = [ ...new Set(candidatePages) ].sort((left, right) => left - right);
+                            %>
+                            <% pageNumbers.forEach((number, index) => { %>
+                                <% if (index > 0 && number - pageNumbers[index - 1] > 1) { %>
+                                    <li class="page-item disabled"><span class="page-link" aria-hidden="true">&hellip;</span></li>
+                                <% } %>
+                                <% if (number === progressPage.page) { %>
+                                    <li class="page-item active"><span class="page-link" aria-current="page"><%= number %></span></li>
+                                <% } else { %>
+                                    <li class="page-item"><a class="page-link" href="/progress?page=<%= number %>&limit=<%= progressPage.limit %>" aria-label="Page <%= number %>"><%= number %></a></li>
+                                <% } %>
+                            <% }); %>
+                            <% if (progressPage.page < progressPage.totalPages) { %>
+                                <li class="page-item">
+                                    <a class="page-link" rel="next" href="/progress?page=<%= progressPage.page + 1 %>&limit=<%= progressPage.limit %>" aria-label="Next page">Next</a>
+                                </li>
+                            <% } else { %>
+                                <li class="page-item disabled">
+                                    <span class="page-link" aria-disabled="true">Next</span>
+                                </li>
+                            <% } %>
+                        </ul>
+                        <p class="text-center text-muted small mb-0" data-progress-page="true" role="status">Page <%= progressPage.page %> of <%= Math.max(progressPage.totalPages, 1) %> &middot; <%= progressPage.total %> assigned cards &middot; up to <%= progressPage.limit %> per page</p>
+                    </nav>
+                </section>
+
+                <section class="pr-section" aria-labelledby="category-summary-title" data-category-summary="true">
+                    <div class="pr-section-heading">
+                        <div>
+                            <span class="pr-section-eyebrow">Private grouping</span>
+                            <h2 class="h4 mb-0" id="category-summary-title">Classified cards by category</h2>
+                        </div>
+                    </div>
+
+                    <% if (categorySummary.length > 0) { %>
+                        <div class="row row-cols-1 row-cols-lg-2 g-3">
+                            <% categorySummary.forEach(category => { %>
+                                <div class="col">
+                                    <div class="pr-progress-card h-100" data-category-group="<%= category.id %>" data-category-id="<%= category.id %>" data-category-name="<%= category.raw_name %>" data-category-count="<%= category.total %>">
+                                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                                            <h3 class="h6 mb-0"><%= category.raw_name %></h3>
+                                            <span class="badge rounded-pill text-bg-light border"><%= category.total %> classified</span>
+                                        </div>
+                                        <% if (category.cards.length > 0) { %>
+                                            <ul class="list-unstyled mb-0 mt-2">
+                                                <% category.cards.forEach(card => { %>
+                                                    <li>
+                                                        <a class="d-inline-block py-1" data-category-card="<%= card.id %>" data-card-id="<%= card.id %>" data-ordinal="<%= card.ordinal %>" href="/queue/<%= encodeURIComponent(card.id) %>"><%= card.ordinal + 1 %>. <%= card.title %></a>
+                                                    </li>
+                                                <% }); %>
+                                            </ul>
+                                        <% } else { %>
+                                            <p class="text-muted small mb-0 mt-2" data-category-empty="true">No classified cards in this category yet.</p>
+                                        <% } %>
+                                    </div>
+                                </div>
+                            <% }); %>
+                        </div>
+                    <% } else { %>
+                        <p class="text-muted mb-0" data-category-empty="true">You have not created any personal categories yet.</p>
+                    <% } %>
+                </section>
             </div>
         </main>
         <%- include('./partials/footer'); %>

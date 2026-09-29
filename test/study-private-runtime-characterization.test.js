@@ -24,6 +24,8 @@ class PrivateStudyPool {
         this.classifications = new Map();
         this.discards = new Map();
         this.progressParameters = [];
+        this.pageParameters = [];
+        this.categorySummaryParameters = [];
         this.categoryParameters = [];
         this.transactionEvents = [];
         this.releaseCount = 0;
@@ -57,6 +59,45 @@ class PrivateStudyPool {
         const classifications = [...this.classifications.values()].filter(classification => classification.participantId === participantId).length;
         const discards = [...this.discards.values()].filter(discard => discard.participantId === participantId).length;
         return {total: cards.length, classified: classifications, discarded: discards, pending: cards.length - classifications - discards};
+    }
+
+    cardRows(participantId, requestedStudyId, {limit, offset}, staged) {
+        if (requestedStudyId !== studyId) return [];
+        return cards
+            .filter(card => card.ordinal >= offset && card.ordinal < offset + limit)
+            .map(card => {
+                const decision = this.decision(participantId, card.id, staged);
+                return {
+                    id: card.id,
+                    ordinal: card.ordinal,
+                    title: `Card ${card.ordinal}`,
+                    html_url: `https://example.test/pr/${card.ordinal}`,
+                    status: decision.classification ? "CLASSIFIED" : decision.discard ? "DISCARDED" : "PENDING",
+                    own_category: decision.classification
+                        ? this.categories.get(decision.classification.categoryId)?.rawName ?? null
+                        : null,
+                    discard_reason: decision.discard?.reason ?? null,
+                };
+            });
+    }
+
+    categoryGroups(participantId, requestedStudyId) {
+        if (requestedStudyId !== studyId) return [];
+        const classifiedByCategory = new Map();
+        for (const card of cards) {
+            const classification = this.classifications.get(`${participantId}:${card.id}`);
+            if (!classification) continue;
+            const grouped = classifiedByCategory.get(classification.categoryId) || [];
+            grouped.push({id: card.id, ordinal: card.ordinal, title: `Card ${card.ordinal}`, html_url: `https://example.test/pr/${card.ordinal}`});
+            classifiedByCategory.set(classification.categoryId, grouped);
+        }
+        return [...this.categories.values()]
+            .filter(category => category.participantId === participantId)
+            .sort((left, right) => left.rawName.localeCompare(right.rawName))
+            .map(category => {
+                const grouped = classifiedByCategory.get(category.id) || [];
+                return {id: category.id, raw_name: category.rawName, total: grouped.length, cards: grouped};
+            });
     }
 
     async query(sql, parameters = [], staged = null) {
@@ -99,6 +140,7 @@ class PrivateStudyPool {
             const [currentCardId, participantId, categoryId, _remarks, requestedStudyId] = parameters;
             staged.classifications.set(`${participantId}:${currentCardId}`, {
                 id: `classification-${participantId}-${currentCardId}`,
+                cardId: currentCardId,
                 participantId,
                 categoryId,
                 studyId: requestedStudyId,
@@ -120,6 +162,20 @@ class PrivateStudyPool {
             const [requestedStudyId, participantId] = parameters;
             this.progressParameters.push(parameters);
             return {rows: [requestedStudyId === studyId ? this.progress(participantId) : {total: 0, classified: 0, discarded: 0, pending: 0}]};
+        }
+        if (sql.includes("COUNT(*)::INTEGER AS total")) {
+            const [requestedStudyId] = parameters;
+            return {rows: [{total: requestedStudyId === studyId ? cards.length : 0}]};
+        }
+        if (sql.includes("LIMIT $3 OFFSET $4")) {
+            const [requestedStudyId, participantId, limit, offset] = parameters;
+            this.pageParameters.push(parameters);
+            return {rows: this.cardRows(participantId, requestedStudyId, {limit, offset}, staged)};
+        }
+        if (sql.includes("jsonb_agg")) {
+            const [requestedStudyId, participantId] = parameters;
+            this.categorySummaryParameters.push(parameters);
+            return {rows: this.categoryGroups(participantId, requestedStudyId)};
         }
         throw new Error(`Unexpected query: ${sql}`);
     }
@@ -205,16 +261,23 @@ test("private study mutations keep three session participants isolated across 30
         assert.deepEqual(pool.transactionEvents, ["BEGIN", "COMMIT", "BEGIN", "COMMIT", "BEGIN", "COMMIT"]);
         assert.equal(pool.releaseCount, 3);
 
-        for (const [session, participantId, expectedProgress] of [
-            ["study-session=participant-a", 11, {total: 300, classified: 1, discarded: 0, pending: 299}],
-            ["study-session=participant-b", 22, {total: 300, classified: 0, discarded: 1, pending: 299}],
-            ["study-session=participant-c", 33, {total: 300, classified: 1, discarded: 0, pending: 299}],
+        for (const [session, participantId, expectedProgress, expectedCategoryId] of [
+            ["study-session=participant-a", 11, {total: 300, classified: 1, discarded: 0, pending: 299}, categories[0].id],
+            ["study-session=participant-b", 22, {total: 300, classified: 0, discarded: 1, pending: 299}, categories[1].id],
+            ["study-session=participant-c", 33, {total: 300, classified: 1, discarded: 0, pending: 299}, categories[2].id],
         ]) {
             const response = await request(baseUrl, session, "/progress?participant_id=999&study_id=other-study");
             assert.equal(response.status, 200);
             assert.deepEqual(pool.progress(participantId), expectedProgress);
+            const body = await response.text();
+            assert.match(body, new RegExp(contexts[session].participantKey), "progress must render only the session participant");
+            assert.match(body, new RegExp(expectedCategoryId), "progress must render the session participant's own category summary");
         }
         assert.deepEqual(pool.progressParameters, [[studyId, 11], [studyId, 22], [studyId, 33]]);
+        assert.deepEqual(pool.pageParameters, [[studyId, 11, 20, 0], [studyId, 22, 20, 0], [studyId, 33, 20, 0]]);
+        assert.deepEqual(pool.categorySummaryParameters, [[studyId, 11], [studyId, 22], [studyId, 33]]);
+        assert.equal(pool.classifications.size, 2, "progress reads must not create classifications");
+        assert.equal(pool.discards.size, 1, "progress reads must not create discards");
         assert.deepEqual(githubRequests, []);
     } finally {
         globalThis.fetch = originalFetch;

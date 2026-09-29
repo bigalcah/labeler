@@ -27,6 +27,17 @@ const firstCategoryId = "550e8400-e29b-41d4-a716-446655440001";
 const secondCategoryId = "550e8400-e29b-41d4-a716-446655440002";
 const thirdCategoryId = "550e8400-e29b-41d4-a716-446655440004";
 const csrfToken = "t".repeat(43);
+const cardSummary = ordinal => ({
+    id: `550e8400-e29b-41d4-a716-${String(ordinal).padStart(12, "0")}`,
+    ordinal,
+    title: `Study card ${ordinal}`,
+    html_url: `https://example.test/study/pr/${ordinal}`,
+});
+const defaultCategorySummary = Object.freeze([
+    Object.freeze({id: firstCategoryId, raw_name: "Alpha", total: 2, cards: Object.freeze([cardSummary(0), cardSummary(5)])}),
+    Object.freeze({id: secondCategoryId, raw_name: "Beta", total: 1, cards: Object.freeze([cardSummary(2)])}),
+    Object.freeze({id: thirdCategoryId, raw_name: "Zero", total: 0, cards: Object.freeze([])}),
+]);
 const canonicalRouteModules = [
     "../routes/queue/index.js",
     "../routes/queue/[id]/index.js",
@@ -38,18 +49,41 @@ const canonicalRouteModules = [
 ];
 
 class StudyHttpPool {
-    constructor({pending = pendingCardId} = {}) {
+    constructor({pending = pendingCardId, totalCards = 300, categorySummary = defaultCategorySummary} = {}) {
         this.pending = pending;
+        this.totalCards = totalCards;
+        this.categorySummary = categorySummary;
         this.queries = [];
+    }
+
+    pageRows(parameters) {
+        const [studyId, participantId, limit, offset] = parameters;
+        if (studyId !== context.studyId || participantId !== context.participantId) return [];
+        const rows = [];
+        for (let ordinal = offset; ordinal < Math.min(offset + limit, this.totalCards); ordinal += 1) {
+            rows.push({...cardSummary(ordinal), status: "PENDING", own_category: null, discard_reason: null});
+        }
+        return rows;
     }
 
     async query(sql, parameters = []) {
         this.queries.push({sql, parameters});
+        if (sql.includes("LIMIT $3 OFFSET $4")) {
+            return {rows: this.pageRows(parameters)};
+        }
+        if (sql.includes("COUNT(*)::INTEGER AS total")) {
+            return {rows: [ {total: parameters[0] === context.studyId ? this.totalCards : 0} ]};
+        }
+        if (sql.includes("FROM participant_category category")) {
+            return {rows: parameters[0] === context.studyId && parameters[1] === context.participantId ? this.categorySummary : []};
+        }
         if (sql.includes("SELECT study_card.pr_card_id AS id")) {
             return {rows: parameters[0] === context.studyId && parameters[1] === context.participantId && this.pending ? [ {id: this.pending} ] : []};
         }
         if (sql.includes("COUNT(study_card.pr_card_id)")) {
-            return {rows: parameters[0] === context.studyId && parameters[1] === context.participantId ? [ {total: 300, classified: 2, discarded: 1, pending: 297} ] : []};
+            return {rows: parameters[0] === context.studyId && parameters[1] === context.participantId
+                ? [ {total: this.totalCards, classified: 2, discarded: 1, pending: this.totalCards - 3} ]
+                : []};
         }
         if (sql.startsWith("INSERT INTO participant_category")) {
             return {rows: [ {id: "category-1", raw_name: parameters[2]} ]};
@@ -114,9 +148,20 @@ class ClassificationIsolationPool {
     }
 }
 
-const start = async ({pool, authenticated = true, sessionContext = context} = {}) => {
+const start = async ({pool, authenticated = true, sessionContext = context, onRender} = {}) => {
+    const middleware = onRender
+        ? [(_req, res, next) => {
+            const render = res.render.bind(res);
+            res.render = (view, locals, callback) => {
+                onRender(view, locals);
+                return render(view, locals, callback);
+            };
+            next();
+        }]
+        : [];
     const app = await createApp({
         pool,
+        middleware,
         sessionMiddleware: (req, res, next) => {
             req.sessionContext = authenticated ? sessionContext : null;
             req.csrfToken = authenticated ? csrfToken : null;
@@ -185,6 +230,127 @@ test("progress and category creation use session ownership despite supplied iden
         });
         assert.equal(category.status, 201);
         assert.deepEqual(pool.queries.at(-1).parameters, [context.studyId, context.participantId, "Private category", "private category"]);
+    } finally {
+        await close(server);
+    }
+});
+
+test("progress applies default pagination and ignores client-supplied identity", async () => {
+    const pool = new StudyHttpPool();
+    const renders = [];
+    const server = await start({pool, onRender: (_view, locals) => renders.push(locals)});
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    try {
+        const response = await fetch(`${baseUrl}/progress?participant=participant-b&participant_id=22&study=study-2&study_id=study-2&reviewer_id=99`);
+        const html = await response.text();
+        assert.equal(response.status, 200);
+        assert.equal(renders.length, 1);
+
+        const {progressPage, categorySummary, participant} = renders[0];
+        assert.equal(participant.name, "participant-a");
+        assert.equal(progressPage.page, 1);
+        assert.equal(progressPage.limit, 20);
+        assert.equal(progressPage.total, 300);
+        assert.equal(progressPage.totalPages, 15);
+        assert.deepEqual(progressPage.rows.map(row => row.ordinal), Array.from({length: 20}, (_value, index) => index));
+        assert.deepEqual(categorySummary.map(group => group.raw_name), ["Alpha", "Beta", "Zero"]);
+
+        const pageQuery = pool.queries.find(({sql}) => sql.includes("LIMIT $3 OFFSET $4"));
+        assert.deepEqual(pageQuery.parameters, [context.studyId, context.participantId, 20, 0]);
+        for (const {parameters} of pool.queries) {
+            assert.equal(parameters[0], context.studyId);
+            assert.ok(!parameters.includes("study-2"), "hostile study must never reach a query");
+            assert.ok(!parameters.includes(22), "hostile participant must never reach a query");
+            assert.ok(!parameters.includes(99), "hostile reviewer must never reach a query");
+        }
+
+        assert.match(html, /participant-a/);
+        assert.doesNotMatch(html, /participant-b|study-2/);
+        assert.match(html, /\/progress\?page=2&limit=20/, "pagination links must carry the normalized default");
+    } finally {
+        await close(server);
+    }
+});
+
+test("progress caps the limit and serves a valid out-of-range page as 200 with an empty list", async () => {
+    const pool = new StudyHttpPool();
+    const renders = [];
+    const server = await start({pool, onRender: (_view, locals) => renders.push(locals)});
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    try {
+        const capped = await fetch(`${baseUrl}/progress?page=2&limit=1000`);
+        assert.equal(capped.status, 200);
+        const cappedHtml = await capped.text();
+        const cappedPage = renders.at(-1).progressPage;
+        assert.equal(cappedPage.page, 2);
+        assert.equal(cappedPage.limit, 100);
+        assert.equal(cappedPage.totalPages, 3);
+        assert.equal(cappedPage.rows[0].ordinal, 100);
+        assert.equal(cappedPage.rows.length, 100);
+        const cappedQuery = pool.queries.find(({sql}) => sql.includes("LIMIT $3 OFFSET $4"));
+        assert.deepEqual(cappedQuery.parameters, [context.studyId, context.participantId, 100, 100]);
+        assert.match(cappedHtml, /\/progress\?page=1&limit=100/, "previous link must use the capped limit");
+        assert.match(cappedHtml, /\/progress\?page=3&limit=100/, "next link must use the capped limit");
+        assert.doesNotMatch(cappedHtml, /limit=1000/, "the requested over-limit value must not leak into links");
+
+        const beyond = await fetch(`${baseUrl}/progress?page=99&limit=20`);
+        assert.equal(beyond.status, 200);
+        const beyondHtml = await beyond.text();
+        const beyondPage = renders.at(-1).progressPage;
+        assert.equal(beyondPage.page, 99);
+        assert.equal(beyondPage.limit, 20);
+        assert.equal(beyondPage.total, 300);
+        assert.deepEqual(beyondPage.rows, []);
+        assert.match(beyondHtml, /data-progress-empty/, "an out-of-range page must render the accessible empty state");
+        assert.match(beyondHtml, /\/progress\?page=98&limit=20/, "an out-of-range page must keep normalized navigation");
+    } finally {
+        await close(server);
+    }
+});
+
+test("progress falls back to defaults for non-integer and non-positive pagination values", async () => {
+    const pool = new StudyHttpPool();
+    const renders = [];
+    const server = await start({pool, onRender: (_view, locals) => renders.push(locals)});
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    try {
+        for (const query of ["page=abc&limit=1.5", "page=0&limit=-5", "page=1e3&limit=Infinity", "page=&limit="]) {
+            const response = await fetch(`${baseUrl}/progress?${query}`);
+            assert.equal(response.status, 200);
+            const {progressPage} = renders.at(-1);
+            assert.equal(progressPage.page, 1, `page default expected for ?${query}`);
+            assert.equal(progressPage.limit, 20, `limit default expected for ?${query}`);
+        }
+    } finally {
+        await close(server);
+    }
+});
+
+test("progress category summary stays complete and private across pages and out-of-range requests", async () => {
+    const pool = new StudyHttpPool();
+    const renders = [];
+    const server = await start({pool, onRender: (_view, locals) => renders.push(locals)});
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    try {
+        assert.equal((await fetch(`${baseUrl}/progress`)).status, 200);
+        assert.equal((await fetch(`${baseUrl}/progress?page=2&limit=5`)).status, 200);
+        assert.equal((await fetch(`${baseUrl}/progress?page=999&limit=20`)).status, 200);
+
+        const [first, second, beyond] = renders;
+        assert.deepEqual(first.categorySummary.map(group => group.raw_name), ["Alpha", "Beta", "Zero"]);
+        assert.deepEqual(first.categorySummary.map(group => group.total), [2, 1, 0]);
+        assert.deepEqual(first.categorySummary.find(group => group.raw_name === "Alpha").cards.map(card => card.ordinal), [0, 5]);
+        assert.deepEqual(first.categorySummary.find(group => group.raw_name === "Zero").cards, []);
+        assert.deepEqual(second.categorySummary, first.categorySummary);
+        assert.deepEqual(beyond.categorySummary, first.categorySummary);
+        assert.deepEqual(beyond.progressPage.rows, []);
+        assert.ok(second.progressPage.rows.length < first.progressPage.rows.length, "the paginated list changes while the summary does not");
+
+        const summaryQueries = pool.queries.filter(({sql}) => sql.includes("FROM participant_category category"));
+        assert.equal(summaryQueries.length, 3);
+        for (const {parameters} of summaryQueries) {
+            assert.deepEqual(parameters, [context.studyId, context.participantId]);
+        }
     } finally {
         await close(server);
     }
