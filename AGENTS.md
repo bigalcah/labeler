@@ -98,3 +98,21 @@ docker compose --env-file deployment/.env -f deployment/docker-compose.yml down
   aprobación explícita antes de cualquier commit o push.
 - Nunca añadas marcas de agua, texto o enlaces de Sisyphus, trailers automáticos ni líneas `Co-authored-by`, salvo que
   el usuario lo solicite explícitamente para ese commit.
+
+## Congelación de la canalización CI/CD de master
+
+- Regla absoluta para agentes: la canalización de master es intocable por cualquier motivo. Incluye los 7 workflows
+  de `.github/workflows/` y `deployment/docker-compose.release.yml`; deben permanecer byte por byte idénticos a la
+  línea base `b409233` tanto en `develop` como en `master`.
+- Antes de cualquier merge a `master`, ejecuta literalmente:
+  `git diff --name-only origin/master...develop -- .github/workflows deployment/docker-compose.release.yml`
+- El comando debe imprimir nada. Si imprime cualquier ruta, detente, informa de la desviación y no hagas el merge.
+- La única forma autorizada de modificar la canalización es mediante un cambio OpenSpec dedicado, aprobado
+  explícitamente por el usuario.
+- Ese mismo cambio debe modificar el workflow y actualizar los fingerprints de congelación y las pruebas de contrato.
+- Los merges de producto nunca deben transportar cambios de la canalización.
+- `test/ci-pipeline-freeze.test.js` verifica los fingerprints SHA-256 y el conjunto exacto de archivos workflow.
+- `.github/CODEOWNERS` asigna las rutas de la canalización a `@bigalcah`.
+- Para que la protección sea plenamente efectiva, la protección de ramas de GitHub debe exigir la revisión del owner y
+  el resultado satisfactorio de la prueba de congelación; configurar estos requisitos es una acción administrativa
+  documentada como obligatoria.

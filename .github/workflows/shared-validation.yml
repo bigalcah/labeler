@@ -211,9 +211,7 @@ jobs:
       - name: Remove the ephemeral runtime
         if: always() && env.CI_RUNTIME_DIR != ''
         run: |
-          teardown_status=0
           if [[ -f "$CI_RUNTIME_DIR/compose.env" ]]; then
-            docker compose --project-name "$CI_COMPOSE_PROJECT" --env-file "$CI_RUNTIME_DIR/compose.env" -f "$CI_RUNTIME_DIR/docker-compose.yml" down --volumes --remove-orphans || teardown_status=$?
+            docker compose --project-name "$CI_COMPOSE_PROJECT" --env-file "$CI_RUNTIME_DIR/compose.env" -f "$CI_RUNTIME_DIR/docker-compose.yml" down --volumes --remove-orphans
           fi
           rm -rf "$CI_RUNTIME_DIR"
-          exit "$teardown_status"

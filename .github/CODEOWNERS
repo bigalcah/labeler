@@ -1,0 +1,3 @@
+# Pipeline CI/CD congelado de master: todo cambio exige la revisión del propietario.
+.github/workflows/ @bigalcah
+deployment/docker-compose.release.yml @bigalcah
