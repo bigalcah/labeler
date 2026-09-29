@@ -105,7 +105,7 @@ jobs:
         run: |
           package_dir="$RUNNER_TEMP/release-package"
           mkdir -p "$package_dir"
-          install -m 0644 deployment/docker-compose.yml "$package_dir/docker-compose.yml"
+           install -m 0644 deployment/docker-compose.release.yml "$package_dir/docker-compose.yml"
           install -m 0644 deployment/Caddyfile "$package_dir/Caddyfile"
           built_at="$(date --utc +'%Y-%m-%dT%H:%M:%SZ')"
           npm run release:manifest -- \
@@ -151,6 +151,7 @@ jobs:
     needs: publish
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     environment: production
@@ -182,6 +183,8 @@ jobs:
             -i "$RUNNER_TEMP/release-ssh/id_ed25519"
             -o BatchMode=yes
             -o IdentitiesOnly=yes
+            -o ServerAliveInterval=30
+            -o ServerAliveCountMax=3
             -o StrictHostKeyChecking=yes
             -o UserKnownHostsFile="$RUNNER_TEMP/release-ssh/known_hosts"
           )
