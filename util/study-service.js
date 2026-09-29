@@ -4,8 +4,11 @@ import {
     findFirstPendingCard,
     findNextPendingCard,
     loadParticipantCategories,
+    loadParticipantCategorySummary,
     loadStudyCard,
+    loadStudyCardPage,
     loadStudyProgress,
+    normalizeProgressQuery,
 } from "./study-read-repository.js";
 import {
     createParticipantCategory,
@@ -135,6 +138,16 @@ const createStudyService = ({pool}) => {
         return normalizeProgress(await loadStudyProgress(pool, studyId, participantId));
     };
 
+    const loadProgressPage = async (context, {page, limit} = {}) => {
+        const {studyId, participantId} = sessionIds(context);
+        const normalized = normalizeProgressQuery({page, limit});
+        const [progressPage, categorySummary] = await Promise.all([
+            loadStudyCardPage(pool, studyId, participantId, normalized),
+            loadParticipantCategorySummary(pool, studyId, participantId),
+        ]);
+        return {progressPage, categorySummary};
+    };
+
     const loadReviewCardData = async (context, cardId) => {
         const {studyId, participantId} = sessionIds(context);
         const validCardId = requireUuid(cardId, "A valid card ID is required");
@@ -245,7 +258,7 @@ const createStudyService = ({pool}) => {
         });
     };
 
-    return {classifyCard, createCategory, discardCard, loadProgress, loadReviewCardData, renameCategory, resolveQueue};
+    return {classifyCard, createCategory, discardCard, loadProgress, loadProgressPage, loadReviewCardData, renameCategory, resolveQueue};
 };
 
 export {createStudyService};

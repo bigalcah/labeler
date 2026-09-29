@@ -37,6 +37,7 @@ class AuthHttpPool {
         this.deletedSessionIds = [];
         this.accountFailures = 0;
         this.ipAttempts = 0;
+        this.progressQueries = [];
     }
 
     async query(sql, parameters = []) {
@@ -52,6 +53,36 @@ class AuthHttpPool {
             this.deletedSessionIds.push(parameters[0]);
             this.sessions.delete(parameters[0]);
             return {rows: []};
+        }
+        if (sql.includes("LIMIT $3 OFFSET $4")) {
+            this.progressQueries.push({sql, parameters});
+            const [studyId, participantId, limit, offset] = parameters;
+            if (studyId !== "study-1" || participantId !== 12) return {rows: []};
+            const rows = [];
+            for (let ordinal = offset; ordinal < Math.min(offset + limit, 2); ordinal += 1) {
+                rows.push({
+                    id: `550e8400-e29b-41d4-a716-${String(ordinal).padStart(12, "0")}`,
+                    ordinal,
+                    title: `Card ${ordinal}`,
+                    html_url: `https://example.test/pr/${ordinal}`,
+                    status: "PENDING",
+                    own_category: null,
+                    discard_reason: null,
+                });
+            }
+            return {rows};
+        }
+        if (sql.includes("COUNT(*)::INTEGER AS total")) {
+            this.progressQueries.push({sql, parameters});
+            return {rows: [ {total: parameters[0] === "study-1" ? 2 : 0} ]};
+        }
+        if (sql.includes("FROM participant_category category")) {
+            this.progressQueries.push({sql, parameters});
+            return {rows: []};
+        }
+        if (sql.includes("COUNT(study_card.pr_card_id)")) {
+            this.progressQueries.push({sql, parameters});
+            return {rows: [ {total: 2, classified: 0, discarded: 0, pending: 2} ]};
         }
         throw new Error(`Unexpected pool query: ${sql}`);
     }
@@ -194,6 +225,40 @@ test("authenticated Home uses the signed session identity instead of client-supp
         assert.match(html, new RegExp(`<input[^>]*name=(?:["'])?csrf_token(?:["'])? value=(?:["'])?${sessionCsrfToken}(?:["'])?[^>]*>`));
         assert.doesNotMatch(html, /<a href=(?:["'])?\/login(?:["'])?[^>]*>/);
         assert.doesNotMatch(html, /client-form-query|client-header/);
+    } finally {
+        await closeServer(server);
+    }
+});
+
+test("progress requires the signed session and ignores client-supplied identity", async () => {
+    const pool = new AuthHttpPool();
+    const server = await startServer(pool);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    try {
+        const anonymous = await fetch(`${baseUrl}/progress?participant_id=999&study_id=other-study`);
+        assert.equal(anonymous.status, 401);
+        assert.equal(pool.progressQueries.length, 0);
+
+        pool.sessions.set(sessionId, {csrfToken: sessionCsrfToken});
+        const response = await fetch(`${baseUrl}/progress?participant_id=999&study_id=other-study&reviewer_id=7`, {
+            headers: {
+                cookie: `__Host-session=${signedCookie(sessionId)}`,
+                "x-participant-id": "999",
+                "x-study-id": "other-study",
+            },
+        });
+        const html = await response.text();
+
+        assert.equal(response.status, 200);
+        assert.match(html, /participant-a/);
+        assert.doesNotMatch(html, /other-study/);
+        assert.ok(pool.progressQueries.length > 0);
+        for (const {parameters} of pool.progressQueries) {
+            assert.equal(parameters[0], "study-1");
+            assert.ok(!parameters.includes("other-study"));
+            assert.ok(!parameters.includes(999));
+        }
     } finally {
         await closeServer(server);
     }
