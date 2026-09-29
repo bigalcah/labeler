@@ -90,7 +90,10 @@ docker compose --env-file deployment/.env -f deployment/docker-compose.yml down
 - JavaScript usa ESM con 4 espacios, comillas dobles, punto y coma y finales de línea Unix; ante nombres
   intencionalmente no usados, añade el prefijo `_`.
 - SQL usa `snake_case`; conserva la separación entre definiciones e implementaciones al tocar SQL legacy.
-- Git Flow está inicializado con `master`, `develop` y `feature/`. Usa ramas de feature basadas en `develop`.
+- Antes de implementar cualquier funcionalidad, comprueba la rama actual. Nunca avances funcionalidades directamente en
+  `master`: parte de `develop` y trabaja en una rama `feature/<nombre>` creada con Git Flow cuando esté disponible.
+  Si estás en `master`, detén la implementación hasta disponer de una rama de feature basada en `develop`; no traslades
+  ni descartes cambios locales preexistentes sin acordar cómo preservarlos.
 - Los mensajes de commit deben ser Conventional Commits escritos en español y tener un cuerpo explicativo. Obtén
   aprobación explícita antes de cualquier commit o push.
 - Nunca añadas marcas de agua, texto o enlaces de Sisyphus, trailers automáticos ni líneas `Co-authored-by`, salvo que
