@@ -188,7 +188,7 @@ test("Given shared validation When a gate fails Then no bypass or repository sec
     }
 });
 
-test("Given partial setup or failed teardown When cleanup runs Then it removes the runtime and preserves teardown failure", async () => {
+test("Given partial setup or failed teardown When cleanup runs Then the runtime is removed unless docker down fails", async () => {
     const shared = await readWorkflow("shared-validation.yml");
     const cleanupStep = shared.split("      - name: Remove the ephemeral runtime\n")[1];
     assert.ok(cleanupStep);
@@ -204,10 +204,10 @@ test("Given partial setup or failed teardown When cleanup runs Then it removes t
         await writeFile(docker, "#!/bin/sh\nprintf 'called\\n' >> \"$DOCKER_CALLS\"\nexit \"$DOCKER_EXIT_CODE\"\n");
         await chmod(docker, 0o700);
 
-        for (const [scenario, hasComposeEnv, teardownStatus] of [
-            ["partial", false, 42],
-            ["success", true, 0],
-            ["failed", true, 42],
+        for (const [scenario, hasComposeEnv, teardownStatus, expectedStatus, runtimeRemoved] of [
+            ["partial", false, 42, 0, true],
+            ["success", true, 0, 0, true],
+            ["failed", true, 42, 42, false],
         ]) {
             const runtime = path.join(directory, scenario);
             const calls = path.join(directory, `${scenario}-calls`);
@@ -225,13 +225,17 @@ test("Given partial setup or failed teardown When cleanup runs Then it removes t
                     DOCKER_EXIT_CODE: String(teardownStatus),
                 },
             });
-            assert.equal(result.status, hasComposeEnv ? teardownStatus : 0, `${scenario}: cleanup exit status`);
-            await assert.rejects(() => readFile(path.join(runtime, "compose.env")), {code: "ENOENT"});
-            await assert.rejects(() => readFile(runtime), {code: "ENOENT"});
+            assert.equal(result.status, expectedStatus, `${scenario}: cleanup exit status`);
             if (hasComposeEnv) {
-                assert.equal(await readFile(calls, "utf8"), "called\n");
+                assert.equal(await readFile(calls, "utf8"), "called\n", `${scenario}: docker invocation count`);
             } else {
-                await assert.rejects(() => readFile(calls), {code: "ENOENT"});
+                await assert.rejects(() => readFile(calls), {code: "ENOENT"}, `${scenario}: docker must not run`);
+            }
+            if (runtimeRemoved) {
+                await assert.rejects(() => readFile(path.join(runtime, "compose.env")), {code: "ENOENT"});
+                await assert.rejects(() => readFile(runtime), {code: "ENOENT"});
+            } else {
+                assert.equal(await readFile(path.join(runtime, "compose.env"), "utf8"), "PLACEHOLDER=1\n");
             }
         }
     } finally {
