@@ -25,7 +25,29 @@ class FakePool {
         if (sql.includes("FROM study_participant")) {
             return {rows: [{study_id: "study-1", id: "participant-1", name: "alice", ordinal: 1}]};
         }
-        if (sql.includes("FROM study_card")) {
+        if (sql.includes("LIMIT $3 OFFSET $4")) {
+            return {rows: [{
+                id: "card-1",
+                ordinal: 0,
+                title: "First card",
+                html_url: "https://example.test/pr/1",
+                status: "CLASSIFIED",
+                own_category: "Alpha",
+                discard_reason: null,
+            }]};
+        }
+        if (sql.includes("COUNT(*)::INTEGER AS total")) {
+            return {rows: [{total: 300}]};
+        }
+        if (sql.includes("FROM participant_category category")) {
+            return {rows: [{
+                id: "category-1",
+                raw_name: "Alpha",
+                total: 1,
+                cards: [{id: "card-1", ordinal: 0, title: "First card", html_url: "https://example.test/pr/1"}],
+            }]};
+        }
+        if (sql.includes("COUNT(study_card.pr_card_id)")) {
             return {rows: [{total: 300, classified: 1, discarded: 2, pending: 297}]};
         }
         throw new Error(`Unexpected query: ${sql}`);
@@ -87,7 +109,7 @@ test("real database route uses injected pool and middleware dependencies", async
     });
     assert.equal(response.status, 200);
     assert.match(await response.text(), /alice/);
-    assert.equal(pool.queries.length, 1);
+    assert.equal(pool.queries.length, 4);
     assert.equal(sessionSeen, true);
     assert.equal(loggerSeen, true);
 
