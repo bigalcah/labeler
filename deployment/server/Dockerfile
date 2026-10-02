@@ -18,10 +18,10 @@ COPY app.js            \
 
 RUN apk update --quiet && \
     apk add --quiet --no-cache \
-        build-base=0.5-r3 \
+        build-base=~0.5 \
         gettext=~0.22.5 \
         moreutils=~0.69 \
-        python3=3.12.14-r0 && \
+        python3=~3.12 && \
     npm ci --quiet && \
     npm run --silent minify
 
@@ -39,8 +39,8 @@ RUN apk update --quiet && \
     apk add --quiet --no-cache \
         curl=~8.14 \
         jq=~1.7 \
-        openssl=3.3.7-r1 \
-        postgresql17-client=17.11-r0 && \
+        openssl=~3.3 \
+        postgresql17-client=~17.11 && \
     npm prune --omit=dev --quiet && \
     mkdir -p /labeling/logs && \
     chown -R node:node /labeling
