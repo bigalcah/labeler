@@ -16,16 +16,21 @@ La Home SHALL mostrar a las personas anónimas únicamente una bienvenida explic
 #### Scenario: Ausencia de navegación y acciones privadas para persona anónima
 
 - **WHEN** una persona sin una sesión válida solicita Home
-- **THEN** el marcado no contiene enlaces ni botones para Queue, tarjetas PR, tarjetas Pending, Progress, identidad de participante, cierre de sesión ni navegación privada contraíble
+- **THEN** el marcado no contiene enlaces ni botones para Queue, tarjetas PR, Progress, identidad de participante, cierre de sesión ni navegación privada contraíble
 
 ### Requirement: Home autenticada conserva navegación y acciones completas
 
-La Home SHALL conservar para una persona con una sesión válida Home, PR cards y Queue, Progress, la identidad del participante, el cierre de sesión y las tarjetas de acciones existentes.
+La Home SHALL conservar para una persona con una sesión válida la navegación Home, PR cards y Progress, la identidad del participante y el cierre de sesión. En `main` SHALL mostrar exactamente dos tarjetas de acción: `PR cards` hacia `/queue` y `Progress` hacia `/progress`. MUST NOT mostrar una tarjeta separada `Pending cards` ni otra tarjeta que duplique el destino `/queue`, que ya entrega la tarjeta pendiente siguiente.
 
 #### Scenario: Navegación y acciones de participante autenticado
 
 - **WHEN** una persona con una sesión válida solicita Home
-- **THEN** Home muestra Home, PR cards y Queue, Progress, la identidad asociada a la sesión, el cierre de sesión y las tarjetas de acciones existentes
+- **THEN** Home muestra la navegación Home, PR cards y Progress, la identidad asociada a la sesión, el cierre de sesión y exactamente dos tarjetas de acción: `PR cards` hacia `/queue` y `Progress` hacia `/progress`
+
+#### Scenario: Sin tarjeta duplicada de cola
+
+- **WHEN** una persona con una sesión válida abre Home
+- **THEN** exactamente una tarjeta de acción en `main` enlaza a `/queue` y no existe una tarjeta `Pending cards`
 
 #### Scenario: La sesión válida mantiene el acceso visual privado
 

@@ -72,6 +72,8 @@ const result = {
             .some(element => element.textContent.trim() === "participant-a"),
         privateNavigationLinks: links('header a[href="/queue"], header a[href="/progress"]'),
         privateActionLinks: links('main a[href="/queue"], main a[href="/progress"]'),
+        queueActionLinks: links('main a[href="/queue"]'),
+        actionCardCount: document.querySelectorAll("main .card").length,
         loginLinks: links('a[href="/login"]'),
     },
 };
@@ -473,7 +475,9 @@ test("Given an authenticated server session When Chromium renders Home Then iden
             assert.equal(layout.authenticated.headerCount, 1, `${viewport}px authenticated Home must emit its header`);
             assert.equal(layout.authenticated.identityEmitted, true, `${viewport}px authenticated Home must emit participant-a`);
             assert.deepEqual(layout.authenticated.privateNavigationLinks, ["/queue", "/progress"], `${viewport}px authenticated Home must emit private navigation`);
-            assert.deepEqual(layout.authenticated.privateActionLinks, ["/queue", "/queue", "/progress"], `${viewport}px authenticated Home must emit private action cards`);
+            assert.deepEqual(layout.authenticated.privateActionLinks, ["/queue", "/progress"], `${viewport}px authenticated Home must emit private action cards`);
+            assert.deepEqual(layout.authenticated.queueActionLinks, ["/queue"], `${viewport}px authenticated Home must emit exactly one queue action link inside main`);
+            assert.equal(layout.authenticated.actionCardCount, 2, `${viewport}px authenticated Home must emit exactly two action cards inside main`);
             assert.deepEqual(layout.authenticated.loginLinks, [], `${viewport}px authenticated Home must not emit Login`);
             assertNoHorizontalOverflow({layout, viewport});
             geometrySnapshot[String(viewport)] = authenticatedGeometry(layout);
