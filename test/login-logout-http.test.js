@@ -183,6 +183,25 @@ test("authenticated Home uses the signed session identity instead of client-supp
         assert.match(html, /<span>participant-a<\/span>/);
         assert.match(html, /<form[^>]*action=(?:["'])?\/logout(?:["'])?[^>]*method=(?:["'])?post(?:["'])?[^>]*>/);
         assert.match(html, new RegExp(`<input[^>]*name=(?:["'])?csrf_token(?:["'])? value=(?:["'])?${sessionCsrfToken}(?:["'])?[^>]*>`));
+
+        const mainHtml = html.match(/<main>([\s\S]*)<\/main>/)?.[1] || "";
+        const cardStarts = [ ...mainHtml.matchAll(/<div\b[^>]*\bclass=(?:["'])?([^"'>]+)(?:["'])?[^>]*>/g) ]
+            .filter(match => match[1].split(/\s+/).includes("card"));
+        const actionCards = cardStarts.map((start, index) => {
+            const block = mainHtml.slice(start.index, cardStarts[index + 1]?.index ?? mainHtml.length);
+            return {
+                href: block.match(/<a\b[^>]*\bhref=(?:["'])?([^"'\s>]+)(?:["'])?[^>]*>/)?.[1] || null,
+                title: block.match(/<title>([^<]*)<\/title>/)?.[1] || null,
+            };
+        });
+        assert.equal(actionCards.length, 2, "authenticated Home must render exactly two action cards inside main");
+        assert.deepEqual(actionCards, [
+            {href: "/queue", title: "PR cards"},
+            {href: "/progress", title: "Progress"},
+        ], "authenticated Home action cards must be PR cards to /queue and Progress to /progress");
+        assert.equal(actionCards.filter(card => card.href === "/queue").length, 1, "authenticated Home must render exactly one action card targeting /queue");
+        assert.doesNotMatch(html, /Pending cards/, "authenticated Home must not render a Pending cards action card");
+
         assert.doesNotMatch(html, /<a href=(?:["'])?\/login(?:["'])?[^>]*>/);
         assert.doesNotMatch(html, /client-form-query|client-header/);
     } finally {
