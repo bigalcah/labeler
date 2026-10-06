@@ -286,7 +286,7 @@ const progressProbe = `(() => {
             title: text(link ? link.querySelector(".fw-semibold") : null),
             detail: text(link ? link.querySelector(".text-muted") : null),
             badge: text(link ? link.querySelector(".badge") : null),
-            dotSlot: slotClass(link ? link.querySelector(".pr-list-detail .category-color-dot") : null),
+            rowSlot: slotClass(row),
         };
     });
     const groups = [ ...document.querySelectorAll("[data-category-group]") ].map(group => ({
@@ -296,7 +296,7 @@ const progressProbe = `(() => {
         badge: text(group.querySelector(".badge")),
         empty: text(group.querySelector("[data-category-empty]")),
         definition: text(group.querySelector(".category-definition")),
-        dotSlot: slotClass(group.querySelector(".category-color-dot")),
+        groupSlot: slotClass(group),
         cards: [ ...group.querySelectorAll("[data-category-card]") ].map(card => ({
             cardId: card.getAttribute("data-card-id"),
             ordinal: Number(card.getAttribute("data-ordinal")),
@@ -382,7 +382,7 @@ const assertNoOtherParticipant = (layout, viewport) => {
 const assertCategorySummary = (layout, viewport) => {
     assert.deepEqual(layout.groups.map(group => group.name), ["Alpha", "Beta", "Zero"], `${viewport}px progress must render every current category including unused ones`);
     assert.deepEqual(layout.groups.map(group => group.count), [3, 1, 0], `${viewport}px progress must render whole-membership counts including zero`);
-    assert.deepEqual(layout.groups.map(group => group.dotSlot), ["category-slot-0", "category-slot-1", "category-slot-2"], `${viewport}px every summary group must render its stable color indicator class`);
+    assert.deepEqual(layout.groups.map(group => group.groupSlot), ["category-slot-0", "category-slot-1", "category-slot-2"], `${viewport}px every summary card must carry its stable color slot class`);
     assert.deepEqual(layout.groups.map(group => group.definition), ["Alpha definition", null, null], `${viewport}px a group must show its definition when present and omit it otherwise`);
     assert.deepEqual(layout.groups[0].cards.map(card => card.ordinal), [0, 5, 9], `${viewport}px grouped cards must stay in ordinal order`);
     assert.deepEqual(layout.groups[1].cards.map(card => card.ordinal), [3], `${viewport}px each category must group only its own classified cards`);
@@ -428,9 +428,9 @@ test("Given an authenticated participant When Chromium renders progress Then the
                 `${viewport}px classified, pending and discarded rows must show only their own private decision`,
             );
             assert.deepEqual(
-                firstPage.rows.map(row => row.dotSlot),
+                firstPage.rows.map(row => row.rowSlot),
                 ["category-slot-0", null, null, "category-slot-1", null],
-                `${viewport}px classified rows must render their own category color indicator class and other rows must not`,
+                `${viewport}px classified rows must carry their own category color slot on the row and other rows must not`,
             );
             assert.equal(firstPage.totalBadge, "12 assigned cards", `${viewport}px the listing must expose the whole membership total`);
             assertCategorySummary(firstPage, viewport);

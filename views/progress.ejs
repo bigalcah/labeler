@@ -72,7 +72,8 @@
                     <% if (progressPage.rows.length > 0) { %>
                         <ul class="list-unstyled pr-card-list mb-0" data-progress-list="true">
                             <% progressPage.rows.forEach(row => { %>
-                                <li data-progress-row="true"
+                                <li class="<%= row.own_category_color_slot !== null && row.own_category_color_slot !== undefined ? `category-slot-${row.own_category_color_slot}` : "" %>"
+                                    data-progress-row="true"
                                     data-ordinal="<%= row.ordinal %>"
                                     data-card-id="<%= row.id %>"
                                     data-status="<%= row.status %>">
@@ -81,10 +82,7 @@
                                             <span class="pr-meta-label d-block">Card <%= row.ordinal + 1 %></span>
                                             <span class="d-block fw-semibold"><%= row.title %></span>
                                             <% if (row.status === "CLASSIFIED") { %>
-                                                <span class="pr-list-detail d-inline-flex align-items-center gap-1">
-                                                    <% if (row.own_category_color_slot !== null && row.own_category_color_slot !== undefined) { %>
-                                                        <span class="category-color-dot category-slot-<%= row.own_category_color_slot %>" aria-hidden="true"></span>
-                                                    <% } %>
+                                                <span class="pr-list-detail">
                                                     <span class="text-muted small">Classified as <%= row.own_category || "a personal category" %></span>
                                                 </span>
                                             <% } else if (row.status === "DISCARDED") { %>
@@ -160,10 +158,10 @@
                         <div class="row row-cols-1 row-cols-lg-2 g-3">
                             <% categorySummary.forEach(category => { %>
                                 <div class="col">
-                                    <div class="pr-progress-card h-100" data-category-group="<%= category.id %>" data-category-id="<%= category.id %>" data-category-name="<%= category.raw_name %>" data-category-count="<%= category.total %>">
+                                    <div class="pr-progress-card h-100 category-slot-<%= category.color_slot %>" data-category-group="<%= category.id %>" data-category-id="<%= category.id %>" data-category-name="<%= category.raw_name %>" data-category-count="<%= category.total %>">
                                         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                                            <h3 class="h6 mb-0 d-flex align-items-center gap-2">
-                                                <span class="category-color-dot category-slot-<%= category.color_slot %>" aria-hidden="true"></span><%= category.raw_name %>
+                                            <h3 class="h6 mb-0">
+                                                <%= category.raw_name %>
                                             </h3>
                                             <span class="badge rounded-pill text-bg-light border"><%= category.total %> classified</span>
                                         </div>

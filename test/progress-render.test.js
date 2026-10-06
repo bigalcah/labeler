@@ -84,17 +84,19 @@ const rowHrefs = section => [ ...section.matchAll(/<a class="pr-list-item" href=
 const rowTitles = section => [ ...section.matchAll(/<span class="d-block fw-semibold">([^<]*)<\/span>/g) ].map(match => match[1]);
 const rowDetails = section => [ ...section.matchAll(/<span class="text-muted small">([^<]*)<\/span>/g) ].map(match => match[1]);
 const rowBadges = section => [ ...section.matchAll(/<span class="badge (?:text-bg-[a-z]+)">([A-Z]+)<\/span>/g) ].map(match => match[1]);
-const rowIndicatorClasses = section => [ ...section.matchAll(/<span class="category-color-dot (category-slot-\d+)" aria-hidden="true"><\/span>/g) ].map(match => match[1]);
+const rowSlots = section => rowTags(section)
+    .map(tag => attributesOf(tag, "class") || "")
+    .map(className => (className.match(/category-slot-\d+/) || [null])[0]);
 
 const categoryGroups = section => section
-    .split(/(?=<div class="pr-progress-card h-100"[^>]*data-category-group=)/)
+    .split(/(?=<div class="pr-progress-card[^"]*"[^>]*data-category-group=)/)
     .slice(1)
     .map(segment => ({
         name: attributesOf(segment, "data-category-name"),
         count: Number(attributesOf(segment, "data-category-count")),
         badge: segment.match(/<span class="badge rounded-pill text-bg-light border">([^<]*)<\/span>/)?.[1] ?? null,
         empty: segment.match(/data-category-empty="true"[^>]*>([^<]*)</)?.[1] ?? null,
-        dotClass: segment.match(/<span class="category-color-dot (category-slot-\d+)" aria-hidden="true"><\/span>/)?.[1] ?? null,
+        slot: segment.match(/category-slot-\d+/)?.[0] ?? null,
         definition: segment.match(/<p class="category-definition[^"]*">([^<]*)<\/p>/)?.[1] ?? null,
         cards: [ ...segment.matchAll(/<a[^>]*data-category-card="[^"]*"[^>]*>/g) ].map(match => match[0]).map(tag => ({
             id: attributesOf(tag, "data-card-id"),
@@ -127,7 +129,7 @@ test("Given a page of assigned cards When progress renders Then rows keep ordina
         "classified rows show the own category, discarded rows show the own reason and pending rows show no decision",
     );
     assert.deepEqual(rowBadges(section), ["CLASSIFIED", "PENDING", "DISCARDED", "CLASSIFIED", "PENDING"], "rows must render a status badge");
-    assert.deepEqual(rowIndicatorClasses(section), ["category-slot-0", "category-slot-1"], "classified rows must render their own category color indicator");
+    assert.deepEqual(rowSlots(section), ["category-slot-0", null, null, "category-slot-1", null], "classified rows must carry their own category color slot on the row, other rows must not");
     assert.doesNotMatch(section, / style="/, "the card list must not rely on inline style attributes");
     assert.match(section, /data-progress-total="true">12 assigned cards/, "the list must show the full membership total");
 });
@@ -139,7 +141,7 @@ test("Given private categories When progress renders Then all groups appear with
     assert.deepEqual(groups.map(group => group.name), ["Alpha", "Beta", "Zero"], "every current category must render, including unused ones");
     assert.deepEqual(groups.map(group => group.count), [3, 1, 0], "counts must come from the whole membership, not the page");
     assert.deepEqual(groups.map(group => group.badge), ["3 classified", "1 classified", "0 classified"], "zero-count categories must render an explicit zero");
-    assert.deepEqual(groups.map(group => group.dotClass), ["category-slot-0", "category-slot-1", "category-slot-2"], "every summary group must carry its stable color indicator class");
+    assert.deepEqual(groups.map(group => group.slot), ["category-slot-0", "category-slot-1", "category-slot-2"], "every summary card must carry its stable color slot class");
     assert.deepEqual(groups.map(group => group.definition), ["Alpha definition", null, null], "a group must show its definition when present and omit it otherwise");
     assert.deepEqual(groups[2].cards, [], "zero-count categories must not invent grouped cards");
     assert.match(groups[2].empty, /No classified cards in this category yet/, "zero-count categories must render an accessible empty group");

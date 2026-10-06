@@ -370,6 +370,7 @@ a[target="_blank"] {
     align-items: center;
     background: #fff;
     border: 1px solid #dfe5ee;
+    border-left: 6px solid transparent;
     border-radius: .85rem;
     color: inherit;
     display: flex;
@@ -385,6 +386,11 @@ a[target="_blank"] {
     box-shadow: 0 .35rem 1rem rgba(43, 74, 125, .12);
     color: inherit;
     transform: translateY(-1px);
+}
+
+[data-progress-row][class*="category-slot-"] .pr-list-item {
+    background: color-mix(in srgb, var(--category-color) 5%, #fff);
+    border-left-color: var(--category-color);
 }
 
 .pr-list-main {
@@ -415,6 +421,11 @@ a[target="_blank"] {
 
 .pr-progress-card {
     background: #fff;
+}
+
+.pr-progress-card[class*="category-slot-"] {
+    background: color-mix(in srgb, var(--category-color) 6%, #fff);
+    border-left: 6px solid var(--category-color);
 }
 
 @media (max-width: 575.98px) {
@@ -531,16 +542,6 @@ a[target="_blank"] {
     --category-color: #499894;
 }
 
-.category-color-dot {
-    background-color: var(--category-color, #697386);
-    border: 1px solid rgba(17, 24, 39, .35);
-    border-radius: 50%;
-    display: inline-block;
-    flex: 0 0 auto;
-    height: .85rem;
-    width: .85rem;
-}
-
 .category-selection-list {
     display: grid;
     gap: .5rem;
@@ -548,8 +549,9 @@ a[target="_blank"] {
 
 .category-option {
     align-items: stretch;
-    background: #fff;
-    border: 1px solid #dfe5ee;
+    background: color-mix(in srgb, var(--category-color, #697386) 7%, #fff);
+    border: 1px solid color-mix(in srgb, var(--category-color, #697386) 45%, #fff);
+    border-left: 6px solid var(--category-color, #697386);
     border-radius: .75rem;
     display: flex;
     gap: .75rem;
@@ -558,13 +560,15 @@ a[target="_blank"] {
 }
 
 .category-option.is-selected {
-    border-color: #64748b;
-    box-shadow: inset 0 0 0 1px #64748b;
+    box-shadow: inset 0 0 0 2px rgba(17, 24, 39, .65);
 }
 
 .category-option:focus-within {
-    border-color: #64748b;
     box-shadow: 0 0 0 .2rem rgba(47, 75, 124, .18);
+}
+
+.category-option.is-selected:focus-within {
+    box-shadow: inset 0 0 0 2px rgba(17, 24, 39, .65), 0 0 0 .2rem rgba(47, 75, 124, .18);
 }
 
 .category-option-label {
