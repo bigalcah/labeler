@@ -311,11 +311,10 @@ const reviewProbe = `(() => {
     };
     const options = [ ...document.querySelectorAll("[data-category-option]") ].map(item => {
         const radio = item.querySelector("[data-category-radio]");
-        const dot = item.querySelector(".category-color-dot");
         const indicator = item.querySelector(".category-selected-indicator");
         const button = item.querySelector("[data-category-rename]");
-        const background = getComputedStyle(item).backgroundColor;
-        const dotColor = dot ? getComputedStyle(dot).backgroundColor : null;
+        const rowStyle = getComputedStyle(item);
+        const rowBorderLeftColor = rowStyle.borderLeftColor;
         return {
             id: item.getAttribute("data-category-option"),
             radioName: radio ? radio.getAttribute("name") : null,
@@ -323,10 +322,11 @@ const reviewProbe = `(() => {
             required: radio ? radio.required : null,
             checked: radio ? radio.checked : null,
             selectedClass: item.classList.contains("is-selected"),
-            dotSlot: slotOf(dot),
-            dotInlineStyle: dot ? dot.getAttribute("style") : "<missing>",
-            dotColor,
-            dotContrast: dotColor && background ? contrast(parseRgb(dotColor), parseRgb(background)) : null,
+            rowSlot: slotOf(item),
+            rowInlineStyle: item.getAttribute("style"),
+            rowBorderLeftColor,
+            rowBorderLeftWidth: rowStyle.borderLeftWidth,
+            rowBorderContrast: rowBorderLeftColor ? contrast(parseRgb(rowBorderLeftColor), [255, 255, 255]) : null,
             indicatorDisplay: indicator ? getComputedStyle(indicator).display : null,
             indicatorText: text(indicator),
             name: text(item.querySelector(".category-name")),
@@ -343,13 +343,15 @@ const reviewProbe = `(() => {
         optionCount: options.length,
         hasList: Boolean(document.querySelector("[data-category-list]")),
         emptyState: text(document.querySelector("[data-category-empty]")),
-        inlineStyleElements: document.querySelectorAll("#category-list [style], .category-color-dot[style], [data-category-radio][style], .category-option[style]").length,
+        dotCount: document.querySelectorAll(".category-color-dot").length,
+        inlineStyleElements: document.querySelectorAll("#category-list [style], [data-category-radio][style], .category-option[style]").length,
         formValid: form ? form.checkValidity() : null,
         cspViolations: window.__cspViolations || [],
         xss: window.__xss === undefined ? null : window.__xss,
         activeTag: document.activeElement ? document.activeElement.tagName : null,
         activeRadioChecked: document.activeElement && document.activeElement.matches("[data-category-radio]") ? document.activeElement.checked : null,
-        focusedOptionBorder: focusedOption ? getComputedStyle(focusedOption).borderColor : null,
+        focusedOptionBorderLeft: focusedOption ? getComputedStyle(focusedOption).borderLeftColor : null,
+        focusedOptionBoxShadow: focusedOption ? getComputedStyle(focusedOption).boxShadow : null,
         focusedOptionId: focusedOption ? focusedOption.getAttribute("data-category-option") : null,
         focusWithin: focusedOption ? focusedOption.matches(":focus-within") : null,
         overflow: document.documentElement.scrollWidth > window.innerWidth,
@@ -405,17 +407,18 @@ const clickEditButton = (browser, sessionId, optionId) => evaluate(browser, sess
 const assertCleanSurface = (layout, context) => {
     assert.deepEqual(layout.cspViolations, [], `${context} must render without CSP violations`);
     assert.equal(layout.inlineStyleElements, 0, `${context} must not emit any inline style attributes`);
+    assert.equal(layout.dotCount, 0, `${context} must not render any isolated color dot`);
     assert.equal(layout.xss, null, `${context} must not execute hostile category text`);
 };
 
 const assertPaletteColor = (option, context) => {
-    assert.ok(/^category-slot-\d+$/.test(option.dotSlot ?? ""), `${context} must expose a palette slot class`);
-    const slot = Number(option.dotSlot.slice("category-slot-".length));
+    assert.ok(/^category-slot-\d+$/.test(option.rowSlot ?? ""), `${context} must expose a palette slot class on the row`);
+    const slot = Number(option.rowSlot.slice("category-slot-".length));
     const expected = CATEGORY_PALETTE[slot];
     const [ red, green, blue ] = expected.slice(1).match(/.{2}/g).map(component => parseInt(component, 16));
-    assert.equal(option.dotColor, `rgb(${red}, ${green}, ${blue})`, `${context} must render the palette color for ${expected}`);
-    assert.equal(option.dotInlineStyle, null, `${context} must not inline the indicator color`);
-    assert.ok(option.dotContrast >= 3, `${context} indicator must keep at least 3:1 contrast, measured ${option.dotContrast?.toFixed(2)}:1`);
+    assert.equal(option.rowBorderLeftColor, `rgb(${red}, ${green}, ${blue})`, `${context} must render the palette color on the row bar for ${expected}`);
+    assert.equal(option.rowInlineStyle, null, `${context} must not inline the row color`);
+    assert.ok(option.rowBorderContrast >= 3, `${context} row bar must keep at least 3:1 contrast, measured ${option.rowBorderContrast?.toFixed(2)}:1`);
 };
 
 test("Given a pending card When Chromium renders the category list Then native radios, palette classes and untouched CSP work together", async () => {
@@ -451,7 +454,8 @@ test("Given a pending card When Chromium renders the category list Then native r
             assert.equal(focused.activeTag, "INPUT", "focus must remain visible on the radio");
             assert.equal(focused.focusedOptionId, alphaId, "focus must stay within the first option");
             assert.equal(focused.focusWithin, true, "focus must be visible through the option focus ring");
-            assert.equal(focused.focusedOptionBorder, "rgb(100, 116, 139)", "the focused option must show a visible border");
+            assert.equal(focused.focusedOptionBorderLeft, "rgb(78, 121, 167)", "the focused option must keep its category color bar");
+            assert.match(focused.focusedOptionBoxShadow, /rgba\(47, 75, 124, 0\.18\)/, "the focused option must show a visible focus ring");
             assert.deepEqual(focused.options.map(option => option.checked), [false, false], "focusing a radio must not silently select it");
 
             await pressKey(browser, page.sessionId, " ");
@@ -554,7 +558,7 @@ test("Given a classified card When a category is edited Then text updates, selec
             const renamed = await readReview(browser, page.sessionId);
             assert.equal(renamed.options[1].name, "Beta renamed", "editing must update the row name through textContent");
             assert.equal(renamed.options[1].definition, "Beta definition new", "editing must update the row definition");
-            assert.equal(renamed.options[1].dotSlot, "category-slot-1", "editing must keep the stable palette slot");
+            assert.equal(renamed.options[1].rowSlot, "category-slot-1", "editing must keep the stable palette slot on the row");
             assert.deepEqual(renamed.options.map(option => option.checked), [true, false], "editing a category must not change the selection");
             assertPaletteColor(renamed.options[1], "the edited row");
             assertCleanSurface(renamed, "the edited row");

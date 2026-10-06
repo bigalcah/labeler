@@ -11,7 +11,7 @@ const setDefinitionText = (element, definition) => {
 
 const buildCategoryOption = category => {
     const item = document.createElement("li");
-    item.className = "category-option";
+    item.className = `category-option ${categorySlotClass(category.color_slot)}`;
     item.dataset.categoryOption = category.id;
 
     const label = document.createElement("label");
@@ -24,10 +24,6 @@ const buildCategoryOption = category => {
     radio.className = "form-check-input category-radio";
     radio.dataset.categoryRadio = "";
     radio.dataset.categoryUpdatedAt = category.updated_at || "";
-
-    const dot = document.createElement("span");
-    dot.className = `category-color-dot ${categorySlotClass(category.color_slot)}`;
-    dot.setAttribute("aria-hidden", "true");
 
     const text = document.createElement("span");
     text.className = "category-option-text";
@@ -47,7 +43,7 @@ const buildCategoryOption = category => {
     check.className = "bi bi-check-lg";
     indicator.append(check, document.createTextNode("Selected"));
 
-    label.append(radio, dot, text, indicator);
+    label.append(radio, text, indicator);
 
     const button = document.createElement("button");
     button.type = "button";
@@ -77,13 +73,10 @@ const updateCategoryOption = (item, category) => {
         radio.value = category.id;
         radio.dataset.categoryUpdatedAt = category.updated_at || "";
     }
-    const dot = item.querySelector(".category-color-dot");
-    if (dot) {
-        Array.from(dot.classList)
-            .filter(className => className.startsWith("category-slot-"))
-            .forEach(className => dot.classList.remove(className));
-        dot.classList.add(categorySlotClass(category.color_slot));
-    }
+    Array.from(item.classList)
+        .filter(className => className.startsWith("category-slot-"))
+        .forEach(className => item.classList.remove(className));
+    item.classList.add(categorySlotClass(category.color_slot));
     const name = item.querySelector(".category-name");
     if (name) name.textContent = category.raw_name;
     const text = item.querySelector(".category-option-text");

@@ -128,6 +128,29 @@ test("participant card renders safe local evidence without raw payload or unsafe
     assert.match(rendered, /pr-status-open[^>]*>OPEN<\/span>/);
 });
 
+test("participant card surfaces an explicit captured-but-empty state for reviews with no written text", async () => {
+    const template = await readFile(path.join(root, "views/partials/instance/data.ejs"), "utf8");
+    const projected = projectCardV2(card, {run_id: "run", snapshot_checksum: "checksum", pages: [
+        {endpoint: "reviews", state: "COMPLETE", normalized_payload: [
+            {id: 1, state: "APPROVED", body: null},
+            {id: 2, state: "APPROVED", body: ""},
+            {id: 3, state: "APPROVED", body: "   "},
+        ]},
+    ]});
+    const rendered = ejs.render(template, {
+        data: {...card, card_v2: projected},
+        renderSafeMarkdown: value => String(value),
+    });
+
+    assert.equal(projected.github_evidence.reviews.availability, AVAILABILITY.PRESENT);
+    assert.equal(projected.github_evidence.reviews.captured_count, 3);
+    assert.equal(projected.github_evidence.reviews.items.length, 3, "the projection keeps every captured review event");
+    assert.match(rendered, /<strong>No written review explanations\.<\/strong> The local snapshot captured 3 review events without written text\./, "the explicit captured-but-empty state must render");
+    assert.doesNotMatch(rendered, /data-local-item/, "captured-but-empty reviews must not render entries");
+    assert.doesNotMatch(rendered, /pr-event-list/, "captured-but-empty reviews must not render a batch list or control");
+    assert.match(rendered, /data-local-section="reviews"[\s\S]*?Available · 3/, "the summary badge must keep the captured count");
+});
+
 test("CardV2 template-render regression: metrics block, Timeline, supplementary_activity and files sections must not appear; projection metrics and review-event count must remain", async () => {
     const template = await readFile(path.join(root, "views/partials/instance/data.ejs"), "utf8");
     const projected = projectCardV2(card, {run_id: "run", snapshot_checksum: "checksum", pages: [
