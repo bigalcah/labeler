@@ -205,6 +205,8 @@ test("reads an ordered page scoped by study and participant with bound parameter
     assert.match(pageQuery.sql, /discard\.participant_id = \$2/);
     assert.match(pageQuery.sql, /ORDER BY study_card\.ordinal/);
     assert.match(pageQuery.sql, /LIMIT \$3 OFFSET \$4/);
+    assert.match(pageQuery.sql, /category\.definition AS own_category_definition/);
+    assert.match(pageQuery.sql, /category\.color_slot AS own_category_color_slot/);
     assert.ok(!pageQuery.sql.includes(study300Id), "study id must not be interpolated into SQL");
 
     const secondPage = await loadPage(executor, study300Id, aliceId, {page: 2});
@@ -295,6 +297,15 @@ test("reads every category group over the full membership, independent of page a
     assert.deepEqual(summaryQuery.parameters, [study300Id, aliceId]);
     assert.match(summaryQuery.sql, /ORDER BY card\.ordinal/);
     assert.match(summaryQuery.sql, /category\.participant_id = \$2/);
+    assert.ok(
+        summary.every(group => Object.hasOwn(group, "definition") && Object.hasOwn(group, "color_slot")),
+        "every category group must expose its own definition and color slot",
+    );
+    assert.deepEqual(summary.map(group => group.definition), [ null, null, null ], "seeded categories must not invent definitions");
+    assert.ok(
+        summary.every(group => Number.isInteger(group.color_slot) && group.color_slot >= 0 && group.color_slot < 12),
+        "every category group must expose a slot inside the palette contract",
+    );
 
     await loadPage(executor, study300Id, aliceId, {page: 99, limit: 20});
     const summaryAfterOutOfRangePage = await loadParticipantCategorySummary(executor, study300Id, aliceId);

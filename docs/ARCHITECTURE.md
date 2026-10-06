@@ -69,10 +69,12 @@ de participante o estudio en path, query, formulario ni cabeceras. La existencia
 `pr_classification` y `pr_discard`. `participant_account` y `app_session` vinculan las credenciales y sesiones con el
 `study_id`. GitHub añade runs, páginas, snapshots y promoción sin mutar `pr_cards` ni `study_card`.
 
-Las migraciones gestionadas cubren `001_study_foundation` y `003` a `012`, incluida la coexistencia de perfiles y la
-unicidad global de usernames. `002_retire_legacy_labeler` es externa al runner común y solo se aplica mediante la ruta
-de retiro protegida. El ledger es `labeler_migration`. Los SQL históricos bajo `schema/01_...` a `06_...` son
-**LEGACY**.
+Las migraciones gestionadas cubren `001_study_foundation` y `003` a `013`, incluida la coexistencia de perfiles, la
+unicidad global de usernames y `013_category_definition_color`, que añade `definition TEXT NULL` y
+`color_slot SMALLINT NOT NULL DEFAULT 0`, rellena los slots existentes con `(ROW_NUMBER() - 1) % 12` por participante y
+estudio y limita el slot con un `CHECK` entre 0 y 11. `002_retire_legacy_labeler` es externa al runner común y solo se
+aplica mediante la ruta de retiro protegida. El ledger es `labeler_migration`. Los SQL históricos bajo `schema/01_...` a
+`06_...` son **LEGACY**.
 
 **IMPLEMENTED-UNVERIFIED:** la estructura y el flujo están implementados, pero la evidencia externa de backup/restore y
 la ejecución pública siguen pendientes.

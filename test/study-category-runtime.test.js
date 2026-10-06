@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {loadParticipantCategories, loadStudyCard} from "../util/study-runtime.js";
 
-test("category reads use the session study for the same participant", async () => {
+test("category reads use the session study and participant while returning definition and color", async () => {
     const categoriesByMembership = new Map([
-        ["study-1:11", [{id: "study-1-category", raw_name: "Study one"}]],
-        ["study-2:11", [{id: "study-2-category", raw_name: "Study two"}]],
+        ["study-1:11", [{id: "study-1-category", raw_name: "Study one", definition: "First", color_slot: 0}]],
+        ["study-2:11", [{id: "study-2-category", raw_name: "Study two", definition: null, color_slot: 5}]],
+        ["study-1:22", [{id: "study-1-peer-category", raw_name: "Peer", definition: "Peer definition", color_slot: 7}]],
     ]);
     let categoryQuery = null;
     const executor = {
@@ -17,14 +18,21 @@ test("category reads use the session study for the same participant", async () =
 
     assert.deepEqual(
         await loadParticipantCategories(executor, "study-1", 11),
-        [{id: "study-1-category", raw_name: "Study one"}],
+        [{id: "study-1-category", raw_name: "Study one", definition: "First", color_slot: 0}],
     );
     assert.deepEqual(
         await loadParticipantCategories(executor, "study-2", 11),
-        [{id: "study-2-category", raw_name: "Study two"}],
+        [{id: "study-2-category", raw_name: "Study two", definition: null, color_slot: 5}],
+    );
+    assert.deepEqual(
+        await loadParticipantCategories(executor, "study-1", 22),
+        [{id: "study-1-peer-category", raw_name: "Peer", definition: "Peer definition", color_slot: 7}],
+        "a peer participant never receives another participant's private definition",
     );
     assert.match(categoryQuery, /study_id = \$1/);
     assert.match(categoryQuery, /participant_id = \$2/);
+    assert.match(categoryQuery, /definition/);
+    assert.match(categoryQuery, /color_slot/);
 });
 
 test("card rendering joins classification categories within the card study", async () => {

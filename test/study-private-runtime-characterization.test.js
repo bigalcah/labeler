@@ -13,9 +13,9 @@ const contexts = Object.freeze({
     "study-session=participant-c": Object.freeze({accountId: "account-c", studyId, participantId: 33, participantKey: "participant-c"}),
 });
 const categories = Object.freeze([
-    {id: "550e8400-e29b-41d4-a716-000000000301", participantId: 11, rawName: "Shared label"},
-    {id: "550e8400-e29b-41d4-a716-000000000302", participantId: 22, rawName: "Shared label"},
-    {id: "550e8400-e29b-41d4-a716-000000000303", participantId: 33, rawName: "Shared label"},
+    {id: "550e8400-e29b-41d4-a716-000000000301", participantId: 11, rawName: "Shared label", definition: "Participant A definition", colorSlot: 0},
+    {id: "550e8400-e29b-41d4-a716-000000000302", participantId: 22, rawName: "Shared label", definition: null, colorSlot: 1},
+    {id: "550e8400-e29b-41d4-a716-000000000303", participantId: 33, rawName: "Shared label", definition: "Participant C definition", colorSlot: 2},
 ]);
 
 class PrivateStudyPool {
@@ -76,6 +76,12 @@ class PrivateStudyPool {
                     own_category: decision.classification
                         ? this.categories.get(decision.classification.categoryId)?.rawName ?? null
                         : null,
+                    own_category_definition: decision.classification
+                        ? this.categories.get(decision.classification.categoryId)?.definition ?? null
+                        : null,
+                    own_category_color_slot: decision.classification
+                        ? this.categories.get(decision.classification.categoryId)?.colorSlot ?? null
+                        : null,
                     discard_reason: decision.discard?.reason ?? null,
                 };
             });
@@ -96,7 +102,14 @@ class PrivateStudyPool {
             .sort((left, right) => left.rawName.localeCompare(right.rawName))
             .map(category => {
                 const grouped = classifiedByCategory.get(category.id) || [];
-                return {id: category.id, raw_name: category.rawName, total: grouped.length, cards: grouped};
+                return {
+                    id: category.id,
+                    raw_name: category.rawName,
+                    definition: category.definition,
+                    color_slot: category.colorSlot,
+                    total: grouped.length,
+                    cards: grouped,
+                };
             });
     }
 

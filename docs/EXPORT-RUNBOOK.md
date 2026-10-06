@@ -49,9 +49,11 @@ El directorio de destino contiene exactamente:
 
 - `results.csv`, con una fila por tarjeta y participante, orden, decisión, categoría y nombre, observaciones, motivo de
   descarte, timestamps, revisión, URLs de origen y efectivas, procedencia y checksums.
-- `categories.csv`, con las categorías privadas y sus nombres, incluidas las que no se usaron en una decisión.
+- `categories.csv`, con las categorías privadas y sus nombres, incluidas las que no se usaron en una decisión. Añade
+  `category_definition` al final; las columnas existentes conservan su orden y la celda queda vacía si no hay definición.
 - `manifest.json`, con versión, estudio, cardinalidad, checksums de fuente, membresía y archivos de salida, totales de
-  finalización y procedencia de enriquecimiento. Los pseudónimos se derivan del HMAC externo.
+  finalización y procedencia de enriquecimiento. Los pseudónimos se derivan del HMAC externo. El manifiesto y los SHA-256
+  se calculan de nuevo a partir de los bytes finales del CSV.
 
 El paquete no contiene tokens, secretos, sesiones, hashes de credenciales, datos de throttling ni payloads GitHub crudos.
 La publicación se hace de forma atómica desde un directorio temporal y no deja un paquete parcial ante un error.

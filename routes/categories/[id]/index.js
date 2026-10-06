@@ -13,6 +13,7 @@ export const patch = async (req, res) => {
     try {
         const category = await studyService.renameCategory(context, req.params.id, {
             name: req.body?.name,
+            definition: req.body?.definition,
             expectedUpdatedAt: req.body?.expected_updated_at,
         });
         res.status(HTTPStatus.OK).json(category);

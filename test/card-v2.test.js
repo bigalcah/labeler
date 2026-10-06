@@ -86,7 +86,7 @@ test("CardV2 treats complete-empty endpoint counts as authoritative zeroes", () 
     }
 });
 
-test("participant card renders explicit empty field, metric, and incomplete evidence states", async () => {
+test("participant card renders explicit empty field and incomplete evidence states without a metrics block", async () => {
     const template = await readFile(path.join(root, "views/partials/instance/data.ejs"), "utf8");
     const emptyCard = {
         ...card,
@@ -108,7 +108,8 @@ test("participant card renders explicit empty field, metric, and incomplete evid
     assert.match(rendered, /Dataset language: Not available/);
     assert.match(rendered, /pr-status-unknown[^>]*>UNAVAILABLE<\/span>/);
     assert.match(rendered, /No CSV evidence is available for this card/);
-    assert.match(rendered, /Review events[\s\S]*Incomplete/);
+    assert.doesNotMatch(rendered, /pr-metric-label|pr-metric-value|pr-metrics-grid|Review events/, "participant card must not render the metrics block");
+    assert.doesNotMatch(rendered, /All CSV evidence|data-local-section="files"/, "participant card must not render the full CSV dump or the changed files section");
     assert.match(rendered, /Pull request comments[\s\S]*Incomplete[^]*Endpoint missing from local snapshot/);
     assert.doesNotMatch(rendered, />undefined<|>null</);
 });
@@ -127,7 +128,7 @@ test("participant card renders safe local evidence without raw payload or unsafe
     assert.match(rendered, /pr-status-open[^>]*>OPEN<\/span>/);
 });
 
-test("CardV2 template-render regression: Timeline and supplementary_activity evidence sections must not appear; Commits metric and review-event count must remain", async () => {
+test("CardV2 template-render regression: metrics block, Timeline, supplementary_activity and files sections must not appear; projection metrics and review-event count must remain", async () => {
     const template = await readFile(path.join(root, "views/partials/instance/data.ejs"), "utf8");
     const projected = projectCardV2(card, {run_id: "run", snapshot_checksum: "checksum", pages: [
         {endpoint: "metadata", state: "COMPLETE", normalized_payload: {title: "GitHub title", user: {login: "github-author"}, commits: 5, additions: 10, deletions: 3}},
@@ -154,9 +155,23 @@ test("CardV2 template-render regression: Timeline and supplementary_activity evi
     // supplementary_activity (Commits) evidence section must be absent from participant HTML
     assert.doesNotMatch(rendered, /data-local-section="supplementary_activity"/, "Commits evidence section should not appear in participant HTML");
 
-    // Commits metric must remain visible in the metrics grid with normal literal label
-    assert.match(rendered, /<span class="pr-metric-label">Commits<\/span>/, "Commits metric label should be visible");
-    assert.match(rendered, /<strong class="pr-metric-value">5<\/strong>/, "Commits metric value should be 5");
+    // The changed files evidence section must be absent from participant HTML
+    assert.doesNotMatch(rendered, /data-local-section="files"/, "Changed files evidence section should not appear in participant HTML");
+
+    // The participant card must not render a metrics block
+    assert.doesNotMatch(rendered, /pr-metric-label|pr-metric-value|pr-metrics-grid/, "Metrics block must not appear in participant HTML");
+    assert.doesNotMatch(rendered, /All CSV evidence/, "The full CSV evidence dump must not appear in participant HTML");
+
+    // The projection keeps the metrics intact even though they are no longer rendered
+    assert.equal(projected.metrics.commit_count.value, 5, "commit_count projection must remain intact");
+    assert.equal(projected.metrics.review_event_count.value, 4, "review_event_count projection must remain intact");
+    assert.equal(projected.metrics.changes_requested_review_count.value, 1, "changes_requested projection must remain intact");
+    assert.equal(projected.metrics.total_changes.value, 13, "total_changes projection must remain intact");
+
+    // Batch preview contract: GitHub evidence limits each section to a 3-item preview
+    assert.match(rendered, /data-page-size="3"/, "GitHub evidence sections must declare a 3-item preview batch");
+    assert.match(rendered, /data-local-section="reviews"[\s\S]*data-local-item="0"/, "Reviews evidence must render local disclosure items");
+    assert.doesNotMatch(rendered, /data-page-size="10"/, "Participant card must not fall back to the legacy 10-item batch");
 
     // No "No written explanation was captured." placeholder should appear
     assert.doesNotMatch(rendered, /No written explanation was captured/, "Bodyless review placeholder should not appear");

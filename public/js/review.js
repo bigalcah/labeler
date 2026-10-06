@@ -1,49 +1,157 @@
+const categorySlotClass = slot => {
+    const numericSlot = Number(slot);
+    return `category-slot-${Number.isInteger(numericSlot) && numericSlot >= 0 && numericSlot < 12 ? numericSlot : 0}`;
+};
+
+const setDefinitionText = (element, definition) => {
+    const text = typeof definition === "string" ? definition.trim() : "";
+    element.textContent = text;
+    element.hidden = text.length === 0;
+};
+
+const buildCategoryOption = category => {
+    const item = document.createElement("li");
+    item.className = "category-option";
+    item.dataset.categoryOption = category.id;
+
+    const label = document.createElement("label");
+    label.className = "category-option-label";
+
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "category_id";
+    radio.value = category.id;
+    radio.className = "form-check-input category-radio";
+    radio.dataset.categoryRadio = "";
+    radio.dataset.categoryUpdatedAt = category.updated_at || "";
+
+    const dot = document.createElement("span");
+    dot.className = `category-color-dot ${categorySlotClass(category.color_slot)}`;
+    dot.setAttribute("aria-hidden", "true");
+
+    const text = document.createElement("span");
+    text.className = "category-option-text";
+    const name = document.createElement("span");
+    name.className = "category-name";
+    name.dataset.categoryLabel = category.id;
+    name.textContent = category.raw_name;
+    const definition = document.createElement("span");
+    definition.className = "category-definition";
+    setDefinitionText(definition, category.definition);
+    text.append(name, definition);
+
+    const indicator = document.createElement("span");
+    indicator.className = "category-selected-indicator";
+    indicator.setAttribute("aria-hidden", "true");
+    const check = document.createElement("i");
+    check.className = "bi bi-check-lg";
+    indicator.append(check, document.createTextNode("Selected"));
+
+    label.append(radio, dot, text, indicator);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn btn-sm btn-outline-secondary category-edit-button";
+    button.dataset.categoryRename = "";
+    button.dataset.categoryId = category.id;
+    button.dataset.categoryVersion = category.updated_at || "";
+    button.dataset.categoryName = category.raw_name;
+    button.dataset.categoryDefinition = category.definition || "";
+    button.dataset.bsToggle = "modal";
+    button.dataset.bsTarget = "#rename-category-modal";
+    button.append("Edit ");
+    const hiddenName = document.createElement("span");
+    hiddenName.className = "visually-hidden";
+    hiddenName.textContent = category.raw_name;
+    button.append(hiddenName);
+
+    item.append(label, button);
+    return item;
+};
+
+const updateCategoryOption = (item, category) => {
+    if (!item) return;
+    item.dataset.categoryOption = category.id;
+    const radio = item.querySelector("[data-category-radio]");
+    if (radio) {
+        radio.value = category.id;
+        radio.dataset.categoryUpdatedAt = category.updated_at || "";
+    }
+    const dot = item.querySelector(".category-color-dot");
+    if (dot) {
+        Array.from(dot.classList)
+            .filter(className => className.startsWith("category-slot-"))
+            .forEach(className => dot.classList.remove(className));
+        dot.classList.add(categorySlotClass(category.color_slot));
+    }
+    const name = item.querySelector(".category-name");
+    if (name) name.textContent = category.raw_name;
+    const text = item.querySelector(".category-option-text");
+    let definition = item.querySelector(".category-definition");
+    if (!definition && text) {
+        definition = document.createElement("span");
+        definition.className = "category-definition";
+        text.append(definition);
+    }
+    if (definition) setDefinitionText(definition, category.definition);
+    const button = item.querySelector("[data-category-rename]");
+    if (button) {
+        button.dataset.categoryName = category.raw_name;
+        button.dataset.categoryVersion = category.updated_at || "";
+        button.dataset.categoryDefinition = category.definition || "";
+        const hiddenName = button.querySelector(".visually-hidden");
+        if (hiddenName) hiddenName.textContent = category.raw_name;
+    }
+};
+
+const refreshSelectedState = list => {
+    if (!list) return;
+    list.querySelectorAll("[data-category-option]").forEach(item => {
+        const radio = item.querySelector("[data-category-radio]");
+        item.classList.toggle("is-selected", Boolean(radio?.checked));
+    });
+};
+
+const ensureRequiredSelection = list => {
+    if (!list) return;
+    const radios = [ ...list.querySelectorAll("[data-category-radio]") ];
+    if (radios.length === 0) return;
+    if (!radios.some(radio => radio.checked) && !radios.some(radio => radio.required)) {
+        radios[0].required = true;
+    }
+};
+
 const setupCategoryForm = () => {
     const categoryForm = document.getElementById("new-category-form");
     if (!categoryForm) return;
+    const list = document.getElementById("category-list");
+    const nameInput = document.getElementById("category-name");
+    const definitionInput = document.getElementById("category-definition");
+    const error = document.getElementById("category-error");
     categoryForm.addEventListener("submit", async event => {
         event.preventDefault();
-        const error = document.getElementById("category-error");
         error.classList.add("d-none");
         const token = categoryForm.querySelector("[name=csrf_token]")?.value;
         const response = await fetch(categoryForm.dataset.categoryAction, {
             method: "POST",
             headers: {"Content-Type": "application/json", "X-CSRF-Token": token || ""},
-            body: JSON.stringify({name: document.getElementById("category-name").value}),
+            body: JSON.stringify({name: nameInput.value, definition: definitionInput.value}),
         });
         if (!response.ok) {
             error.classList.remove("d-none");
             return;
         }
         const category = await response.json();
-        const option = new Option(category.raw_name, category.id, true, true);
-        option.dataset.categoryUpdatedAt = category.updated_at || "";
-        document.getElementById("category-id").add(option);
-        const list = document.getElementById("category-management-list");
         if (list) {
-            const item = document.createElement("li");
-            item.className = "list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2";
-            const label = document.createElement("span");
-            label.dataset.categoryLabel = category.id;
-            label.textContent = category.raw_name;
-            const button = document.createElement("button");
-            button.type = "button";
-            button.className = "btn btn-sm btn-outline-secondary";
-            button.dataset.categoryRename = "";
-            button.dataset.categoryId = category.id;
-            button.dataset.categoryVersion = category.updated_at || "";
-            button.dataset.categoryName = category.raw_name;
-            button.dataset.bsToggle = "modal";
-            button.dataset.bsTarget = "#rename-category-modal";
-            button.append("Rename ");
-            const hiddenName = document.createElement("span");
-            hiddenName.className = "visually-hidden";
-            hiddenName.textContent = category.raw_name;
-            button.append(hiddenName);
-            item.append(label, button);
+            list.querySelector("[data-category-empty]")?.remove();
+            const item = buildCategoryOption(category);
             list.append(item);
+            const radio = item.querySelector("[data-category-radio]");
+            if (radio) radio.checked = true;
+            ensureRequiredSelection(list);
+            refreshSelectedState(list);
         }
-        window.bootstrap.Modal.getInstance(document.getElementById("new-category-modal")).hide();
+        window.bootstrap?.Modal?.getInstance(document.getElementById("new-category-modal"))?.hide();
         categoryForm.reset();
     });
 };
@@ -51,19 +159,21 @@ const setupCategoryForm = () => {
 const setupCategoryRename = () => {
     const renameForm = document.getElementById("rename-category-form");
     if (!renameForm) return;
+    const list = document.getElementById("category-list");
     const categoryId = renameForm.elements.category_id;
     const expectedUpdatedAt = renameForm.elements.expected_updated_at;
     const categoryName = document.getElementById("rename-category-name");
+    const categoryDefinition = document.getElementById("rename-category-definition");
     const error = document.getElementById("rename-category-error");
     const submitButton = renameForm.querySelector("button[type=submit]");
     let pending = false;
-    const managementList = document.getElementById("category-management-list");
-    managementList?.addEventListener("click", event => {
+    list?.addEventListener("click", event => {
         const button = event.target.closest("[data-category-rename]");
         if (!button) return;
         categoryId.value = button.dataset.categoryId;
         expectedUpdatedAt.value = button.dataset.categoryVersion || "";
         categoryName.value = button.dataset.categoryName || "";
+        categoryDefinition.value = button.dataset.categoryDefinition || "";
         error.classList.add("d-none");
     });
     renameForm.addEventListener("submit", async event => {
@@ -74,7 +184,7 @@ const setupCategoryRename = () => {
         error.classList.add("d-none");
         try {
             const token = renameForm.querySelector("[name=csrf_token]")?.value || "";
-            const payload = {name: categoryName.value};
+            const payload = {name: categoryName.value, definition: categoryDefinition.value};
             if (expectedUpdatedAt.value) payload.expected_updated_at = expectedUpdatedAt.value;
             const response = await fetch(`${renameForm.dataset.categoryAction}/${encodeURIComponent(categoryId.value)}`, {
                 method: "PATCH",
@@ -86,31 +196,23 @@ const setupCategoryRename = () => {
                 return;
             }
             const category = await response.json();
-            const option = Array.from(document.querySelectorAll("#category-id option"))
-                .find(candidate => candidate.value === category.id);
-            if (option) {
-                option.textContent = category.raw_name;
-                option.dataset.categoryUpdatedAt = category.updated_at;
-            }
-            const button = Array.from(document.querySelectorAll("[data-category-rename]"))
-                .find(candidate => candidate.dataset.categoryId === category.id);
-            if (button) {
-                button.dataset.categoryName = category.raw_name;
-                button.dataset.categoryVersion = category.updated_at;
-                button.textContent = "Rename ";
-                const hiddenName = document.createElement("span");
-                hiddenName.className = "visually-hidden";
-                hiddenName.textContent = category.raw_name;
-                button.append(hiddenName);
-            }
-            const label = document.querySelector(`[data-category-label="${CSS.escape(category.id)}"]`);
-            if (label) label.textContent = category.raw_name;
-            window.bootstrap.Modal.getInstance(document.getElementById("rename-category-modal")).hide();
+            const item = list?.querySelector(`[data-category-option="${CSS.escape(category.id)}"]`);
+            updateCategoryOption(item, category);
+            refreshSelectedState(list);
+            window.bootstrap?.Modal?.getInstance(document.getElementById("rename-category-modal"))?.hide();
             renameForm.reset();
         } finally {
             pending = false;
             submitButton.disabled = false;
         }
+    });
+};
+
+const setupCategorySelection = () => {
+    const list = document.getElementById("category-list");
+    if (!list) return;
+    list.addEventListener("change", event => {
+        if (event.target.matches("[data-category-radio]")) refreshSelectedState(list);
     });
 };
 
@@ -125,5 +227,6 @@ const setupDiscardConfirmation = () => {
 document.addEventListener("DOMContentLoaded", () => {
     setupCategoryForm();
     setupCategoryRename();
+    setupCategorySelection();
     setupDiscardConfirmation();
 });

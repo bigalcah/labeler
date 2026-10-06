@@ -53,7 +53,8 @@ const loadCategories = async (client, studyId) => {
         `SELECT participant.participant_key, participant.ordinal AS participant_ordinal,
                 (ROW_NUMBER() OVER (PARTITION BY category.participant_id
                     ORDER BY category.created_at, category.id) - 1)::INTEGER AS category_ordinal,
-                category.raw_name AS category_name, category.created_at, category.updated_at
+                category.raw_name AS category_name, category.definition AS category_definition,
+                category.created_at, category.updated_at
          FROM participant_category category
          INNER JOIN study_participant participant
              ON participant.study_id = category.study_id AND participant.reviewer_id = category.participant_id

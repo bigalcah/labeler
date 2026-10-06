@@ -3,6 +3,7 @@ import {once} from "node:events";
 import {readFile} from "node:fs/promises";
 import test from "node:test";
 import {createApp} from "../app.js";
+import {categoryColor} from "../util/category-palette.js";
 
 const context = Object.freeze({
     accountId: "account-1",
@@ -18,8 +19,8 @@ class CategoryPool {
     constructor() {
         this.connections = 0;
         this.categories = new Map([
-            [ownedCategoryId, {id: ownedCategoryId, study_id: "study-1", participant_id: 11, raw_name: "Needs review", normalized_name: "needs review", updated_at: "2026-01-01T00:00:00.000Z"}],
-            [foreignCategoryId, {id: foreignCategoryId, study_id: "study-2", participant_id: 11, raw_name: "Private to another study", normalized_name: "private to another study", updated_at: "2026-01-01T00:00:00.000Z"}],
+            [ownedCategoryId, {id: ownedCategoryId, study_id: "study-1", participant_id: 11, raw_name: "Needs review", normalized_name: "needs review", definition: "Existing definition", color_slot: 2, updated_at: "2026-01-01T00:00:00.000Z"}],
+            [foreignCategoryId, {id: foreignCategoryId, study_id: "study-2", participant_id: 11, raw_name: "Private to another study", normalized_name: "private to another study", definition: null, color_slot: 0, updated_at: "2026-01-01T00:00:00.000Z"}],
         ]);
         this.classifications = new Map([
             ["study-1:card-1", ownedCategoryId],
@@ -42,7 +43,7 @@ class CategoryPool {
                     }
                     return {rows: []};
                 }
-                if (sql.includes("SELECT id, updated_at") && sql.includes("FOR UPDATE")) {
+                if (sql.includes("SELECT id, definition, updated_at") && sql.includes("FOR UPDATE")) {
                     const [categoryId, studyId, participantId] = parameters;
                     const previousLock = this.locks.get(categoryId) || Promise.resolve();
                     let release;
@@ -54,10 +55,11 @@ class CategoryPool {
                         if (this.locks.get(categoryId) === currentLock) this.locks.delete(categoryId);
                     };
                     const category = this.categories.get(categoryId);
-                    return {rows: category?.study_id === studyId && category.participant_id === participantId ? [{id: category.id, updated_at: category.updated_at}] : []};
+                    return {rows: category?.study_id === studyId && category.participant_id === participantId
+                        ? [{id: category.id, definition: category.definition, updated_at: category.updated_at}] : []};
                 }
                 if (sql.startsWith("UPDATE participant_category")) {
-                    const [categoryId, studyId, participantId, rawName, normalizedName, expectedUpdatedAt] = parameters;
+                    const [categoryId, studyId, participantId, rawName, normalizedName, expectedUpdatedAt, definition] = parameters;
                     const category = this.categories.get(categoryId);
                     if (!category || category.study_id !== studyId || category.participant_id !== participantId
                         || (expectedUpdatedAt !== null && category.updated_at !== expectedUpdatedAt)) {
@@ -73,9 +75,16 @@ class CategoryPool {
                     }
                     category.raw_name = rawName;
                     category.normalized_name = normalizedName;
+                    category.definition = definition;
                     category.updated_at = `2026-01-01T00:00:00.00${this.version++}Z`;
-                    this.writes.push({categoryId, studyId, participantId, rawName, normalizedName});
-                    return {rows: [{id: category.id, raw_name: category.raw_name, updated_at: category.updated_at}]};
+                    this.writes.push({categoryId, studyId, participantId, rawName, normalizedName, definition});
+                    return {rows: [{
+                        id: category.id,
+                        raw_name: category.raw_name,
+                        definition: category.definition,
+                        color_slot: category.color_slot,
+                        updated_at: category.updated_at,
+                    }]};
                 }
                 throw new Error(`Unexpected query: ${sql}`);
             },
@@ -132,8 +141,12 @@ test("renaming uses session ownership, normalizes the name, and preserves classi
         assert.deepEqual(await response.json(), {
             id: ownedCategoryId,
             raw_name: "Needs   Tests",
+            definition: "Existing definition",
+            color_slot: 2,
+            color: categoryColor(2),
             updated_at: "2026-01-01T00:00:00.001Z",
         });
+        assert.equal(pool.categories.get(ownedCategoryId).definition, "Existing definition", "omitting definition must preserve the stored value");
         assert.equal(pool.classifications.get("study-1:card-1"), ownedCategoryId);
         assert.deepEqual(pool.writes[0], {
             categoryId: ownedCategoryId,
@@ -141,7 +154,69 @@ test("renaming uses session ownership, normalizes the name, and preserves classi
             participantId: context.participantId,
             rawName: "Needs   Tests",
             normalizedName: "needs tests",
+            definition: "Existing definition",
         });
+    } finally {
+        await close(server);
+    }
+});
+
+test("the rename route stores trimmed, replaced, cleared, and validated definitions", async () => {
+    const pool = new CategoryPool();
+    const server = await start(pool);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    try {
+        const replaced = await renameRequest(baseUrl, ownedCategoryId, {
+            name: "Needs Tests",
+            definition: "   New definition   ",
+            expected_updated_at: "2026-01-01T00:00:00.000Z",
+        });
+        assert.equal(replaced.status, 200);
+        const replacedBody = await replaced.json();
+        assert.equal(replacedBody.definition, "New definition");
+        assert.equal(pool.categories.get(ownedCategoryId).definition, "New definition", "the trimmed definition must be persisted");
+
+        const omitted = await renameRequest(baseUrl, ownedCategoryId, {
+            name: "Needs Tests two",
+            expected_updated_at: pool.categories.get(ownedCategoryId).updated_at,
+        });
+        assert.equal((await omitted.json()).definition, "New definition", "a rename that omits the key must keep the stored definition");
+
+        const cleared = await renameRequest(baseUrl, ownedCategoryId, {
+            name: "Needs Tests three",
+            definition: "",
+            expected_updated_at: pool.categories.get(ownedCategoryId).updated_at,
+        });
+        assert.equal(cleared.status, 200);
+        assert.equal((await cleared.json()).definition, null, "an explicitly empty definition must clear the stored value");
+        assert.equal(pool.categories.get(ownedCategoryId).definition, null);
+
+        const maxLength = await renameRequest(baseUrl, ownedCategoryId, {
+            name: "Needs Tests four",
+            definition: "x".repeat(500),
+            expected_updated_at: pool.categories.get(ownedCategoryId).updated_at,
+        });
+        assert.equal(maxLength.status, 200);
+        assert.equal((await maxLength.json()).definition.length, 500);
+
+        const writesBeforeInvalid = pool.writes.length;
+        for (const invalid of [ null, 42, [ "definition" ], { text: "definition" } ]) {
+            const response = await renameRequest(baseUrl, ownedCategoryId, {
+                name: "Needs Tests invalid",
+                definition: invalid,
+                expected_updated_at: pool.categories.get(ownedCategoryId).updated_at,
+            });
+            assert.equal(response.status, 422, `a non-text definition (${JSON.stringify(invalid)}) must be rejected`);
+        }
+        assert.equal(
+            (await renameRequest(baseUrl, ownedCategoryId, {
+                name: "Too long",
+                definition: "x".repeat(501),
+                expected_updated_at: pool.categories.get(ownedCategoryId).updated_at,
+            })).status,
+            422,
+        );
+        assert.equal(pool.writes.length, writesBeforeInvalid, "invalid definitions must never reach a write");
     } finally {
         await close(server);
     }
@@ -226,6 +301,17 @@ test("review UI exposes owned category rename controls without inline handlers",
     assert.match(review, /data-category-rename/);
     assert.match(review, /id="rename-category-form"/);
     assert.doesNotMatch(review, /onsubmit\s*=/i);
+    assert.match(review, /type="radio"[^>]*name="category_id"/);
+    assert.doesNotMatch(review, /<select/);
+    assert.match(review, /category-slot-<%= category\.color_slot %>/);
+    assert.match(review, /Definition \(optional\)/);
+    assert.match(review, /maxlength="500"/);
+    assert.match(review, /aria-describedby="category-definition-hint"/);
+    assert.match(review, /aria-describedby="rename-category-definition-hint"/);
+    assert.doesNotMatch(review, /style="/);
     assert.match(script, /method: "PATCH"/);
+    assert.match(script, /categorySlotClass/);
+    assert.match(script, /textContent/);
+    assert.doesNotMatch(script, /\.style\./);
     assert.doesNotMatch(script, /participant_id|study_id/);
 });

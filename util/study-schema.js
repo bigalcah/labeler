@@ -45,6 +45,10 @@ const managedMigrations = Object.freeze([
         id: "012_global_normalized_username",
         url: new URL("../schema/migrations/012_global_normalized_username.sql", import.meta.url),
     },
+    {
+        id: "013_category_definition_color",
+        url: new URL("../schema/migrations/013_category_definition_color.sql", import.meta.url),
+    },
 ]);
 const knownExternalMigrationIds = new Set([ "002_retire_legacy_labeler" ]);
 const advisoryLockKey = "labeler:study-schema";

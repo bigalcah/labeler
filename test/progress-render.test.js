@@ -11,18 +11,18 @@ const cardTitles = cardIds.map((_unused, index) => `Alice card ${index}`);
 
 const rows = cardIds.map((id, ordinal) => {
     if (ordinal === 0 || ordinal === 5 || ordinal === 9) {
-        return {id, ordinal, title: cardTitles[ordinal], status: "CLASSIFIED", own_category: "Alpha", discard_reason: null};
+        return {id, ordinal, title: cardTitles[ordinal], status: "CLASSIFIED", own_category: "Alpha", own_category_definition: "Alpha definition", own_category_color_slot: 0, discard_reason: null};
     }
     if (ordinal === 3) {
-        return {id, ordinal, title: cardTitles[ordinal], status: "CLASSIFIED", own_category: "Beta", discard_reason: null};
+        return {id, ordinal, title: cardTitles[ordinal], status: "CLASSIFIED", own_category: "Beta", own_category_definition: null, own_category_color_slot: 1, discard_reason: null};
     }
     if (ordinal === 2) {
-        return {id, ordinal, title: cardTitles[ordinal], status: "DISCARDED", own_category: null, discard_reason: "duplicate"};
+        return {id, ordinal, title: cardTitles[ordinal], status: "DISCARDED", own_category: null, own_category_color_slot: null, discard_reason: "duplicate"};
     }
     if (ordinal === 7) {
-        return {id, ordinal, title: cardTitles[ordinal], status: "DISCARDED", own_category: null, discard_reason: null};
+        return {id, ordinal, title: cardTitles[ordinal], status: "DISCARDED", own_category: null, own_category_color_slot: null, discard_reason: null};
     }
-    return {id, ordinal, title: cardTitles[ordinal], status: "PENDING", own_category: null, discard_reason: null};
+    return {id, ordinal, title: cardTitles[ordinal], status: "PENDING", own_category: null, own_category_color_slot: null, discard_reason: null};
 });
 
 const groupedCard = ordinal => ({
@@ -36,18 +36,24 @@ const categories = [
     {
         id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
         raw_name: "Alpha",
+        definition: "Alpha definition",
+        color_slot: 0,
         total: 3,
         cards: [groupedCard(0), groupedCard(5), groupedCard(9)],
     },
     {
         id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2",
         raw_name: "Beta",
+        definition: null,
+        color_slot: 1,
         total: 1,
         cards: [groupedCard(3)],
     },
     {
         id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3",
         raw_name: "Zero",
+        definition: null,
+        color_slot: 2,
         total: 0,
         cards: [],
     },
@@ -78,6 +84,7 @@ const rowHrefs = section => [ ...section.matchAll(/<a class="pr-list-item" href=
 const rowTitles = section => [ ...section.matchAll(/<span class="d-block fw-semibold">([^<]*)<\/span>/g) ].map(match => match[1]);
 const rowDetails = section => [ ...section.matchAll(/<span class="text-muted small">([^<]*)<\/span>/g) ].map(match => match[1]);
 const rowBadges = section => [ ...section.matchAll(/<span class="badge (?:text-bg-[a-z]+)">([A-Z]+)<\/span>/g) ].map(match => match[1]);
+const rowIndicatorClasses = section => [ ...section.matchAll(/<span class="category-color-dot (category-slot-\d+)" aria-hidden="true"><\/span>/g) ].map(match => match[1]);
 
 const categoryGroups = section => section
     .split(/(?=<div class="pr-progress-card h-100"[^>]*data-category-group=)/)
@@ -87,6 +94,8 @@ const categoryGroups = section => section
         count: Number(attributesOf(segment, "data-category-count")),
         badge: segment.match(/<span class="badge rounded-pill text-bg-light border">([^<]*)<\/span>/)?.[1] ?? null,
         empty: segment.match(/data-category-empty="true"[^>]*>([^<]*)</)?.[1] ?? null,
+        dotClass: segment.match(/<span class="category-color-dot (category-slot-\d+)" aria-hidden="true"><\/span>/)?.[1] ?? null,
+        definition: segment.match(/<p class="category-definition[^"]*">([^<]*)<\/p>/)?.[1] ?? null,
         cards: [ ...segment.matchAll(/<a[^>]*data-category-card="[^"]*"[^>]*>/g) ].map(match => match[0]).map(tag => ({
             id: attributesOf(tag, "data-card-id"),
             ordinal: Number(attributesOf(tag, "data-ordinal")),
@@ -118,6 +127,8 @@ test("Given a page of assigned cards When progress renders Then rows keep ordina
         "classified rows show the own category, discarded rows show the own reason and pending rows show no decision",
     );
     assert.deepEqual(rowBadges(section), ["CLASSIFIED", "PENDING", "DISCARDED", "CLASSIFIED", "PENDING"], "rows must render a status badge");
+    assert.deepEqual(rowIndicatorClasses(section), ["category-slot-0", "category-slot-1"], "classified rows must render their own category color indicator");
+    assert.doesNotMatch(section, / style="/, "the card list must not rely on inline style attributes");
     assert.match(section, /data-progress-total="true">12 assigned cards/, "the list must show the full membership total");
 });
 
@@ -128,6 +139,8 @@ test("Given private categories When progress renders Then all groups appear with
     assert.deepEqual(groups.map(group => group.name), ["Alpha", "Beta", "Zero"], "every current category must render, including unused ones");
     assert.deepEqual(groups.map(group => group.count), [3, 1, 0], "counts must come from the whole membership, not the page");
     assert.deepEqual(groups.map(group => group.badge), ["3 classified", "1 classified", "0 classified"], "zero-count categories must render an explicit zero");
+    assert.deepEqual(groups.map(group => group.dotClass), ["category-slot-0", "category-slot-1", "category-slot-2"], "every summary group must carry its stable color indicator class");
+    assert.deepEqual(groups.map(group => group.definition), ["Alpha definition", null, null], "a group must show its definition when present and omit it otherwise");
     assert.deepEqual(groups[2].cards, [], "zero-count categories must not invent grouped cards");
     assert.match(groups[2].empty, /No classified cards in this category yet/, "zero-count categories must render an accessible empty group");
     assert.deepEqual(groups[0].cards.map(card => ({id: card.id, ordinal: card.ordinal, href: card.href})), [groupedCard(0), groupedCard(5), groupedCard(9)].map(card => ({id: card.id, ordinal: card.ordinal, href: `/queue/${card.id}`})), "grouped cards must appear once in ordinal order under their category");
@@ -180,6 +193,7 @@ test("Given hostile titles and category names When progress renders Then user co
             title: "Risky <script>alert(\"title\")</script> & done",
             status: "CLASSIFIED",
             own_category: "Cat <b>bold</b>",
+            own_category_color_slot: 0,
             discard_reason: null,
         },
     ];
@@ -187,6 +201,8 @@ test("Given hostile titles and category names When progress renders Then user co
         {
             id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
             raw_name: "Risky <b>category</b> & more",
+            definition: "Def <script>alert(\"def\")</script> & done",
+            color_slot: 3,
             total: 1,
             cards: [{id: cardIds[0], ordinal: 0, title: riskyRows[0].title, html_url: "https://example.test/risky"}],
         },
@@ -197,6 +213,9 @@ test("Given hostile titles and category names When progress renders Then user co
     assert.ok(html.includes("&lt;script&gt;"), "card titles must be HTML escaped");
     assert.ok(!html.includes("<b>category</b>"), "category names must be HTML escaped");
     assert.ok(html.includes("&lt;b&gt;category&lt;/b&gt;"), "category names must render their escaped text");
+    assert.ok(!html.includes("<script>alert(\"def\")</script>"), "category definitions must never inject executable markup");
+    assert.ok(html.includes("Def &lt;script&gt;"), "category definitions must render their escaped text");
+    assert.doesNotMatch(html, / style="/, "hostile content must not introduce inline style attributes");
 
     const hrefs = [ ...html.matchAll(/href="([^"]*)"/g) ].map(match => match[1]);
     for (const href of hrefs) {
