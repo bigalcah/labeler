@@ -81,7 +81,12 @@
                                             <span class="pr-meta-label d-block">Card <%= row.ordinal + 1 %></span>
                                             <span class="d-block fw-semibold"><%= row.title %></span>
                                             <% if (row.status === "CLASSIFIED") { %>
-                                                <span class="text-muted small">Classified as <%= row.own_category || "a personal category" %></span>
+                                                <span class="pr-list-detail d-inline-flex align-items-center gap-1">
+                                                    <% if (row.own_category_color_slot !== null && row.own_category_color_slot !== undefined) { %>
+                                                        <span class="category-color-dot category-slot-<%= row.own_category_color_slot %>" aria-hidden="true"></span>
+                                                    <% } %>
+                                                    <span class="text-muted small">Classified as <%= row.own_category || "a personal category" %></span>
+                                                </span>
                                             <% } else if (row.status === "DISCARDED") { %>
                                                 <span class="text-muted small">Discarded: <%= row.discard_reason || "no reason supplied" %></span>
                                             <% } else { %>
@@ -157,9 +162,14 @@
                                 <div class="col">
                                     <div class="pr-progress-card h-100" data-category-group="<%= category.id %>" data-category-id="<%= category.id %>" data-category-name="<%= category.raw_name %>" data-category-count="<%= category.total %>">
                                         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                                            <h3 class="h6 mb-0"><%= category.raw_name %></h3>
+                                            <h3 class="h6 mb-0 d-flex align-items-center gap-2">
+                                                <span class="category-color-dot category-slot-<%= category.color_slot %>" aria-hidden="true"></span><%= category.raw_name %>
+                                            </h3>
                                             <span class="badge rounded-pill text-bg-light border"><%= category.total %> classified</span>
                                         </div>
+                                        <% if (category.definition) { %>
+                                            <p class="category-definition text-muted small mb-0 mt-1"><%= category.definition %></p>
+                                        <% } %>
                                         <% if (category.cards.length > 0) { %>
                                             <ul class="list-unstyled mb-0 mt-2">
                                                 <% category.cards.forEach(card => { %>
