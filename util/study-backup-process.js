@@ -15,6 +15,13 @@ const waitForProcess = (child, label) => new Promise((resolve, reject) => {
     });
 });
 
+const terminateProcess = child => {
+    if (child.pid && child.exitCode === null && child.signalCode === null) {
+        return child.kill("SIGTERM");
+    }
+    return false;
+};
+
 const pipeCommands = async (producer, consumer, environment) => {
     const source = spawn(producer.command, producer.args, {
         env: environment,
@@ -24,11 +31,47 @@ const pipeCommands = async (producer, consumer, environment) => {
         env: environment,
         stdio: [ "pipe", "ignore", "ignore" ],
     });
-    source.stdout.pipe(destination.stdin);
-    await Promise.all([
-        waitForProcess(source, producer.command),
-        waitForProcess(destination, consumer.command),
-    ]);
+    const sourceCompletion = waitForProcess(source, producer.command);
+    const destinationCompletion = waitForProcess(destination, consumer.command);
+    let rejectTransportError;
+    const pipeFailure = new Promise((_resolve, reject) => {
+        rejectTransportError = error => {
+            if (error.code !== "EPIPE") reject(error);
+        };
+        source.stdout.on("error", rejectTransportError);
+        destination.stdin.on("error", rejectTransportError);
+    });
+
+    try {
+        source.stdout.pipe(destination.stdin);
+        const firstCompletion = await Promise.race([
+            sourceCompletion.then(() => "source"),
+            destinationCompletion.then(() => "destination"),
+            pipeFailure,
+        ]);
+        if (firstCompletion === "source") {
+            await Promise.race([destinationCompletion, pipeFailure]);
+            return;
+        }
+        source.stdout.unpipe(destination.stdin);
+        destination.stdin.destroy();
+        const sourceTerminationRequested = terminateProcess(source);
+        try {
+            await sourceCompletion;
+        } catch (error) {
+            if (!sourceTerminationRequested || source.signalCode !== "SIGTERM") throw error;
+        }
+    } catch (error) {
+        source.stdout.unpipe(destination.stdin);
+        destination.stdin.destroy();
+        terminateProcess(source);
+        terminateProcess(destination);
+        await Promise.allSettled([sourceCompletion, destinationCompletion]);
+        throw error;
+    } finally {
+        source.stdout.removeListener("error", rejectTransportError);
+        destination.stdin.removeListener("error", rejectTransportError);
+    }
 };
 
 const opensslDecrypt = (archivePath, encryptionKeyFile) => ({
@@ -66,7 +109,7 @@ const createEncryptedArchive = options => {
 
 const inspectEncryptedArchive = options => pipeCommands(
     opensslDecrypt(options.archivePath, options.encryptionKeyFile),
-    {command: "pg_restore", args: [ "--list", "-" ]},
+    {command: "pg_restore", args: [ "--list" ]},
     options.environment,
 );
 
@@ -83,7 +126,6 @@ const buildRestorePipeline = options => ({
             `--port=${options.targetDatabase.port}`,
             `--username=${options.targetDatabase.user}`,
             `--dbname=${options.targetDatabase.database}`,
-            "-",
         ],
     },
 });

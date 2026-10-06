@@ -181,7 +181,24 @@ test("Given shared validation When a gate fails Then no bypass or repository sec
     assert.match(shared, /^permissions:\s*\n\s{2}contents: read$/m);
     assert.match(shared, /DATABASE_PASSWORD_DATABASE_HOST_PATH=\$runtime_dir\/database-password/);
     assert.doesNotMatch(shared, /\$\{\{\s*secrets\./i);
-    assert.doesNotMatch(shared, /continue-on-error:\s*true|\bset\s*\+e\b|\bexit\s+0\b/i);
+    assert.doesNotMatch(shared, /continue-on-error:\s*true|\|\|\s*true\b|\bset\s*\+e\b|\bexit\s+0\b/i);
+    assert.match(shared, /"loginUsernames":\{"javier":"javier","diego":"diego","pablo":"pablo"\}/);
+    assert.match(shared, /JSON\.stringify\(Array\.from\(\{length: 3\}/);
+    assert.match(shared, /--output "\$runtime_dir\/study-account-manifest\.json" \\\n\s+< "\$runtime_dir\/account-passwords"/);
+    assert.doesNotMatch(shared, /--password-fd\s+3|3<"\$runtime_dir\/account-passwords"/);
+    assert.match(shared, /chmod 0400 "\$runtime_dir"\/\*/);
+    assert.match(shared, /docker run --rm --user 0:0 -v "\$runtime_dir:\/runtime" node:22\.13\.1-alpine \\\n\s+chown 1000:1000/);
+    assert.match(shared, /chmod 0444 "\$runtime_dir\/Caddyfile"/);
+    assert.match(shared, /psql -U labeling_ci -d labeling_ci -qAt -c "INSERT INTO participant_category\(study_id, participant_id, raw_name, normalized_name\) VALUES \('\$study_id', \$reviewer_id/);
+    assert.match(shared, /exec -T -e "SESSION_ID=\$session_id" labeling-server node --input-type=module <<'NODE'[\s\S]*?readFileSync\("\/run\/secrets\/session-current", "utf8"\)/);
+    assert.doesNotMatch(shared, /SESSION_SECRET_FILE="\$CI_RUNTIME_DIR\/session-current" node/);
+    assert.match(shared, /CI_RUNTIME_BASE_URL=https:\/\/localhost:18443/);
+    assert.match(shared, /PUBLIC_HOSTNAME=localhost/);
+    assert.match(shared, /APP_ORIGIN=https:\/\/localhost:18443/);
+    assert.match(shared, /https:\/\/localhost \{/);
+    assert.doesNotMatch(shared, /https:\/\/127\.0\.0\.1/);
+    assert.match(shared, /up --build --wait --wait-timeout 180/);
+    assert.match(shared, /if \[\[ -f "\$CI_RUNTIME_DIR\/compose\.env" \]\]; then/);
     assert.doesNotMatch(shared, maskedFailure);
     for (const action of shared.matchAll(/uses:\s+([^\s#]+)/g)) {
         assert.match(action[1], /@[0-9a-f]{40}$/);
@@ -252,6 +269,7 @@ test("Given a master push When release runs Then validation gates every fail-clo
     assert.match(release, /build:\s*\n\s{4}needs: quality/);
     assert.match(release, /publish:\s*\n\s{4}needs: build/);
     assert.match(release, /deploy:\s*\n\s{4}needs: publish/);
+    assert.match(release, /^ {2}deploy:\n(?:(?!^ {2}\w).)*?^ {4}timeout-minutes:\s*10\s*$/ms);
     assert.match(release, /environment: production/);
     assert.match(release, /concurrency:[\s\S]*?cancel-in-progress: false/);
     assert.equal((release.match(/packages: write/g) ?? []).length, 1);
@@ -275,9 +293,11 @@ test("Given published digests When packaging and deploying Then manifest and for
     assert.doesNotMatch(release, /sub\(":sha-" \+ \$commit \+ "@"; "@"\)/);
     assert.doesNotMatch(release, /release-manifest\.tmp/);
     assert.match(release, /tar .*Caddyfile docker-compose\.yml release-manifest\.json/);
-    assert.doesNotMatch(release, /docker-compose\.clean\.yml/);
+    assert.match(release, /deployment\/docker-compose\.release\.yml/);
     assert.doesNotMatch(release, /\bscp\b/);
     assert.match(release, /ssh .* deploy "\$RELEASE_ID" < "\$archive"/);
+    assert.match(release, /^\s+-o ServerAliveInterval=30\s*$/m);
+    assert.match(release, /^\s+-o ServerAliveCountMax=3\s*$/m);
     assert.match(release, /StrictHostKeyChecking=yes/);
     assert.match(release, /UserKnownHostsFile=/);
     assert.doesNotMatch(release, /secrets\.(?:DATABASE|SESSION|GITHUB_TOKEN|BACKUP)/);

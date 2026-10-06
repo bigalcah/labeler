@@ -215,6 +215,8 @@ receive_release() {
     else
         mv -- "$STAGING_DIR" "$DEPLOY_ROOT/releases/$RELEASE_ID"
     fi
+    chmod 0444 -- "$DEPLOY_ROOT/releases/$RELEASE_ID/Caddyfile" \
+        || fail "installed Caddyfile permissions could not be normalized"
     STAGING_DIR=""
 }
 
@@ -245,8 +247,8 @@ verify_image_digest() {
 preflight_compose() {
     local config_path="$EVIDENCE_DIR/compose-config.json"
     local public_hostname actual_csv reported_csv
-    run_stage compose-config docker "${COMPOSE_ARGS[@]}" config --format json
-    cp -- "$EVIDENCE_DIR/compose-config.log" "$config_path"
+    STAGE=compose-config
+    docker "${COMPOSE_ARGS[@]}" config --format json > "$config_path" 2> "$EVIDENCE_DIR/compose-config.log"
     jq -e --arg server "$SERVER_IMAGE" --arg database "$DATABASE_IMAGE" --arg deployRoot "$DEPLOY_ROOT" '
         .name == "labeling"
         and .services["labeling-database"].container_name == "labeling-database"
@@ -256,6 +258,15 @@ preflight_compose() {
         and .services["labeling-server"].image == $server
         and .services["labeling-caddy"].container_name == "labeling-caddy"
         and (.services["labeling-caddy"].environment.PUBLIC_HOSTNAME | type == "string" and length > 0)
+        and .services["labeling-study-prepare"].environment.STUDY_PROFILES_INPUT == "/run/config/study-profiles.json"
+        and .services["labeling-study-prepare"].environment.STUDY_CONFIG_INPUT == ""
+        and ([.services["labeling-study-prepare"].volumes[] | .target] | sort) == [
+            "/run/config/studies/current.json", "/run/config/studies/validation-30.json",
+            "/run/config/study-profiles.json", "/run/secrets/database-password",
+            "/run/secrets/studies/current.json", "/run/secrets/studies/validation-30.json"
+        ]
+        and ([.services["labeling-server"].volumes[] | .target | select(startswith("/run/config/") or startswith("/run/secrets/studies/"))] | length) == 0
+        and ([.services["labeling-caddy"].volumes[] | .target | select(startswith("/run/config/") or startswith("/run/secrets/studies/"))] | length) == 0
         and .volumes.data.name == "labeling-data"
         and .networks.default.name == "labeling-network"
         and ([.services["labeling-database"].volumes[]

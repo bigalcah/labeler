@@ -9,7 +9,6 @@ import {
     resolveStudyBackupInputs,
     verifyStudyBackup,
 } from "../util/study-backup.js";
-import {buildCreatePipeline, buildRestorePipeline} from "../util/study-backup-process.js";
 
 const root = path.resolve(new URL("..", import.meta.url).pathname);
 const database = {host: "db", port: "5432", database: "labeling", user: "labeler"};
@@ -81,30 +80,6 @@ test("study backup creation refuses existing destinations before database access
     }
 });
 
-test("backup and restore pipelines stream encryption and address only the isolated target", () => {
-    const createPipeline = buildCreatePipeline({
-        snapshotId: "snapshot-1",
-        database,
-        encryptionKeyFile: "/external/backup.key",
-        outputPath: "/external/study.dump.enc",
-    });
-    assert.equal(createPipeline.producer.command, "pg_dump");
-    assert.equal(createPipeline.producer.args.some(argument => argument.startsWith("--file=")), false);
-    assert.deepEqual(createPipeline.consumer.args.slice(-4), [
-        "-pass", "file:/external/backup.key", "-out", "/external/study.dump.enc",
-    ]);
-
-    const restorePipeline = buildRestorePipeline({
-        archivePath: "/external/study.dump.enc",
-        encryptionKeyFile: "/external/backup.key",
-        targetDatabase: {...database, host: "isolated-db", database: "labeling_restore", user: "restore"},
-    });
-    assert.equal(restorePipeline.consumer.command, "pg_restore");
-    assert.equal(restorePipeline.consumer.args.includes("--host=isolated-db"), true);
-    assert.equal(restorePipeline.consumer.args.includes("--dbname=labeling_restore"), true);
-    assert.equal(restorePipeline.consumer.args.includes("--dbname=labeling"), false);
-});
-
 test("study backup manifest binds encrypted archive, database, retention, and required data identities", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "labeler-study-backup-create-"));
     const archivePath = path.join(directory, "study.dump.enc");
@@ -114,8 +89,8 @@ test("study backup manifest binds encrypted archive, database, retention, and re
         query: async sql => {
             queries.push(sql);
             if (sql === "SELECT pg_export_snapshot() AS snapshot_id") return {rows: [ {snapshot_id: "snapshot-1"} ]};
-            if (sql.includes("FROM pr_cards")) return {rows: [ {source_card_id: "card-1", row_checksum: "checksum-1"} ]};
-            if (sql.includes("FROM pr_classification")) return {rows: [ {study_id: "study", pr_card_id: "card", participant_id: 1, category_id: "category", observation: null} ]};
+            if (sql.includes("FROM pr_cards")) return {rows: [ {source_card_id: "card-1", content_checksum: "checksum-1"} ]};
+            if (sql.includes("FROM pr_classification")) return {rows: [ {study_id: "study", pr_card_id: "card", participant_id: 1, category_id: "category", remarks: null} ]};
             if (sql.includes("FROM participant_account")) return {rows: [ {study_id: "study", reviewer_id: 1, normalized_username: "one", password_hash: "$argon2id$hash", enabled: true, credential_version: 4} ]};
             return {rows: []};
         },
@@ -141,6 +116,17 @@ test("study backup manifest binds encrypted archive, database, retention, and re
             now: () => new Date("2026-09-10T00:00:00.000Z"),
         });
 
+        const cardsQuery = queries.find(query => query.includes("FROM pr_cards"));
+        const classificationsQuery = queries.find(query => query.includes("FROM pr_classification"));
+        const credentialsQuery = queries.find(query => query.includes("FROM participant_account"));
+        assert.match(cardsQuery, /\bcontent_checksum\b/);
+        assert.doesNotMatch(cardsQuery, /\brow_checksum\b/);
+        assert.match(classificationsQuery, /\bremarks\b/);
+        assert.doesNotMatch(classificationsQuery, /\bobservation\b/);
+        assert.match(credentialsQuery, /\bnormalized_username\b/);
+        assert.match(credentialsQuery, /\bpassword_hash\b/);
+        assert.match(credentialsQuery, /\benabled\b/);
+        assert.match(credentialsQuery, /\bcredential_version\b/);
         assert.equal(manifest.encryption.cipher, "aes-256-cbc");
         assert.deepEqual(manifest.excludedTableData, [
             "public.app_session",

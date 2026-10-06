@@ -48,10 +48,10 @@ const digestRows = rows => ({
 
 const collectBackupSnapshot = async client => {
     const cards = await client.query(
-        "SELECT source_card_id, row_checksum FROM pr_cards ORDER BY source_card_id",
+        "SELECT source_card_id, content_checksum FROM pr_cards ORDER BY source_card_id",
     );
     const classifications = await client.query(
-        `SELECT study_id, pr_card_id, participant_id, category_id, observation
+        `SELECT study_id, pr_card_id, participant_id, category_id, remarks
          FROM pr_classification ORDER BY study_id, pr_card_id, participant_id`,
     );
     const credentials = await client.query(

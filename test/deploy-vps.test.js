@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 // allow: SIZE_OK - these launcher contracts share one isolated fake VPS harness.
 import {execFile} from "node:child_process";
 import {promisify} from "node:util";
-import {chmod, link, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile} from "node:fs/promises";
+import {chmod, link, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -62,7 +62,10 @@ set -eu
 printf 'docker %s server=%s\\n' "$*" "\${LABELER_SERVER_IMAGE:-unset}" >> "$COMMAND_LOG"
 if [[ "$*" == *"config --format json"* ]]; then
     [[ "\${FAKE_CONFIG_FAIL:-0}" != 1 ]]
-    printf '{"name":"%s","services":{"labeling-database":{"container_name":"labeling-database","image":"%s","volumes":[{"type":"volume","source":"data","target":"/var/lib/postgresql/data","volume":{}}]},"labeling-study-prepare":{"image":"%s"},"labeling-server":{"container_name":"labeling-server","image":"%s"},"labeling-caddy":{"container_name":"labeling-caddy","environment":{"PUBLIC_HOSTNAME":"labeler.example"}}},"networks":{"default":{"name":"labeling-network"}},"volumes":{"data":{"name":"labeling-data"}}}\\n' "\${FAKE_PROJECT_NAME:-labeling}" "$LABELER_DATABASE_IMAGE" "$LABELER_SERVER_IMAGE" "$LABELER_SERVER_IMAGE"
+    if [[ "\${FAKE_CONFIG_WARNING:-0}" == 1 ]]; then
+        printf 'WARNING: version is obsolete\\n' >&2
+    fi
+    printf '{"name":"%s","services":{"labeling-database":{"container_name":"labeling-database","image":"%s","volumes":[{"type":"volume","source":"data","target":"/var/lib/postgresql/data","volume":{}}]},"labeling-study-prepare":{"image":"%s","environment":{"STUDY_PROFILES_INPUT":"/run/config/study-profiles.json","STUDY_CONFIG_INPUT":""},"volumes":[{"type":"bind","source":"/external/profile.json","target":"/run/config/study-profiles.json"},{"type":"bind","source":"/external/current.json","target":"/run/config/studies/current.json"},{"type":"bind","source":"/external/validation.json","target":"/run/config/studies/validation-30.json"},{"type":"bind","source":"/external/database-password","target":"/run/secrets/database-password"},{"type":"bind","source":"/external/current-manifest.json","target":"/run/secrets/studies/current.json"},{"type":"bind","source":"/external/validation-manifest.json","target":"/run/secrets/studies/validation-30.json"}]},"labeling-server":{"container_name":"labeling-server","image":"%s","volumes":[]},"labeling-caddy":{"container_name":"labeling-caddy","environment":{"PUBLIC_HOSTNAME":"labeler.example"},"volumes":[]}},"networks":{"default":{"name":"labeling-network"}},"volumes":{"data":{"name":"labeling-data"}}}\\n' "\${FAKE_PROJECT_NAME:-labeling}" "$LABELER_DATABASE_IMAGE" "$LABELER_SERVER_IMAGE" "$LABELER_SERVER_IMAGE"
 elif [[ "$1 $2" == "image inspect" ]]; then
     image="\${@: -1}"
     repository_with_tag="\${image%@*}"
@@ -236,6 +239,24 @@ test("rendered Compose with a different project identity fails before backup and
     }
 });
 
+test("Compose warnings do not contaminate rendered JSON evidence", async () => {
+    const fixture = await createFixture();
+    try {
+        const manifest = releaseManifest("release-19-warning", 19, "schema-1");
+        const result = await deploy(fixture, manifest, {...fixture.environment, FAKE_CONFIG_WARNING: "1"});
+        const evidence = await latestEvidence(fixture.deployRoot, manifest.releaseId);
+
+        assert.equal(result.status, 0, result.stderr);
+        const composeConfig = JSON.parse(await readFile(path.join(evidence, "compose-config.json"), "utf8"));
+        const composeLog = await readFile(path.join(evidence, "compose-config.log"), "utf8");
+
+        assert.equal(composeConfig.name, "labeling");
+        assert.match(composeLog, /version is obsolete/);
+    } finally {
+        await rm(fixture.root, {recursive: true, force: true});
+    }
+});
+
 test("production configuration with an inline database secret fails under lock before Docker or backup", async () => {
     const fixture = await createFixture();
     try {
@@ -293,6 +314,27 @@ test("runtime failure restores the active application with its own Compose relea
         assert.notEqual(result.status, 0);
         assert.equal(await currentRelease(fixture.deployRoot), `releases/${baseline.releaseId}`);
         assert.match(commands, new RegExp(`-f ${baselineCompose} up -d --no-build --no-deps --wait labeling-server labeling-caddy`));
+    } finally {
+        await rm(fixture.root, {recursive: true, force: true});
+    }
+});
+
+test("an identical retry makes a retained Caddyfile readable before publishing the release", async () => {
+    const fixture = await createFixture();
+    try {
+        const manifest = releaseManifest("release-24", 24, "schema-1");
+        const failed = await deploy(fixture, manifest, {...fixture.environment, FAKE_RUNTIME_FAIL: "1"});
+        const caddyfile = path.join(fixture.deployRoot, "releases", manifest.releaseId, "Caddyfile");
+
+        assert.notEqual(failed.status, 0);
+        assert.equal(await currentRelease(fixture.deployRoot), undefined);
+        await chmod(caddyfile, 0o600);
+
+        const retried = await deploy(fixture, manifest);
+
+        assert.equal(retried.status, 0, retried.stderr);
+        assert.equal((await stat(caddyfile)).mode & 0o777, 0o444);
+        assert.equal(await currentRelease(fixture.deployRoot), `releases/${manifest.releaseId}`);
     } finally {
         await rm(fixture.root, {recursive: true, force: true});
     }
