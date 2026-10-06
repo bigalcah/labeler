@@ -8,6 +8,7 @@ const RESULTS_HEADERS = Object.freeze([
 ]);
 const CATEGORIES_HEADERS = Object.freeze([
     "participant_ordinal", "participant_pseudonym", "category_ordinal", "category_name", "created_at", "updated_at",
+    "category_definition",
 ]);
 const PROHIBITED_FIELD = /(?:^|_)(?:token|secret|session|password|credential|hash|raw_payload|raw_response|throttl|quota)(?:_|$)/i;
 
