@@ -49,8 +49,9 @@ test("sanitized provider fixtures feed the existing CardV2 view offline", async 
         assert.equal(complete.github_evidence.timeline.items[0].state, "review_requested");
         assert.equal(completePages.find(page => page.endpoint === "diff").normalized_payload, fixture.scenarios.complete.pages.find(page => page.endpoint === "diff").payload);
         assert.match(completeHtml, /Offline provider title/);
-        assert.match(completeHtml, /Commits<\/span><strong class="pr-metric-value">2/);
-        assert.match(completeHtml, /src\/card\.js/);
+        assert.doesNotMatch(completeHtml, /pr-metric-label|pr-metric-value|pr-metrics-grid/, "participant HTML must not contain the metrics block");
+        assert.doesNotMatch(completeHtml, /data-local-section="files"|All CSV evidence|src\/card\.js/, "participant HTML must not contain changed files or the full CSV dump");
+        assert.doesNotMatch(completeHtml, /data-page-size="10"/, "participant HTML must not fall back to the legacy 10-item batch");
         assert.match(completeHtml, /View full diff and deeper GitHub details/);
         assert.doesNotMatch(completeHtml, /provider-only-marker|offline-diff-marker|offline-patch-marker/);
         assert.doesNotMatch(completeHtml, /data-local-section="timeline"|data-local-section="supplementary_activity"/);
@@ -70,7 +71,7 @@ test("sanitized provider fixtures feed the existing CardV2 view offline", async 
         assert.equal(limited.github_evidence.timeline.availability, AVAILABILITY.EMPTY);
         assert.equal(limited.metrics.changed_file_count.value, null);
         assert.equal(limited.metrics.changed_file_count.availability, AVAILABILITY.TRUNCATED);
-        assert.match(limitedHtml, /Changed files[\s\S]*Truncated · 1[\s\S]*Provider file cap reached/);
+        assert.doesNotMatch(limitedHtml, /Changed files|Provider file cap reached|data-local-section="files"/, "a truncated files section must not render as participant evidence");
         assert.doesNotMatch(limitedHtml, /truncated-diff-marker/);
 
         const unavailablePages = normalizePages(fixture.scenarios.unavailable.pages);

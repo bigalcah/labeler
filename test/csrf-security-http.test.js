@@ -22,9 +22,21 @@ class SecurityPool {
 
     async query(sql, parameters = []) {
         this.databaseCalls += 1;
+        if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") {
+            return {rows: []};
+        }
+        if (sql.includes("FROM study_participant") && sql.includes("FOR UPDATE")) {
+            return {rows: [{reviewer_id: parameters[1]}]};
+        }
         if (sql.startsWith("INSERT INTO participant_category")) {
             this.categoryWrites += 1;
-            return {rows: [{id: "category-1", raw_name: parameters[2]}]};
+            return {rows: [{
+                id: "category-1",
+                raw_name: parameters[2],
+                definition: parameters[4],
+                color_slot: 0,
+                updated_at: "2026-01-01T00:00:00.000Z",
+            }]};
         }
         if (sql.startsWith("INSERT INTO login_csrf_context")) {
             this.contexts.set(parameters[0], {token: parameters[1], expires_at: parameters[2]});
@@ -39,7 +51,10 @@ class SecurityPool {
 
     async connect() {
         this.databaseCalls += 1;
-        throw new Error("Rejected mutations must not open a database transaction");
+        return {
+            query: (sql, parameters = []) => this.query(sql, parameters),
+            release: () => {},
+        };
     }
 }
 

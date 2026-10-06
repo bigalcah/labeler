@@ -56,6 +56,7 @@ const createBootstrapPool = () => {
                 {migration_id: "010_study_scoped_participant_categories"},
                 {migration_id: "011_multi_study_cardinality"},
                 {migration_id: "012_global_normalized_username"},
+                {migration_id: "013_category_definition_color"},
             ]};
         }
         if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK"

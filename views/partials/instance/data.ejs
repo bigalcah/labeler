@@ -3,12 +3,6 @@
     const identity = v2.identity || {};
     const value = name => v2.fields?.[name]?.value ?? "Not available";
     const availability = name => v2.fields?.[name]?.availability || "EMPTY";
-    const metricLabels = {
-        commit_count: "Commits", changed_file_count: "Changed files", additions: "Additions",
-        deletions: "Deletions", total_changes: "Total changes", review_event_count: "Review events",
-        changes_requested_review_count: "Changes requested", issue_comment_count: "PR comments",
-        review_comment_count: "Inline comments",
-    };
     const sectionLabels = {
         files: "Changed files", reviews: "Reviews", issue_comments: "Pull request comments",
         review_comments: "Inline review comments", timeline: "Timeline", supplementary_activity: "Commits",
@@ -20,10 +14,9 @@
     const isMerged = value("merged") === true || Boolean(v2.dates?.merged_at?.value);
     const status = isMerged ? "MERGED" : normalizedState === "closed" ? "CLOSED" : normalizedState === "open" ? "OPEN" : "UNAVAILABLE";
     const lifecycleStatusClass = status === "MERGED" ? "pr-status-merged" : status === "CLOSED" ? "pr-status-closed" : status === "OPEN" ? "pr-status-open" : "pr-status-unknown";
-    const metrics = Object.entries(v2.metrics || {});
     const csvEvidence = v2.csv_evidence || {};
-    const evidenceSections = [["description", "Description", csvEvidence.body], ["selected", "Selected CSV evidence", csvEvidence.selected], ["all", "All CSV evidence", csvEvidence.all_text]].filter(([, , text]) => text);
-    const visibleEvidenceSections = Object.entries(v2.github_evidence || {}).filter(([name]) => ["files", "reviews", "issue_comments", "review_comments"].includes(name));
+    const evidenceSections = [["description", "Description", csvEvidence.body], ["selected", "Selected CSV evidence", csvEvidence.selected]].filter(([, , text]) => text);
+    const visibleEvidenceSections = Object.entries(v2.github_evidence || {}).filter(([name]) => ["reviews", "issue_comments", "review_comments"].includes(name));
 %>
 <% if (data && identity.source_card_id) { %>
     <article class="pr-card card border-0 shadow-sm overflow-hidden" aria-labelledby="pr-card-title">
@@ -54,14 +47,13 @@
             <% } else { %>
                 <section class="pr-section" aria-labelledby="pr-context-title"><div class="pr-section-heading"><div><span class="pr-section-eyebrow">01 / CSV sample</span><h3 class="h4 mb-0" id="pr-context-title">Intention and baseline evidence</h3></div></div><div class="pr-unavailable-state"><strong>Empty.</strong> No CSV evidence is available for this card.</div></section>
             <% } %>
-            <section class="pr-section" aria-labelledby="pr-metrics-title"><div class="pr-section-heading"><div><span class="pr-section-eyebrow">02 / Signal</span><h3 class="h4 mb-0" id="pr-metrics-title">Metrics</h3></div><span class="badge rounded-pill text-bg-light border">Evidence values</span></div><div class="pr-metrics-grid"><% metrics.forEach(([name, metric]) => { %><div class="pr-metric"><span class="pr-metric-label"><%= metricLabels[name] %></span><strong class="pr-metric-value"><%= metric.value ?? "Not available" %></strong><small class="text-muted"><%= metric.provenance.source %> · <%= statusLabel(metric.availability) %></small></div><% }); %></div></section>
-            <section class="pr-section" aria-labelledby="pr-evidence-title"><div class="pr-section-heading"><div><span class="pr-section-eyebrow">03 / Snapshot</span><h3 class="h4 mb-0" id="pr-evidence-title">GitHub evidence</h3></div><% if (v2.snapshot?.run_id) { %><span class="badge rounded-pill text-bg-light border">Local snapshot</span><% } %></div>
+            <section class="pr-section" aria-labelledby="pr-evidence-title"><div class="pr-section-heading"><div><span class="pr-section-eyebrow">02 / Snapshot</span><h3 class="h4 mb-0" id="pr-evidence-title">GitHub evidence</h3></div><% if (v2.snapshot?.run_id) { %><span class="badge rounded-pill text-bg-light border">Local snapshot</span><% } %></div>
                 <div class="pr-evidence-list">
                     <% visibleEvidenceSections.forEach(([name, section]) => { %>
                         <% const items = name === "reviews" ? section.items?.filter(item => typeof item.body === "string" && item.body.trim() !== "") : section.items; %>
                         <details class="pr-evidence-item" data-local-section="<%= name %>"><summary><span><i class="bi <%= sectionIcons[name] %> me-2" aria-hidden="true"></i><%= sectionLabels[name] %></span><span class="badge rounded-pill <%= statusClass(section.availability) %>"><%= statusLabel(section.availability) %> · <%= section.captured_count %></span></summary>
                             <% if (section.availability !== "PRESENT") { %><div class="pr-unavailable-state mt-3"><span><strong><%= statusLabel(section.availability) %>.</strong> <% if (section.reason) { %><%= section.reason %><% } else if (section.availability === "EMPTY") { %>No records were captured.<% } else { %>This evidence is not available in the local snapshot.<% } %></span></div><% } %>
-                            <% if (items?.length) { %><div class="pr-event-list mt-3" data-page-size="10"><% items.forEach((item, index) => { %><div class="pr-event-item" data-local-item="<%= index %>"><div class="d-flex flex-wrap justify-content-between gap-2"><strong><%= item.author || "Author unavailable" %></strong><span class="badge rounded-pill <%= item.state === "CHANGES_REQUESTED" ? "text-bg-warning" : "text-bg-light border" %>"><%= item.state || "Event" %></span></div><% if (item.created_at) { %><small class="text-muted"><%= item.created_at %></small><% } %><% if (item.path) { %><code class="d-block mt-2"><%= item.path %><%= item.line ? ":" + item.line : "" %></code><% } %><% if (item.body) { %><div class="pr-markdown mt-2"><%- renderSafeMarkdown(item.body) %></div><% } %></div><% }); %></div><% } %>
+                            <% if (items?.length) { %><div class="pr-event-list mt-3" data-page-size="3"><% items.forEach((item, index) => { %><div class="pr-event-item" data-local-item="<%= index %>"><div class="d-flex flex-wrap justify-content-between gap-2"><strong><%= item.author || "Author unavailable" %></strong><span class="badge rounded-pill <%= item.state === "CHANGES_REQUESTED" ? "text-bg-warning" : "text-bg-light border" %>"><%= item.state || "Event" %></span></div><% if (item.created_at) { %><small class="text-muted"><%= item.created_at %></small><% } %><% if (item.path) { %><code class="d-block mt-2"><%= item.path %><%= item.line ? ":" + item.line : "" %></code><% } %><% if (item.body) { %><div class="pr-markdown mt-2"><%- renderSafeMarkdown(item.body) %></div><% } %></div><% }); %></div><% } %>
                         </details>
                     <% }); %>
                 </div>

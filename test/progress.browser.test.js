@@ -15,27 +15,28 @@ const aliceSession = Object.freeze({
 });
 const cardId = index => `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`;
 const cardTitle = index => `Alice card ${index}`;
-const cardState = (index, status, ownCategory = null, discardReason = null) => ({
+const cardState = (index, status, ownCategory = null, discardReason = null, ownCategorySlot = null) => ({
     id: cardId(index),
     ordinal: index,
     title: cardTitle(index),
     html_url: `https://example.test/pr/${index}`,
     status,
     own_category: ownCategory,
+    own_category_color_slot: ownCategorySlot,
     discard_reason: discardReason,
 });
 
 const aliceRows = [
-    cardState(0, "CLASSIFIED", "Alpha"),
+    cardState(0, "CLASSIFIED", "Alpha", null, 0),
     cardState(1, "PENDING"),
     cardState(2, "DISCARDED", null, "duplicate"),
-    cardState(3, "CLASSIFIED", "Beta"),
+    cardState(3, "CLASSIFIED", "Beta", null, 1),
     cardState(4, "PENDING"),
-    cardState(5, "CLASSIFIED", "Alpha"),
+    cardState(5, "CLASSIFIED", "Alpha", null, 0),
     cardState(6, "PENDING"),
     cardState(7, "DISCARDED"),
     cardState(8, "PENDING"),
-    cardState(9, "CLASSIFIED", "Alpha"),
+    cardState(9, "CLASSIFIED", "Alpha", null, 0),
     cardState(10, "PENDING"),
     cardState(11, "PENDING"),
 ];
@@ -43,18 +44,24 @@ const aliceCategories = [
     {
         id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
         raw_name: "Alpha",
+        definition: "Alpha definition",
+        color_slot: 0,
         total: 3,
         cards: [0, 5, 9].map(index => ({id: cardId(index), ordinal: index, title: cardTitle(index), html_url: aliceRows[index].html_url})),
     },
     {
         id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2",
         raw_name: "Beta",
+        definition: null,
+        color_slot: 1,
         total: 1,
         cards: [3].map(index => ({id: cardId(index), ordinal: index, title: cardTitle(index), html_url: aliceRows[index].html_url})),
     },
     {
         id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3",
         raw_name: "Zero",
+        definition: null,
+        color_slot: 2,
         total: 0,
         cards: [],
     },
@@ -73,11 +80,14 @@ const bobRows = aliceRows.map((row, index) => ({
     html_url: row.html_url,
     status: index === 0 ? "CLASSIFIED" : "PENDING",
     own_category: index === 0 ? "Bob private category" : null,
+    own_category_color_slot: index === 0 ? 0 : null,
     discard_reason: null,
 }));
 const bobCategories = [{
     id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1",
     raw_name: "Bob private category",
+    definition: null,
+    color_slot: 0,
     total: 1,
     cards: [{id: cardId(0), ordinal: 0, title: cardTitle(0), html_url: "https://example.test/pr/0"}],
 }];
@@ -265,6 +275,7 @@ const launchBrowser = async chrome => {
 
 const progressProbe = `(() => {
     const text = element => element ? element.textContent.trim() : null;
+    const slotClass = element => element ? (element.className.match(/category-slot-\\d+/) || [null])[0] : null;
     const rows = [ ...document.querySelectorAll("[data-progress-row]") ].map(row => {
         const link = row.querySelector("a");
         return {
@@ -275,6 +286,7 @@ const progressProbe = `(() => {
             title: text(link ? link.querySelector(".fw-semibold") : null),
             detail: text(link ? link.querySelector(".text-muted") : null),
             badge: text(link ? link.querySelector(".badge") : null),
+            dotSlot: slotClass(link ? link.querySelector(".pr-list-detail .category-color-dot") : null),
         };
     });
     const groups = [ ...document.querySelectorAll("[data-category-group]") ].map(group => ({
@@ -283,6 +295,8 @@ const progressProbe = `(() => {
         count: Number(group.getAttribute("data-category-count")),
         badge: text(group.querySelector(".badge")),
         empty: text(group.querySelector("[data-category-empty]")),
+        definition: text(group.querySelector(".category-definition")),
+        dotSlot: slotClass(group.querySelector(".category-color-dot")),
         cards: [ ...group.querySelectorAll("[data-category-card]") ].map(card => ({
             cardId: card.getAttribute("data-card-id"),
             ordinal: Number(card.getAttribute("data-ordinal")),
@@ -368,6 +382,8 @@ const assertNoOtherParticipant = (layout, viewport) => {
 const assertCategorySummary = (layout, viewport) => {
     assert.deepEqual(layout.groups.map(group => group.name), ["Alpha", "Beta", "Zero"], `${viewport}px progress must render every current category including unused ones`);
     assert.deepEqual(layout.groups.map(group => group.count), [3, 1, 0], `${viewport}px progress must render whole-membership counts including zero`);
+    assert.deepEqual(layout.groups.map(group => group.dotSlot), ["category-slot-0", "category-slot-1", "category-slot-2"], `${viewport}px every summary group must render its stable color indicator class`);
+    assert.deepEqual(layout.groups.map(group => group.definition), ["Alpha definition", null, null], `${viewport}px a group must show its definition when present and omit it otherwise`);
     assert.deepEqual(layout.groups[0].cards.map(card => card.ordinal), [0, 5, 9], `${viewport}px grouped cards must stay in ordinal order`);
     assert.deepEqual(layout.groups[1].cards.map(card => card.ordinal), [3], `${viewport}px each category must group only its own classified cards`);
     assert.deepEqual(layout.groups[2].cards, [], `${viewport}px unused categories must not invent cards`);
@@ -410,6 +426,11 @@ test("Given an authenticated participant When Chromium renders progress Then the
                     "Pending your private response",
                 ],
                 `${viewport}px classified, pending and discarded rows must show only their own private decision`,
+            );
+            assert.deepEqual(
+                firstPage.rows.map(row => row.dotSlot),
+                ["category-slot-0", null, null, "category-slot-1", null],
+                `${viewport}px classified rows must render their own category color indicator class and other rows must not`,
             );
             assert.equal(firstPage.totalBadge, "12 assigned cards", `${viewport}px the listing must expose the whole membership total`);
             assertCategorySummary(firstPage, viewport);

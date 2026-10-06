@@ -1,6 +1,6 @@
 const loadParticipantCategories = async (executor, studyId, participantId) => {
     const {rows} = await executor.query(
-        `SELECT id, raw_name, updated_at
+        `SELECT id, raw_name, definition, color_slot, updated_at
          FROM participant_category
          WHERE study_id = $1
            AND participant_id = $2
@@ -70,6 +70,8 @@ const loadStudyCardPage = async (executor, studyId, participantId, {page, limit,
                          WHEN discard.pr_card_id IS NOT NULL THEN 'DISCARDED'
                          ELSE 'PENDING' END AS status,
                     category.raw_name AS own_category,
+                    category.definition AS own_category_definition,
+                    category.color_slot AS own_category_color_slot,
                     discard.reason AS discard_reason
              FROM study_card
              INNER JOIN pr_cards card ON card.id = study_card.pr_card_id
@@ -105,6 +107,8 @@ const loadParticipantCategorySummary = async (executor, studyId, participantId) 
     const {rows} = await executor.query(
         `SELECT category.id,
                 category.raw_name,
+                category.definition,
+                category.color_slot,
                 COUNT(card.pr_card_id)::INTEGER AS total,
                 COALESCE(
                     jsonb_agg(
@@ -128,13 +132,15 @@ const loadParticipantCategorySummary = async (executor, studyId, participantId) 
          LEFT JOIN pr_cards pr_card ON pr_card.id = card.pr_card_id
          WHERE category.study_id = $1
            AND category.participant_id = $2
-         GROUP BY category.id, category.raw_name
+         GROUP BY category.id, category.raw_name, category.definition, category.color_slot
          ORDER BY category.raw_name`,
         [ studyId, participantId ],
     );
     return rows.map(row => ({
         id: row.id,
         raw_name: row.raw_name,
+        definition: row.definition,
+        color_slot: row.color_slot,
         total: row.total,
         cards: row.cards,
     }));

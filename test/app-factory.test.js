@@ -43,6 +43,8 @@ class FakePool {
             return {rows: [{
                 id: "category-1",
                 raw_name: "Alpha",
+                definition: "Alpha definition",
+                color_slot: 0,
                 total: 1,
                 cards: [{id: "card-1", ordinal: 0, title: "First card", html_url: "https://example.test/pr/1"}],
             }]};

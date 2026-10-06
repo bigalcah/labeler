@@ -1,3 +1,4 @@
+import {categoryColor} from "./category-palette.js";
 import HTTPStatus from "./http-status.js";
 import {projectCardV2, projectEnrichedCard} from "./study-card-projection.js";
 import {
@@ -25,6 +26,7 @@ import {isUuid, StudyRuntimeError} from "./study-runtime.js";
 import {withTransaction} from "./transaction.js";
 
 const CATEGORY_NAME_MAX_LENGTH = 160;
+const CATEGORY_DEFINITION_MAX_LENGTH = 500;
 
 const sessionIds = context => {
     if (!context || context.studyId === undefined || context.participantId === undefined) {
@@ -72,6 +74,21 @@ const parseCategoryName = value => {
     }
     return {rawName, normalizedName: rawName.toLowerCase().replace(/\s+/g, " ")};
 };
+
+const parseCategoryDefinition = value => {
+    if (typeof value !== "string") {
+        throw new StudyRuntimeError(HTTPStatus.UNPROCESSABLE_ENTITY, "A category definition must be text");
+    }
+    const trimmed = value.trim();
+    if (trimmed.length > CATEGORY_DEFINITION_MAX_LENGTH) {
+        throw new StudyRuntimeError(HTTPStatus.UNPROCESSABLE_ENTITY, "A category definition must be 500 characters or fewer");
+    }
+    return trimmed || null;
+};
+
+const decorateCategory = category => category
+    ? {...category, color: categoryColor(category.color_slot)}
+    : category;
 
 const parseExpectedUpdatedAt = value => {
     if (value === undefined) return null;
@@ -145,7 +162,18 @@ const createStudyService = ({pool}) => {
             loadStudyCardPage(pool, studyId, participantId, normalized),
             loadParticipantCategorySummary(pool, studyId, participantId),
         ]);
-        return {progressPage, categorySummary};
+        return {
+            progressPage: {
+                ...progressPage,
+                rows: progressPage.rows.map(row => ({
+                    ...row,
+                    own_category_color: row.own_category_color_slot === null || row.own_category_color_slot === undefined
+                        ? null
+                        : categoryColor(row.own_category_color_slot),
+                })),
+            },
+            categorySummary: categorySummary.map(decorateCategory),
+        };
     };
 
     const loadReviewCardData = async (context, cardId) => {
@@ -156,28 +184,37 @@ const createStudyService = ({pool}) => {
             loadParticipantCategories(pool, studyId, participantId),
             loadStudyProgress(pool, studyId, participantId),
         ]);
-        return {card, categories, progress: normalizeProgress(progress)};
+        return {
+            card,
+            categories: categories.map(decorateCategory),
+            progress: normalizeProgress(progress),
+        };
     };
 
-    const createCategory = async (context, {name} = {}) => {
+    const createCategory = async (context, {name, definition} = {}) => {
         const {studyId, participantId} = sessionIds(context);
         const {rawName, normalizedName} = parseCategoryName(name);
+        const normalizedDefinition = definition === undefined ? null : parseCategoryDefinition(definition);
         try {
-            return await createParticipantCategory(pool, studyId, participantId, rawName, normalizedName);
+            const category = await withTransaction(pool, client =>
+                createParticipantCategory(client, studyId, participantId, rawName, normalizedName, normalizedDefinition));
+            return decorateCategory(category);
         } catch (error) {
             return rethrowCategoryConflict(error);
         }
     };
 
-    const renameCategory = async (context, categoryId, {name, expectedUpdatedAt} = {}) => {
+    const renameCategory = async (context, categoryId, {name, definition, expectedUpdatedAt} = {}) => {
         const {studyId, participantId} = sessionIds(context);
         const validCategoryId = requireUuid(categoryId, "A valid category ID is required");
         const categoryName = parseCategoryName(name);
         const expectedUpdatedAtValue = parseExpectedUpdatedAt(expectedUpdatedAt);
+        const definitionProvided = definition !== undefined;
         try {
             return await withTransaction(pool, async client => {
                 const category = await lockParticipantCategory(client, studyId, participantId, validCategoryId);
                 if (!category) throw new StudyRuntimeError(HTTPStatus.NOT_FOUND, "Category is not owned by the participant");
+                const nextDefinition = definitionProvided ? parseCategoryDefinition(definition) : category.definition;
                 const updated = await updateParticipantCategory(
                     client,
                     studyId,
@@ -185,10 +222,11 @@ const createStudyService = ({pool}) => {
                     validCategoryId,
                     categoryName.rawName,
                     categoryName.normalizedName,
+                    nextDefinition,
                     expectedUpdatedAtValue,
                 );
                 if (!updated) throw new StudyRuntimeError(HTTPStatus.CONFLICT, "The category version is stale");
-                return updated;
+                return decorateCategory(updated);
             });
         } catch (error) {
             return rethrowCategoryConflict(error);

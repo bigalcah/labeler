@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {createHash} from "node:crypto";
 import {mkdtemp, mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -6,6 +7,8 @@ import test from "node:test";
 import {resolveStudyExportInputs} from "../util/study-export-input.js";
 import {assertSafeExportData} from "../util/study-export-format.js";
 import {createStudyExport} from "../util/study-export.js";
+
+const sha256 = value => createHash("sha256").update(value).digest("hex");
 
 const study = Object.freeze({
     id: "validation-study-id",
@@ -25,6 +28,7 @@ const categories = participants.map(participant => ({
     participant_ordinal: participant.participant_ordinal,
     category_ordinal: 0,
     category_name: `Category ${participant.participant_key}`,
+    category_definition: participant.participant_key === "javier" ? "Tracks missing test coverage" : null,
     created_at: new Date("2026-09-01T00:00:00.000Z"),
     updated_at: new Date("2026-09-02T00:00:00.000Z"),
 }));
@@ -110,13 +114,21 @@ test("complete 30-card export publishes deterministic operator package without t
     const categoriesCsv = await readFile(path.join(destination, "categories.csv"), "utf8");
     assert.equal(resultsCsv.trim().split("\n").length, 91);
     assert.equal(categoriesCsv.trim().split("\n").length, 4);
+    const [categoriesHeader, ...categoryRows] = categoriesCsv.trim().split("\n");
+    assert.equal(categoriesHeader, [
+        "participant_ordinal", "participant_pseudonym", "category_ordinal", "category_name", "created_at", "updated_at",
+        "category_definition",
+    ].join(","));
+    assert.equal(categoryRows[0].split(",").at(-1), "Tracks missing test coverage");
+    assert.deepEqual(categoryRows.slice(1).map(row => row.split(",").at(-1)), ["", ""]);
     for (const header of ["category_name", "classification_remarks", "discard_reason", "decision_revision",
         "source_html_url", "resolved_html_url", "url_provenance", "enrichment_snapshot_checksum"]) {
         assert.equal(resultsCsv.split("\n")[0].split(",").includes(header), true);
     }
     assert.match(categoriesCsv, /Category javier/);
     assert.equal(manifest.enrichment.coverageCount, 30);
-    assert.match(manifest.files["results.csv"].sha256, /^[a-f0-9]{64}$/);
+    assert.equal(manifest.files["results.csv"].sha256, sha256(resultsCsv));
+    assert.equal(manifest.files["categories.csv"].sha256, sha256(categoriesCsv));
     assert.doesNotMatch(`${resultsCsv}${categoriesCsv}${JSON.stringify(manifest)}`,
         /raw_payload|password_hash|session_id|quota_metadata|external-export-secret/);
     assert.deepEqual(client.queries.map(query => query.sql).slice(0, 2), [

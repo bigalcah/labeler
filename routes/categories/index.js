@@ -8,7 +8,10 @@ export const post = async (req, res) => {
 
     const studyService = createStudyService(req.app.locals.dependencies);
     try {
-        const category = await studyService.createCategory(context, {name: req.body?.name});
+        const category = await studyService.createCategory(context, {
+            name: req.body?.name,
+            definition: req.body?.definition,
+        });
         res.status(HTTPStatus.CREATED).json(category);
     } catch (error) {
         if (respondWithStudyRuntimeError(res, error)) return;
