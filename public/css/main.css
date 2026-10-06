@@ -556,11 +556,22 @@ a[target="_blank"] {
     display: flex;
     gap: .75rem;
     padding: .65rem .75rem;
+    position: relative;
     transition: border-color .15s ease, box-shadow .15s ease;
 }
 
 .category-option.is-selected {
     box-shadow: inset 0 0 0 2px rgba(17, 24, 39, .65);
+    margin-bottom: .85rem;
+}
+
+.category-option.is-selected::after {
+    border-bottom: 1px solid #dfe5ee;
+    bottom: -.55rem;
+    content: "";
+    left: 0;
+    position: absolute;
+    right: 0;
 }
 
 .category-option:focus-within {

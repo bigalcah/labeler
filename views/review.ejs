@@ -80,7 +80,13 @@
                                             <p class="text-muted small mb-2">A category is required to save this classification.</p>
                                         <% } %>
                                         <ul class="list-unstyled category-selection-list mb-0" id="category-list" data-category-list>
-                                            <% categories.forEach(category => { %>
+                                            <%
+                                                const selectedCategoryIndex = categories.findIndex(category => category.id === card.category_id);
+                                                const orderedCategories = selectedCategoryIndex > 0
+                                                    ? [categories[selectedCategoryIndex], ...categories.slice(0, selectedCategoryIndex), ...categories.slice(selectedCategoryIndex + 1)]
+                                                    : categories;
+                                            %>
+                                            <% orderedCategories.forEach(category => { %>
                                                 <li class="category-option category-slot-<%= category.color_slot %><%= category.id === card.category_id ? " is-selected" : "" %>" data-category-option="<%= category.id %>">
                                                     <label class="category-option-label">
                                                         <input type="radio" name="category_id" value="<%= category.id %>"

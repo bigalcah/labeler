@@ -314,6 +314,7 @@ const reviewProbe = `(() => {
         const indicator = item.querySelector(".category-selected-indicator");
         const button = item.querySelector("[data-category-rename]");
         const rowStyle = getComputedStyle(item);
+        const afterStyle = getComputedStyle(item, "::after");
         const rowBorderLeftColor = rowStyle.borderLeftColor;
         return {
             id: item.getAttribute("data-category-option"),
@@ -327,6 +328,9 @@ const reviewProbe = `(() => {
             rowBorderLeftColor,
             rowBorderLeftWidth: rowStyle.borderLeftWidth,
             rowBorderContrast: rowBorderLeftColor ? contrast(parseRgb(rowBorderLeftColor), [255, 255, 255]) : null,
+            rowMarginBottom: rowStyle.marginBottom,
+            afterContent: afterStyle.content,
+            afterBorderBottomWidth: afterStyle.borderBottomWidth,
             indicatorDisplay: indicator ? getComputedStyle(indicator).display : null,
             indicatorText: text(indicator),
             name: text(item.querySelector(".category-name")),
@@ -403,6 +407,29 @@ const clickEditButton = (browser, sessionId, optionId) => evaluate(browser, sess
     button.click();
     return true;
 })()`);
+
+const pointerSelectCategory = async (browser, sessionId, optionId) => {
+    const coordinates = await evaluate(browser, sessionId, `(() => {
+        const item = document.querySelector('[data-category-option="${optionId}"]');
+        const label = item ? item.querySelector(".category-option-label") : null;
+        if (!label) return null;
+        const rect = label.getBoundingClientRect();
+        return JSON.stringify({x: rect.left + rect.width / 2, y: rect.top + rect.height / 2});
+    })()`);
+    if (!coordinates) return false;
+    const {x, y} = JSON.parse(coordinates);
+    const hitTarget = await evaluate(browser, sessionId, `(() => {
+        const element = document.elementFromPoint(${x}, ${y});
+        return element ? element.closest("[data-category-option]")?.getAttribute("data-category-option") ?? null : null;
+    })()`);
+    assert.equal(hitTarget, optionId, `the pointer click must land inside category ${optionId}`);
+    await browser.connection.send("Page.bringToFront", {}, sessionId);
+    await browser.connection.send("Input.dispatchMouseEvent", {type: "mouseMoved", x, y}, sessionId);
+    await browser.connection.send("Input.dispatchMouseEvent", {type: "mousePressed", button: "left", buttons: 1, clickCount: 1, x, y}, sessionId);
+    await browser.connection.send("Input.dispatchMouseEvent", {type: "mouseReleased", button: "left", buttons: 0, clickCount: 1, x, y}, sessionId);
+    await delay(150);
+    return true;
+};
 
 const assertCleanSurface = (layout, context) => {
     assert.deepEqual(layout.cspViolations, [], `${context} must render without CSP violations`);
@@ -610,6 +637,135 @@ test("Given the integrated category card When Chromium renders it Then the layou
             } finally {
                 await closePage(browser, page.targetId);
             }
+        }
+    } finally {
+        await browser.close();
+        await closeServer(server);
+    }
+});
+
+test("Given a classified card whose category is not first in the source order When rendered Then the selected category is pinned first and separated", async () => {
+    const chrome = await findChrome();
+    const html = await renderReview({card: cardFixture({categoryId: betaId, status: "CLASSIFIED", ownCategory: "Beta"}), categories: [alpha, beta]});
+    const server = await startFixtureServer(html);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const browser = await launchBrowser(chrome);
+
+    try {
+        const page = await openPage(browser, `${baseUrl}/queue/${cardId}`, {width: 1280, height: 900});
+        try {
+            const layout = await readReview(browser, page.sessionId);
+            assert.deepEqual(layout.options.map(option => option.id), [betaId, alphaId], "the selected category must render first while the others keep their order");
+            assert.equal(layout.options[0].checked, true, "the pinned first row must own the saved selection");
+            assert.equal(layout.options[0].selectedClass, true, "the pinned first row must carry the selected state");
+            assert.equal(layout.options[0].indicatorDisplay, "flex", "the pinned row must show the check indicator");
+            assert.equal(layout.options[0].indicatorText, "Selected", "the pinned row must announce Selected");
+            assert.ok(parseFloat(layout.options[0].rowMarginBottom) > parseFloat(layout.options[1].rowMarginBottom), "the selected row must render extra bottom spacing");
+            assert.ok(parseFloat(layout.options[0].afterBorderBottomWidth) > 0, "the selected row must render a visible divider");
+            assert.notEqual(layout.options[0].afterContent, "none", "the divider must be generated content");
+            assert.equal(parseFloat(layout.options[1].afterBorderBottomWidth), 0, "unselected rows must not render the divider");
+            assert.equal(layout.options[0].rowInlineStyle, null, "the pinned row must not rely on an inline style");
+            assertCleanSurface(layout, "the pinned server-rendered list");
+        } finally {
+            await closePage(browser, page.targetId);
+        }
+    } finally {
+        await browser.close();
+        await closeServer(server);
+    }
+});
+
+test("Given a pending card When a category is clicked with the pointer Then it moves to the first position keeping its signals", async () => {
+    const chrome = await findChrome();
+    const html = await renderReview({card: cardFixture(), categories: [alpha, beta]});
+    const server = await startFixtureServer(html);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const browser = await launchBrowser(chrome);
+
+    try {
+        const page = await openPage(browser, `${baseUrl}/queue/${cardId}`, {width: 1280, height: 1700});
+        try {
+            const before = await readReview(browser, page.sessionId);
+            assert.deepEqual(before.options.map(option => option.id), [alphaId, betaId], "the list must start in source order without a selection");
+
+            await pointerSelectCategory(browser, page.sessionId, betaId);
+            await waitForExpression(browser, page.sessionId, `document.querySelector("[data-category-option]")?.getAttribute("data-category-option") === ${JSON.stringify(betaId)}`);
+
+            const after = await readReview(browser, page.sessionId);
+            assert.deepEqual(after.options.map(option => option.id), [betaId, alphaId], "a pointer selection must move the chosen row to the first position");
+            assert.deepEqual(after.options.map(option => option.checked), [true, false], "clicking must select the chosen category");
+            assert.equal(after.options[0].selectedClass, true, "the moved row must keep the selected state");
+            assert.equal(after.options[0].indicatorDisplay, "flex", "the moved row must keep the check indicator");
+            assert.equal(after.options[0].indicatorText, "Selected", "the moved row must keep the Selected text");
+            assert.equal(after.options[1].indicatorDisplay, "none", "the displaced row must hide the check indicator");
+            assertCleanSurface(after, "the pointer reordered list");
+        } finally {
+            await closePage(browser, page.targetId);
+        }
+    } finally {
+        await browser.close();
+        await closeServer(server);
+    }
+});
+
+test("Given a focused list When the participant navigates with arrows and then leaves Then order stays stable during navigation and consolidates on blur", async () => {
+    const chrome = await findChrome();
+    const html = await renderReview({card: cardFixture(), categories: [alpha, beta]});
+    const server = await startFixtureServer(html);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const browser = await launchBrowser(chrome);
+
+    try {
+        const page = await openPage(browser, `${baseUrl}/queue/${cardId}`, {width: 1280, height: 900});
+        try {
+            await browser.connection.send("Page.bringToFront", {}, page.sessionId);
+            assert.equal(await focusRadio(browser, page.sessionId, 0), true, "the first radio must be focusable");
+            await pressKey(browser, page.sessionId, "ArrowDown");
+
+            const midNavigation = await readReview(browser, page.sessionId);
+            assert.deepEqual(midNavigation.options.map(option => option.checked), [false, true], "ArrowDown must move the selection to the second category");
+            assert.deepEqual(midNavigation.options.map(option => option.id), [alphaId, betaId], "the list order must not change during arrow navigation");
+            assert.equal(midNavigation.activeRadioChecked, true, "the arrow key must keep focus inside the list");
+
+            await evaluate(browser, page.sessionId, "document.activeElement.blur(); true");
+            await waitForExpression(browser, page.sessionId, `document.querySelector("[data-category-option]")?.getAttribute("data-category-option") === ${JSON.stringify(betaId)}`);
+
+            const consolidated = await readReview(browser, page.sessionId);
+            assert.deepEqual(consolidated.options.map(option => option.id), [betaId, alphaId], "leaving the list must consolidate the selected category to the first position");
+            assert.deepEqual(consolidated.options.map(option => option.checked), [true, false], "the consolidated first row must stay selected");
+            assert.equal(consolidated.options[0].selectedClass, true, "the consolidated row must keep the selected state");
+            assert.equal(consolidated.options[0].indicatorDisplay, "flex", "the consolidated row must keep the check indicator");
+            assertCleanSurface(consolidated, "the consolidated keyboard list");
+        } finally {
+            await closePage(browser, page.targetId);
+        }
+    } finally {
+        await browser.close();
+        await closeServer(server);
+    }
+});
+
+test("Given existing categories When a category is created Then it is selected and pinned first", async () => {
+    const chrome = await findChrome();
+    const html = await renderReview({card: cardFixture(), categories: [alpha, beta]});
+    const server = await startFixtureServer(html);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const browser = await launchBrowser(chrome);
+
+    try {
+        const page = await openPage(browser, `${baseUrl}/queue/${cardId}`, {width: 1280, height: 900});
+        try {
+            assert.equal(await submitCategoryForm(browser, page.sessionId, {formId: "new-category-form", name: "Gamma", definition: null}), true);
+            await waitForExpression(browser, page.sessionId, "document.querySelectorAll('[data-category-option]').length === 3");
+
+            const created = await readReview(browser, page.sessionId);
+            assert.deepEqual(created.options.map(option => option.id), ["created-category", alphaId, betaId], "a newly created category must be inserted at the first position");
+            assert.deepEqual(created.options.map(option => option.checked), [true, false, false], "the new category must be selected");
+            assert.equal(created.options[0].selectedClass, true, "the new first row must show the selected state");
+            assert.equal(created.options[0].indicatorDisplay, "flex", "the new first row must show the check indicator");
+            assertCleanSurface(created, "the created-and-pinned list");
+        } finally {
+            await closePage(browser, page.targetId);
         }
     } finally {
         await browser.close();

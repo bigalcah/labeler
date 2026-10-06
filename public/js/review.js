@@ -105,6 +105,13 @@ const refreshSelectedState = list => {
     });
 };
 
+const moveSelectedToTop = list => {
+    if (!list) return;
+    const selected = list.querySelector(".category-option.is-selected");
+    if (!selected || list.firstElementChild === selected) return;
+    list.prepend(selected);
+};
+
 const ensureRequiredSelection = list => {
     if (!list) return;
     const radios = [ ...list.querySelectorAll("[data-category-radio]") ];
@@ -138,7 +145,7 @@ const setupCategoryForm = () => {
         if (list) {
             list.querySelector("[data-category-empty]")?.remove();
             const item = buildCategoryOption(category);
-            list.append(item);
+            list.prepend(item);
             const radio = item.querySelector("[data-category-radio]");
             if (radio) radio.checked = true;
             ensureRequiredSelection(list);
@@ -204,8 +211,25 @@ const setupCategoryRename = () => {
 const setupCategorySelection = () => {
     const list = document.getElementById("category-list");
     if (!list) return;
+    let pointerOrigin = null;
+    list.addEventListener("pointerdown", event => {
+        pointerOrigin = event.target.closest("[data-category-option]");
+    });
+    list.addEventListener("keydown", () => {
+        pointerOrigin = null;
+    });
     list.addEventListener("change", event => {
-        if (event.target.matches("[data-category-radio]")) refreshSelectedState(list);
+        if (!event.target.matches("[data-category-radio]")) return;
+        refreshSelectedState(list);
+        const origin = pointerOrigin;
+        pointerOrigin = null;
+        if (origin && origin === event.target.closest("[data-category-option]")) moveSelectedToTop(list);
+    });
+    list.addEventListener("focusout", event => {
+        if (event.relatedTarget && list.contains(event.relatedTarget)) return;
+        queueMicrotask(() => {
+            if (!list.contains(document.activeElement)) moveSelectedToTop(list);
+        });
     });
 };
 
