@@ -204,6 +204,7 @@ const sectionProbe = name => `(() => {
         buttonLabel: button ? button.textContent.trim() : null,
         buttonType: button ? button.getAttribute("type") : null,
         badge: badge ? badge.textContent.trim() : null,
+        state: section.querySelector(".pr-unavailable-state")?.textContent.trim() ?? null,
         text: items.map(item => item.textContent).join(" "),
     });
 })()`;
@@ -292,6 +293,7 @@ test("Given the participant card When Chromium loads it Then GitHub evidence use
             "counts-7.html": renderFixture({reviews: 7}),
             "independent.html": renderFixture({reviews: 4, issue_comments: 6, review_comments: 7}),
             "blank-body.html": renderFixture({reviews: 5, blankReviews: 2}),
+            "blank-only.html": renderFixture({blankReviews: 4}),
             "keyboard.html": renderFixture({reviews: 4}),
             "space.html": renderFixture({reviews: 7}),
         };
@@ -360,6 +362,20 @@ test("Given the participant card When Chromium loads it Then GitHub evidence use
             assert.equal(blank.buttonLabel, "Show 2 more", "the batch announcement must be computed from eligible reviews only");
         } finally {
             await closePage(browser, blankPage.targetId);
+        }
+
+        const blankOnlyPage = await openPage(browser, fileUrl("blank-only.html"), {width: 1280, height: 900});
+        try {
+            await openSections(browser)(blankOnlyPage.sessionId);
+            const blankOnly = await readSection(browser, blankOnlyPage.sessionId, "reviews");
+            assert.equal(blankOnly.items, 0, "captured reviews with no written body must not render entries");
+            assert.equal(blankOnly.visible, 0, "no review entry must be visible");
+            assert.equal(blankOnly.buttonLabel, null, "captured-but-empty reviews must not offer a batch control");
+            assert.match(blankOnly.state, /No written review explanations/, "the explicit empty state must appear inside the section when opened");
+            assert.match(blankOnly.state, /The local snapshot captured 4 review events without written text\./, "the explicit state must name the captured count");
+            assert.match(blankOnly.badge, /· 4$/, "the badge must keep the captured snapshot count");
+        } finally {
+            await closePage(browser, blankOnlyPage.targetId);
         }
 
         const keyboardPage = await openPage(browser, fileUrl("keyboard.html"), {width: 1280, height: 900});

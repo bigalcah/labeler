@@ -169,6 +169,40 @@
         {"endpoint": "reviewComments", "state": "COMPLETE_EMPTY", "itemCount": 0, "payload": []}
       ]
     },
+    "reviewsWithoutText": {
+      "snapshot": {
+        "run_id": "fixture-run-blank-reviews",
+        "snapshot_checksum": "fixture-snapshot-blank-reviews",
+        "captured_at": "2026-01-06T00:00:00Z"
+      },
+      "pages": [
+        {
+          "endpoint": "metadata",
+          "state": "COMPLETE",
+          "itemCount": 1,
+          "payload": {
+            "id": 42,
+            "number": 42,
+            "title": "Offline provider title",
+            "state": "open",
+            "merged": false,
+            "user": {"login": "provider-author"},
+            "html_url": "https://github.com/example/labeler/pull/42"
+          }
+        },
+        {
+          "endpoint": "reviews",
+          "state": "COMPLETE",
+          "itemCount": 2,
+          "payload": [
+            {"id": 1, "state": "APPROVED", "body": null, "user": {"login": "blank-reviewer"}},
+            {"id": 2, "state": "APPROVED", "body": "   ", "user": {"login": "whitespace-reviewer"}}
+          ]
+        },
+        {"endpoint": "issueComments", "state": "COMPLETE_EMPTY", "itemCount": 0, "payload": []},
+        {"endpoint": "reviewComments", "state": "COMPLETE_EMPTY", "itemCount": 0, "payload": []}
+      ]
+    },
     "unavailable": {
       "snapshot": {
         "run_id": "fixture-run-unavailable",

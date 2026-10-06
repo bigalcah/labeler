@@ -74,6 +74,23 @@ test("sanitized provider fixtures feed the existing CardV2 view offline", async 
         assert.doesNotMatch(limitedHtml, /Changed files|Provider file cap reached|data-local-section="files"/, "a truncated files section must not render as participant evidence");
         assert.doesNotMatch(limitedHtml, /truncated-diff-marker/);
 
+        const blankReviews = projectCardV2(fixture.card, {
+            ...fixture.scenarios.reviewsWithoutText.snapshot,
+            pages: normalizePages(fixture.scenarios.reviewsWithoutText.pages),
+        });
+        const blankReviewsHtml = ejs.render(template, {
+            data: {...fixture.card, card_v2: blankReviews},
+            renderSafeMarkdown,
+        });
+
+        assert.equal(blankReviews.github_evidence.reviews.availability, AVAILABILITY.PRESENT);
+        assert.equal(blankReviews.github_evidence.reviews.captured_count, 2);
+        assert.equal(blankReviews.github_evidence.reviews.items.length, 2, "bodyless reviews remain captured in the projection");
+        assert.match(blankReviewsHtml, /<strong>No written review explanations\.<\/strong> The local snapshot captured 2 review events without written text\./, "the provider fixture must render the explicit captured-but-empty state");
+        assert.doesNotMatch(blankReviewsHtml, /blank-reviewer|whitespace-reviewer/, "bodyless provider reviews must not render entries");
+        assert.doesNotMatch(blankReviewsHtml, /pr-event-list|data-local-item/, "captured-but-empty provider reviews must not render a batch list");
+        assert.match(blankReviewsHtml, /data-local-section="reviews"[\s\S]*?Available · 2/, "the provider badge must keep the captured count");
+
         const unavailablePages = normalizePages(fixture.scenarios.unavailable.pages);
         const unavailable = projectCardV2(fixture.card, {
             ...fixture.scenarios.unavailable.snapshot,

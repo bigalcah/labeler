@@ -81,13 +81,12 @@
                                         <% } %>
                                         <ul class="list-unstyled category-selection-list mb-0" id="category-list" data-category-list>
                                             <% categories.forEach(category => { %>
-                                                <li class="category-option<%= category.id === card.category_id ? " is-selected" : "" %>" data-category-option="<%= category.id %>">
+                                                <li class="category-option category-slot-<%= category.color_slot %><%= category.id === card.category_id ? " is-selected" : "" %>" data-category-option="<%= category.id %>">
                                                     <label class="category-option-label">
                                                         <input type="radio" name="category_id" value="<%= category.id %>"
                                                                class="form-check-input category-radio" data-category-radio
                                                                data-category-updated-at="<%= category.updated_at ? new Date(category.updated_at).toISOString() : "" %>"
                                                                <%= category.id === card.category_id ? "checked" : "" %> <%= card.category_id ? "" : "required" %>>
-                                                        <span class="category-color-dot category-slot-<%= category.color_slot %>" aria-hidden="true"></span>
                                                         <span class="category-option-text">
                                                             <span class="category-name" data-category-label="<%= category.id %>"><%= category.raw_name %></span>
                                                             <% if (category.definition) { %>
