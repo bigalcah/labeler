@@ -1,28 +1,36 @@
-const createParticipantCategory = async (executor, studyId, participantId, rawName, normalizedName) => {
+const createParticipantCategory = async (executor, studyId, participantId, rawName, normalizedName, definition) => {
+    await executor.query(
+        `SELECT reviewer_id FROM study_participant
+         WHERE study_id = $1 AND reviewer_id = $2 FOR UPDATE`,
+        [ studyId, participantId ],
+    );
     const {rows: [ category ]} = await executor.query(
-        `INSERT INTO participant_category(study_id, participant_id, raw_name, normalized_name)
-         VALUES ($1, $2, $3, $4) RETURNING id, raw_name, updated_at`,
-        [ studyId, participantId, rawName, normalizedName ],
+        `INSERT INTO participant_category(study_id, participant_id, raw_name, normalized_name, definition, color_slot)
+         SELECT $1, $2, $3, $4, $5,
+                ((SELECT COUNT(*) FROM participant_category
+                  WHERE study_id = $1 AND participant_id = $2) % 12)::smallint
+         RETURNING id, raw_name, definition, color_slot, updated_at`,
+        [ studyId, participantId, rawName, normalizedName, definition ],
     );
     return category;
 };
 
 const lockParticipantCategory = async (executor, studyId, participantId, categoryId) => {
     const {rows: [ category ]} = await executor.query(
-        `SELECT id, updated_at FROM participant_category
+        `SELECT id, definition, updated_at FROM participant_category
          WHERE id = $1 AND study_id = $2 AND participant_id = $3 FOR UPDATE`,
         [ categoryId, studyId, participantId ],
     );
     return category;
 };
 
-const updateParticipantCategory = async (executor, studyId, participantId, categoryId, rawName, normalizedName, expectedUpdatedAt) => {
+const updateParticipantCategory = async (executor, studyId, participantId, categoryId, rawName, normalizedName, definition, expectedUpdatedAt) => {
     const {rows: [ category ]} = await executor.query(
-        `UPDATE participant_category SET raw_name = $4, normalized_name = $5, updated_at = clock_timestamp()
+        `UPDATE participant_category SET raw_name = $4, normalized_name = $5, definition = $7, updated_at = clock_timestamp()
          WHERE id = $1 AND study_id = $2 AND participant_id = $3
-           AND ($6::timestamptz IS NULL OR updated_at = $6::timestamptz)
-         RETURNING id, raw_name, updated_at`,
-        [ categoryId, studyId, participantId, rawName, normalizedName, expectedUpdatedAt ],
+           AND ($6::timestamptz IS NULL OR date_trunc('milliseconds', updated_at) = $6::timestamptz)
+         RETURNING id, raw_name, definition, color_slot, updated_at`,
+        [ categoryId, studyId, participantId, rawName, normalizedName, expectedUpdatedAt, definition ],
     );
     return category;
 };

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {CATEGORY_PALETTE_SIZE, categoryColor} from "../util/category-palette.js";
 import {createStudyService} from "../util/study-service.js";
 
 const studyId = "study-1";
@@ -36,15 +37,16 @@ const categoryIds = Object.freeze({
 class StudyServicePool {
     constructor() {
         this.categories = new Map([
-            [categoryIds.first, {id: categoryIds.first, studyId, participantId: 11, raw_name: "Shared label", normalized_name: "shared label", updated_at: "2026-01-01T00:00:00.000Z"}],
-            [categoryIds.replacement, {id: categoryIds.replacement, studyId, participantId: 11, raw_name: "Replacement", normalized_name: "replacement", updated_at: "2026-01-01T00:00:00.000Z"}],
-            [categoryIds.second, {id: categoryIds.second, studyId, participantId: 22, raw_name: "Shared label", normalized_name: "shared label", updated_at: "2026-01-01T00:00:00.000Z"}],
-            [categoryIds.third, {id: categoryIds.third, studyId, participantId: 33, raw_name: "Shared label", normalized_name: "shared label", updated_at: "2026-01-01T00:00:00.000Z"}],
+            [categoryIds.first, {id: categoryIds.first, studyId, participantId: 11, raw_name: "Shared label", normalized_name: "shared label", definition: "First definition", color_slot: 3, updated_at: "2026-01-01T00:00:00.000Z"}],
+            [categoryIds.replacement, {id: categoryIds.replacement, studyId, participantId: 11, raw_name: "Replacement", normalized_name: "replacement", definition: null, color_slot: 4, updated_at: "2026-01-01T00:00:00.000Z"}],
+            [categoryIds.second, {id: categoryIds.second, studyId, participantId: 22, raw_name: "Shared label", normalized_name: "shared label", definition: null, color_slot: 0, updated_at: "2026-01-01T00:00:00.000Z"}],
+            [categoryIds.third, {id: categoryIds.third, studyId, participantId: 33, raw_name: "Shared label", normalized_name: "shared label", definition: null, color_slot: 0, updated_at: "2026-01-01T00:00:00.000Z"}],
         ]);
         this.classifications = new Map();
         this.discards = new Map();
         this.transactionEvents = [];
         this.categoryParameters = [];
+        this.insertCount = 0;
     }
 
     async connect() {
@@ -97,11 +99,15 @@ class StudyServicePool {
             const card = requestedStudyId === studyId ? cards.find(value => value.id === requestedCardId) : null;
             return {rows: card ? [{pr_card_id: card.id, ordinal: card.ordinal, promotion_run_id: null}] : []};
         }
-        if (sql.includes("SELECT id, updated_at") && sql.includes("FOR UPDATE")) {
+        if (sql.includes("FROM study_participant") && sql.includes("FOR UPDATE")) {
+            const [requestedStudyId, participantId] = parameters;
+            return {rows: requestedStudyId === studyId ? [{reviewer_id: participantId}] : []};
+        }
+        if (sql.includes("SELECT id, definition, updated_at") && sql.includes("FOR UPDATE")) {
             const [categoryId, requestedStudyId, participantId] = parameters;
             const category = this.categories.get(categoryId);
             return {rows: category?.studyId === requestedStudyId && category.participantId === participantId
-                ? [{id: category.id, updated_at: category.updated_at}] : []};
+                ? [{id: category.id, definition: category.definition, updated_at: category.updated_at}] : []};
         }
         if (sql.includes("FROM participant_category") && sql.includes("WHERE id = $1")) {
             const [categoryId, requestedStudyId, participantId] = parameters;
@@ -110,21 +116,31 @@ class StudyServicePool {
             return {rows: category?.studyId === requestedStudyId && category.participantId === participantId ? [{id: category.id}] : []};
         }
         if (sql.startsWith("UPDATE participant_category")) {
-            const [categoryId, requestedStudyId, participantId, rawName, normalizedName, expectedUpdatedAt] = parameters;
+            const [categoryId, requestedStudyId, participantId, rawName, normalizedName, expectedUpdatedAt, definition] = parameters;
             const category = this.categories.get(categoryId);
             if (!category || category.studyId !== requestedStudyId || category.participantId !== participantId
                 || (expectedUpdatedAt !== null && category.updated_at !== expectedUpdatedAt)) return {rows: []};
             category.raw_name = rawName;
             category.normalized_name = normalizedName;
+            category.definition = definition;
             category.updated_at = "2026-01-01T00:00:01.000Z";
-            return {rows: [{id: category.id, raw_name: category.raw_name, updated_at: category.updated_at}]};
+            return {rows: [{
+                id: category.id,
+                raw_name: category.raw_name,
+                definition: category.definition,
+                color_slot: category.color_slot,
+                updated_at: category.updated_at,
+            }]};
         }
         if (sql.startsWith("INSERT INTO participant_category")) {
-            const [requestedStudyId, participantId, rawName, normalizedName] = parameters;
-            const id = "550e8400-e29b-41d4-a716-000000000399";
-            const category = {id, studyId: requestedStudyId, participantId, raw_name: rawName, normalized_name: normalizedName, updated_at: "2026-01-01T00:00:00.000Z"};
+            const [requestedStudyId, participantId, rawName, normalizedName, definition] = parameters;
+            const id = `550e8400-e29b-41d4-a716-${String(400 + this.insertCount++).padStart(12, "0")}`;
+            const color_slot = [...this.categories.values()]
+                .filter(category => category.studyId === requestedStudyId && category.participantId === participantId)
+                .length % 12;
+            const category = {id, studyId: requestedStudyId, participantId, raw_name: rawName, normalized_name: normalizedName, definition, color_slot, updated_at: "2026-01-01T00:00:00.000Z"};
             this.categories.set(id, category);
-            return {rows: [{id, raw_name: rawName, updated_at: category.updated_at}]};
+            return {rows: [{id, raw_name: rawName, definition, color_slot, updated_at: category.updated_at}]};
         }
         if (sql.includes("classification.id AS classification_id")) {
             const [requestedStudyId, participantId, requestedCardId] = parameters;
@@ -237,8 +253,11 @@ test("study service owns session-scoped category writes and rolls back private c
     const service = createStudyService({pool});
 
     assert.deepEqual(await service.createCategory(contexts[0], {name: "  Needs   tests  "}), {
-        id: "550e8400-e29b-41d4-a716-000000000399",
+        id: "550e8400-e29b-41d4-a716-000000000400",
         raw_name: "Needs   tests",
+        definition: null,
+        color_slot: 2,
+        color: categoryColor(2),
         updated_at: "2026-01-01T00:00:00.000Z",
     });
     assert.deepEqual(await service.renameCategory(contexts[0], categoryIds.first, {
@@ -247,10 +266,99 @@ test("study service owns session-scoped category writes and rolls back private c
     }), {
         id: categoryIds.first,
         raw_name: "Needs   review",
+        definition: "First definition",
+        color_slot: 3,
+        color: categoryColor(3),
         updated_at: "2026-01-01T00:00:01.000Z",
     });
     await assert.rejects(() => service.renameCategory(contexts[0], categoryIds.second, {
         name: "Private conflict",
     }), error => error.status === 404);
-    assert.deepEqual(pool.transactionEvents, ["BEGIN", "COMMIT", "BEGIN", "ROLLBACK"]);
+    assert.deepEqual(pool.transactionEvents, ["BEGIN", "COMMIT", "BEGIN", "COMMIT", "BEGIN", "ROLLBACK"]);
+});
+
+test("study service validates, trims, clears, and preserves category definitions", async () => {
+    const pool = new StudyServicePool();
+    const service = createStudyService({pool});
+
+    const created = await service.createCategory(contexts[0], {name: "Definition holder", definition: "   trimmed definition   "});
+    assert.equal(created.definition, "trimmed definition");
+    assert.equal(pool.categories.get(created.id).definition, "trimmed definition");
+
+    const preserved = await service.renameCategory(contexts[0], created.id, {
+        name: "Renamed without definition",
+        expectedUpdatedAt: created.updated_at,
+    });
+    assert.equal(preserved.definition, "trimmed definition", "an omitted definition must be preserved on rename");
+    assert.equal(preserved.color_slot, created.color_slot, "renaming must keep the assigned color slot");
+    assert.equal(preserved.color, created.color);
+
+    const cleared = await service.renameCategory(contexts[0], created.id, {
+        name: "Renamed and cleared",
+        definition: "   ",
+        expectedUpdatedAt: preserved.updated_at,
+    });
+    assert.equal(cleared.definition, null, "a blank definition must clear to absence");
+    assert.equal(cleared.color, created.color, "the color must stay stable after clearing the definition");
+
+    const blankCreate = await service.createCategory(contexts[0], {name: "Blank definition", definition: ""});
+    assert.equal(blankCreate.definition, null, "an explicitly empty definition must normalize to absence");
+
+    for (const invalid of [ null, 42, [ "definition" ], { text: "definition" }, true ]) {
+        await assert.rejects(
+            () => service.createCategory(contexts[0], {name: "Invalid definition", definition: invalid}),
+            error => error.status === 422,
+            `a non-text definition (${JSON.stringify(invalid)}) must be rejected`,
+        );
+        await assert.rejects(
+            () => service.renameCategory(contexts[0], categoryIds.first, {name: "Invalid definition", definition: invalid}),
+            error => error.status === 422,
+        );
+    }
+
+    const maxLength = await service.createCategory(contexts[0], {name: "Max length", definition: "x".repeat(500)});
+    assert.equal(maxLength.definition.length, 500);
+    await assert.rejects(
+        () => service.createCategory(contexts[0], {name: "Too long", definition: "x".repeat(501)}),
+        error => error.status === 422,
+    );
+    await assert.rejects(
+        () => service.renameCategory(contexts[0], categoryIds.first, {name: "Too long", definition: "x".repeat(501)}),
+        error => error.status === 422,
+    );
+
+    await assert.rejects(
+        () => service.renameCategory(contexts[0], categoryIds.first, {
+            name: "Stale definition",
+            expectedUpdatedAt: "2000-01-01T00:00:00.000Z",
+        }),
+        error => error.status === 409,
+    );
+});
+
+test("study service cycles the 12-slot palette and isolates categories by participant and study", async () => {
+    const pool = new StudyServicePool();
+    const service = createStudyService({pool});
+    const schedulerContext = {accountId: "account-d", studyId, participantId: 44, participantKey: "participant-d"};
+
+    const slots = [];
+    for (let index = 0; index < CATEGORY_PALETTE_SIZE + 1; index += 1) {
+        const category = await service.createCategory(schedulerContext, {name: `Category ${index}`});
+        slots.push(category.color_slot);
+        assert.equal(category.color, categoryColor(category.color_slot));
+    }
+    assert.deepEqual(
+        slots,
+        [ ...Array.from({length: CATEGORY_PALETTE_SIZE}, (_value, index) => index), 0 ],
+        "the palette must cycle every 12 categories without blocking creation",
+    );
+
+    const otherStudy = {accountId: "account-e", studyId: "study-2", participantId: 11, participantKey: "participant-a"};
+    const privateCategory = await service.createCategory(otherStudy, {name: "Other study category", definition: "private"});
+    assert.equal(pool.categories.get(privateCategory.id).studyId, "study-2");
+    await assert.rejects(
+        () => service.renameCategory(contexts[0], privateCategory.id, {name: "Cross study rename"}),
+        error => error.status === 404,
+        "a category from another study must never be readable through this session",
+    );
 });

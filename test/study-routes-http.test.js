@@ -34,9 +34,9 @@ const cardSummary = ordinal => ({
     html_url: `https://example.test/study/pr/${ordinal}`,
 });
 const defaultCategorySummary = Object.freeze([
-    Object.freeze({id: firstCategoryId, raw_name: "Alpha", total: 2, cards: Object.freeze([cardSummary(0), cardSummary(5)])}),
-    Object.freeze({id: secondCategoryId, raw_name: "Beta", total: 1, cards: Object.freeze([cardSummary(2)])}),
-    Object.freeze({id: thirdCategoryId, raw_name: "Zero", total: 0, cards: Object.freeze([])}),
+    Object.freeze({id: firstCategoryId, raw_name: "Alpha", definition: "Alpha definition", color_slot: 0, total: 2, cards: Object.freeze([cardSummary(0), cardSummary(5)])}),
+    Object.freeze({id: secondCategoryId, raw_name: "Beta", definition: null, color_slot: 1, total: 1, cards: Object.freeze([cardSummary(2)])}),
+    Object.freeze({id: thirdCategoryId, raw_name: "Zero", definition: null, color_slot: 2, total: 0, cards: Object.freeze([])}),
 ]);
 const canonicalRouteModules = [
     "../routes/queue/index.js",
@@ -66,8 +66,21 @@ class StudyHttpPool {
         return rows;
     }
 
+    async connect() {
+        return {
+            query: (sql, parameters = []) => this.query(sql, parameters),
+            release: () => {},
+        };
+    }
+
     async query(sql, parameters = []) {
         this.queries.push({sql, parameters});
+        if (["BEGIN", "COMMIT", "ROLLBACK"].includes(sql)) {
+            return {rows: []};
+        }
+        if (sql.includes("FROM study_participant") && sql.includes("FOR UPDATE")) {
+            return {rows: [{reviewer_id: parameters[1]}]};
+        }
         if (sql.includes("LIMIT $3 OFFSET $4")) {
             return {rows: this.pageRows(parameters)};
         }
@@ -86,7 +99,13 @@ class StudyHttpPool {
                 : []};
         }
         if (sql.startsWith("INSERT INTO participant_category")) {
-            return {rows: [ {id: "category-1", raw_name: parameters[2]} ]};
+            return {rows: [ {
+                id: "category-1",
+                raw_name: parameters[2],
+                definition: parameters[4],
+                color_slot: 0,
+                updated_at: "2026-01-01T00:00:00.000Z",
+            } ]};
         }
         throw new Error(`Unexpected pool query: ${sql}`);
     }
@@ -229,7 +248,16 @@ test("progress and category creation use session ownership despite supplied iden
             body: "name=Private+category&participant_id=22&study_id=study-2",
         });
         assert.equal(category.status, 201);
-        assert.deepEqual(pool.queries.at(-1).parameters, [context.studyId, context.participantId, "Private category", "private category"]);
+        const insertQuery = pool.queries.find(({sql}) => sql.startsWith("INSERT INTO participant_category"));
+        assert.deepEqual(insertQuery.parameters, [context.studyId, context.participantId, "Private category", "private category", null]);
+        assert.deepEqual(await category.json(), {
+            id: "category-1",
+            raw_name: "Private category",
+            definition: null,
+            color_slot: 0,
+            color: "#4E79A7",
+            updated_at: "2026-01-01T00:00:00.000Z",
+        });
     } finally {
         await close(server);
     }
@@ -254,6 +282,9 @@ test("progress applies default pagination and ignores client-supplied identity",
         assert.equal(progressPage.totalPages, 15);
         assert.deepEqual(progressPage.rows.map(row => row.ordinal), Array.from({length: 20}, (_value, index) => index));
         assert.deepEqual(categorySummary.map(group => group.raw_name), ["Alpha", "Beta", "Zero"]);
+        assert.deepEqual(categorySummary.map(group => group.definition), ["Alpha definition", null, null]);
+        assert.deepEqual(categorySummary.map(group => group.color_slot), [0, 1, 2]);
+        assert.deepEqual(categorySummary.map(group => group.color), ["#4E79A7", "#C05F17", "#E15759"]);
 
         const pageQuery = pool.queries.find(({sql}) => sql.includes("LIMIT $3 OFFSET $4"));
         assert.deepEqual(pageQuery.parameters, [context.studyId, context.participantId, 20, 0]);

@@ -167,7 +167,7 @@ test("Given migration 011 When migration 012 is inspected Then it preflights bef
     const migration = await readFile(new URL("../schema/migrations/011_multi_study_cardinality.sql", import.meta.url), "utf8");
     const usernameMigration = await readFile(new URL("../schema/migrations/012_global_normalized_username.sql", import.meta.url), "utf8");
     assert.deepEqual(managedMigrations.slice(-3).map(item => item.id), [
-        "010_study_scoped_participant_categories", "011_multi_study_cardinality", "012_global_normalized_username",
+        "011_multi_study_cardinality", "012_global_normalized_username", "013_category_definition_color",
     ]);
     assert.match(migration, /^BEGIN;/);
     assert.match(migration, /DROP INDEX IF EXISTS "study_ready_uidx"/);
@@ -335,4 +335,29 @@ test("Given duplicate cross-study usernames When migration 012 runs Then it fail
          FROM study`,
     );
     assert.deepEqual(finalState, {study_count: 2, ready_count: 2});
+});
+
+test("Given migration 013 When the runner replays Then slots, definitions, and the ledger are preserved", async () => {
+    const readCategories = async () => {
+        const {rows} = await pool.query(
+            `SELECT id, participant_id, raw_name, definition, color_slot, created_at, updated_at
+             FROM participant_category
+             ORDER BY id`,
+        );
+        return rows;
+    };
+    const before = await readCategories();
+    assert.ok(before.length > 0, "the seeded study must own at least one category");
+    const {rows: [recordedBefore]} = await pool.query(
+        "SELECT COUNT(*)::integer AS count FROM labeler_migration WHERE migration_id = '013_category_definition_color'",
+    );
+    assert.equal(recordedBefore.count, 1);
+
+    await Promise.all([runStudyMigrations(pool), runStudyMigrations(pool)]);
+
+    assert.deepEqual(await readCategories(), before, "a second runner invocation must not reassign slots or rewrite definitions");
+    const {rows: [recordedAfter]} = await pool.query(
+        "SELECT COUNT(*)::integer AS count FROM labeler_migration WHERE migration_id = '013_category_definition_color'",
+    );
+    assert.equal(recordedAfter.count, 1, "migration 013 must be recorded exactly once");
 });
