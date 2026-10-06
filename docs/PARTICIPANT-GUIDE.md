@@ -30,6 +30,16 @@ query o formulario.
 Los tres participantes reciben la misma muestra dentro de cada estudio. Tu cola, categorías, clasificaciones, descartes,
 observaciones y progreso son privados. Una decisión sobre una tarjeta no cambia la cola ni las categorías de otra persona.
 
+## Tarjeta y categorías
+
+La tarjeta prioriza la descripción, la evidencia seleccionada del CSV y las revisiones y comentarios de GitHub. Las
+métricas no se muestran, aunque siguen almacenadas. La evidencia aparece en lotes: el control `Show N more` revela el
+siguiente lote. El enlace a GitHub abre el diff completo y los detalles adicionales.
+
+Elige una categoría en una sola lista de opciones de radio accesible. Cada opción muestra el nombre, su definición
+opcional y un punto de color. La opción seleccionada también muestra una marca y el texto `Selected`; el color nunca es
+la única señal. El color de cada categoría se mantiene en la selección, su gestión y el progreso, incluso si la renombras.
+
 ## Privacidad y límites
 
 No hay selector de participante ni selector de estudio. La aplicación no acepta un participante o estudio en la URL, query,
