@@ -1,21 +1,32 @@
 import {readFile, realpath, stat} from "node:fs/promises";
 import path from "node:path";
+import {
+    COPILOT_369_CANONICAL_FILENAME,
+    COPILOT_369_MANIFEST_FILENAME,
+    COPILOT_369_SOURCE_CHECKSUM,
+} from "./copilot-369-source.js";
 import {readStudyBootstrapInput} from "./study-bootstrap-input.js";
 
 const PROFILE_CONTRACTS = Object.freeze([
     Object.freeze({
         studyKey: "pr-card-sorting-local",
-        expectedCardCount: 300,
-        sourceChecksum: "4051c10c39a1634aa80d9018aa53b59fd6009fdc4d7f2526d5e73708b02f53ef",
+        expectedCardCount: 369,
+        csvFilename: COPILOT_369_CANONICAL_FILENAME,
+        sourceManifestFilename: COPILOT_369_MANIFEST_FILENAME,
+        sourceChecksum: COPILOT_369_SOURCE_CHECKSUM,
         participants: Object.freeze([ "javier", "diego", "pablo" ]),
         loginUsernames: Object.freeze({javier: "javier", diego: "diego", pablo: "pablo"}),
+        enrichmentEnabled: false,
     }),
     Object.freeze({
         studyKey: "pr-card-sorting-validation-30",
         expectedCardCount: 30,
+        csvFilename: "validation-30-cards.csv",
+        sourceManifestFilename: "validation-30-cards.manifest.json",
         sourceChecksum: "1607cfe84cb687a2cc7b4c56d3e0abf106b1a1044810d7390663ef1d691b63ab",
         participants: Object.freeze([ "javier", "diego", "pablo" ]),
         loginUsernames: Object.freeze({javier: "javier-30", diego: "diego-30", pablo: "pablo-30"}),
+        enrichmentEnabled: false,
     }),
 ]);
 
@@ -68,7 +79,7 @@ const readStudyProfilesInput = async (input, roots = DEFAULT_PROFILE_ROOTS) => {
     const descriptor = await readDescriptor(input, roots);
     assertExactKeys(descriptor, [ "profiles" ], "Study profiles descriptor");
     if (!Array.isArray(descriptor.profiles) || descriptor.profiles.length !== PROFILE_CONTRACTS.length) {
-        throw new StudyProfilesInputError("Study profiles descriptor must contain the ordered 300 and 30 profiles");
+        throw new StudyProfilesInputError("Study profiles descriptor must contain the ordered 369 and 30 profiles");
     }
 
     const results = await Promise.allSettled(descriptor.profiles.map(async (entry, index) => {
@@ -76,18 +87,30 @@ const readStudyProfilesInput = async (input, roots = DEFAULT_PROFILE_ROOTS) => {
         if (typeof entry.enrichmentEnabled !== "boolean") {
             throw new StudyProfilesInputError(`profiles[${index}].enrichmentEnabled must be boolean`);
         }
+        const contract = PROFILE_CONTRACTS[index];
+        if (entry.enrichmentEnabled !== contract.enrichmentEnabled) {
+            throw new StudyProfilesInputError(`profiles[${index}].enrichmentEnabled must be false`);
+        }
+        if (typeof entry.csv !== "string" || path.basename(entry.csv) !== contract.csvFilename) {
+            throw new StudyProfilesInputError(`profiles[${index}].csv must use ${contract.csvFilename}`);
+        }
         const [ configInput, csvPath, manifestFile ] = await Promise.all([
             resolveMountedFile({file: entry.config, root: roots.config, label: `profiles[${index}].config`}),
             resolveMountedFile({file: entry.csv, root: roots.csv, label: `profiles[${index}].csv`}),
             resolveMountedFile({file: entry.accountManifest, root: roots.accountManifest, label: `profiles[${index}].accountManifest`}),
         ]);
+        await resolveMountedFile({
+            file: path.join(path.dirname(csvPath), contract.sourceManifestFilename),
+            root: roots.csv,
+            label: `profiles[${index}].sourceManifest`,
+        });
         const bootstrapInput = await readStudyBootstrapInput({csvPath, configInput, manifestFile});
-        const contract = PROFILE_CONTRACTS[index];
         if (bootstrapInput.config.studyKey !== contract.studyKey
             || bootstrapInput.config.expectedCardCount !== contract.expectedCardCount
             || JSON.stringify(bootstrapInput.config.participants) !== JSON.stringify(contract.participants)
             || JSON.stringify(bootstrapInput.config.loginUsernames) !== JSON.stringify(contract.loginUsernames)
-            || bootstrapInput.sourceChecksum !== contract.sourceChecksum) {
+            || bootstrapInput.sourceChecksum !== contract.sourceChecksum
+            || (bootstrapInput.report !== null) !== (contract.studyKey === "pr-card-sorting-local")) {
             throw new StudyProfilesInputError(`profiles[${index}] does not match the approved ordered profile`);
         }
         return Object.freeze({...entry, configInput, csvPath, manifestFile, bootstrapInput});
