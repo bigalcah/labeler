@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import {spawnSync} from "node:child_process";
 import {existsSync, readFileSync, statSync} from "node:fs";
 import https from "node:https";
 import path from "node:path";
 import test from "node:test";
+import {parse} from "csv-parse/sync";
 import pg from "pg";
+import {createStudyComparisonExport} from "../util/study-export.js";
 
 const {Pool} = pg;
 const root = path.resolve(new URL("..", import.meta.url).pathname);
@@ -36,11 +37,6 @@ const runtime = () => {
     }
     const baseUrl = new URL(required("STUDY_MULTI_STUDY_E2E_BASE_URL"));
     if (baseUrl.protocol !== "https:") prerequisite("STUDY_MULTI_STUDY_E2E_BASE_URL must use HTTPS");
-    const output = required("STUDY_MULTI_STUDY_E2E_EXPORT_OUTPUT");
-    if (!path.isAbsolute(output) || existsSync(output) || !existsSync(path.dirname(output))
-        || path.relative(root, output).startsWith("..") === false) {
-        prerequisite("STUDY_MULTI_STUDY_E2E_EXPORT_OUTPUT must be a new path outside the repository");
-    }
     let credentials;
     try {
         credentials = JSON.parse(readFileSync(externalFile("STUDY_MULTI_STUDY_E2E_CREDENTIALS_FILE"), "utf8"));
@@ -61,9 +57,6 @@ const runtime = () => {
             database: required("STUDY_MULTI_STUDY_E2E_DATABASE_NAME"),
             password: readFileSync(externalFile("STUDY_MULTI_STUDY_E2E_DATABASE_PASS_FILE"), "utf8").trim(),
         }),
-        databasePassFile: externalFile("STUDY_MULTI_STUDY_E2E_DATABASE_PASS_FILE"),
-        exportSecretFile: externalFile("STUDY_MULTI_STUDY_E2E_EXPORT_HMAC_SECRET_FILE"),
-        output,
     });
 };
 
@@ -186,6 +179,59 @@ const completeValidationQueue = async (client, categoryId, sharedCard, oppositeD
     assert.equal((await client.request("/queue")).status, 200, `${client.username} queue should be complete`);
 };
 
+const createSnapshotBarrier = pool => {
+    let announceSnapshot;
+    let resumeSnapshot;
+    let paused = false;
+    const snapshotEstablished = new Promise(resolve => {
+        announceSnapshot = resolve;
+    });
+    const resumed = new Promise(resolve => {
+        resumeSnapshot = resolve;
+    });
+
+    return {
+        pool: {
+            connect: async () => {
+                const client = await pool.connect();
+                return {
+                    query: async (...args) => {
+                        const result = await client.query(...args);
+                        const sql = typeof args[0] === "string" ? args[0] : args[0]?.text;
+                        if (!paused && sql?.includes("study-export:study")) {
+                            paused = true;
+                            announceSnapshot();
+                            await resumed;
+                        }
+                        return result;
+                    },
+                    release: error => client.release(error),
+                };
+            },
+        },
+        snapshotEstablished,
+        release: () => resumeSnapshot(),
+    };
+};
+
+const parseComparisonCsv = (csv, participantCount) => {
+    const records = parse(csv, {record_delimiter: "\r\n"});
+    const expectedColumns = 2 + participantCount * 3;
+    const expectedHeader = ["pr_id", "pr_url"];
+    for (let ordinal = 1; ordinal <= participantCount; ordinal += 1) {
+        expectedHeader.push(
+            `categoria_usuario_${ordinal}`,
+            `descripcion_categoria_usuario_${ordinal}`,
+            `comentario_clasificacion_usuario_${ordinal}`,
+        );
+    }
+
+    assert.equal(records.length, 31, "the 30-card sample should produce 30 CSV data rows");
+    assert.deepEqual(records[0], expectedHeader, "the export should contain only included participant blocks");
+    assert.ok(records.every(record => record.length === expectedColumns), "all rows should retain the expected CSV column count");
+    return records;
+};
+
 test("isolated hostile E2E keeps two READY studies, six authenticated contexts, and all private decisions isolated", async () => {
     const pool = new Pool(config.database);
     let complete = false;
@@ -275,21 +321,72 @@ test("isolated hostile E2E keeps two READY studies, six authenticated contexts, 
             mutation(javierValidation, `/queue/${shared.validation_card_id}/classify`, {category_id: shared.current_category_id, expected_revision: "0", study_id: currentStudyKey, participant_id: "foreign"}),
             mutation(javierValidation, "/categories", {name: "cookie-attack"}, {cookie: clients.get("javier").cookieHeader()}),
             mutation(javierValidation, "/categories", {name: "csrf-attack"}, {"x-csrf-token": clients.get("javier").csrfToken}),
-            javierValidation.request("/export"),
+            javierValidation.request("/export?study_id=pr-card-sorting-local&participant_id=foreign"),
         ]);
-        assert.deepEqual(hostile.map(response => response.status), [404, 303, 404, 403, 403, 404]);
+        assert.deepEqual(hostile.map(response => response.status), [404, 303, 404, 403, 403, 200]);
         assert.equal(hostile[1].headers.location, `/queue/${javierCard.id}`);
         assert.doesNotMatch(`${hostile[0].body}${hostile[2].body}`, new RegExp(shared.current_category_name, "i"));
+        assert.doesNotMatch(hostile[5].body, /private-(?:javier|diego|pablo)-30/);
         assert.equal(await privateState(pool), stateBeforeAttacks, "hostile URL, query, form, cookie, and CSRF requests must not mutate either study");
         const loginPage = await clients.get("javier").request("/login");
         assert.doesNotMatch(loginPage.body, /<select|\b(?:study_id|participant_id)\b/i);
 
-        await Promise.all(validationClients.map(client => completeValidationQueue(
+        await Promise.all(validationClients.slice(0, 2).map(client => completeValidationQueue(
             client,
             categories.get(client.username),
             client.username === "javier-30" ? shared.validation_card_id : null,
             "DISCARDED",
         )));
+
+        const {rows: [exportScope]} = await pool.query(
+            `SELECT study.id AS study_id, participant.reviewer_id AS participant_id
+             FROM study JOIN study_participant participant ON participant.study_id = study.id
+             WHERE study.study_key = $1 AND participant.participant_key = 'javier'`,
+            [validationStudyKey],
+        );
+        assert.ok(exportScope, "authenticated export participant must belong to the validation study");
+        const snapshotBarrier = createSnapshotBarrier(pool);
+        const snapshotExport = createStudyComparisonExport({
+            pool: snapshotBarrier.pool,
+            context: {studyId: exportScope.study_id, participantId: exportScope.participant_id},
+        });
+        try {
+            const reachedSnapshot = await Promise.race([
+                snapshotBarrier.snapshotEstablished.then(() => true),
+                snapshotExport.then(() => false),
+            ]);
+            assert.equal(reachedSnapshot, true, "export should pause immediately after its first study SELECT establishes the snapshot");
+
+            await completeValidationQueue(
+                clients.get("pablo-30"),
+                categories.get("pablo-30"),
+                null,
+                "DISCARDED",
+            );
+            snapshotBarrier.release();
+
+            const snapshotRecords = parseComparisonCsv(await snapshotExport, 2);
+            assert.equal(snapshotRecords.some(record => record.includes("private-pablo-30")
+                || record.some(value => value.startsWith("validated-pablo-30-"))), false,
+            "a participant completing after the snapshot must be entirely excluded");
+            process.stdout.write("snapshot_export_receipt cards=30 participants=2 columns=8\n");
+        } finally {
+            snapshotBarrier.release();
+            await snapshotExport;
+        }
+
+        const download = await mutation(clients.get("javier-30"), "/export/download", {});
+        assert.equal(download.status, 200, "the authenticated HTTP download should succeed after the third participant completes");
+        assert.match(download.headers["content-type"], /^text\/csv;\s*charset=utf-8$/i);
+        assert.match(download.headers["content-disposition"], /^attachment;\s*filename="pr-classifications\.csv"$/i);
+        assert.equal(download.headers["cache-control"], "private, no-store");
+        assert.equal(download.headers["x-content-type-options"], "nosniff");
+        const downloadedRecords = parseComparisonCsv(download.body, 3);
+        assert.equal(downloadedRecords.some(record => record.includes("private-pablo-30")
+            || record.some(value => value.startsWith("validated-pablo-30-"))), true,
+        "a participant completing before the next download should be included");
+        process.stdout.write("followup_export_receipt cards=30 participants=3 columns=11\n");
+
         const {rows: [completion]} = await pool.query(
             `SELECT COUNT(*) FILTER (WHERE classification.id IS NOT NULL)::integer AS classified,
                     COUNT(*) FILTER (WHERE discard.pr_card_id IS NOT NULL)::integer AS discarded,
@@ -323,18 +420,6 @@ test("isolated hostile E2E keeps two READY studies, six authenticated contexts, 
         );
         assert.deepEqual(differentDecisions, {current_classified: true, validation_discarded: true});
         assert.equal(await currentFingerprint(pool), fingerprintBefore, "validation work must not change the current 300-study fingerprint");
-
-        const exportResult = spawnSync("npm", ["run", "--silent", "export:study", "--", "--study-key", validationStudyKey, "--output", config.output], {
-            cwd: root,
-            encoding: "utf8",
-            env: {...process.env, DATABASE_HOST: config.database.host, DATABASE_PORT: `${config.database.port}`, DATABASE_USER: config.database.user,
-                DATABASE_NAME: config.database.database, DATABASE_PASS_FILE: config.databasePassFile, STUDY_EXPORT_HMAC_SECRET_FILE: config.exportSecretFile},
-        });
-        assert.equal(exportResult.status, 0, `${exportResult.stdout}\n${exportResult.stderr}`);
-        assert.match(exportResult.stdout, /STUDY_EXPORT_PUBLISHED/);
-        const results = readFileSync(path.join(config.output, "results.csv"), "utf8");
-        assert.equal(results.trim().split("\n").length, 91);
-        assert.equal(JSON.parse(readFileSync(path.join(config.output, "manifest.json"), "utf8")).completion.totals.terminal, 90);
 
         const logout = await mutation(clients.get("pablo-30"), "/logout", {});
         assert.equal(logout.status, 302);
