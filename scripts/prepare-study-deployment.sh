@@ -59,8 +59,6 @@ if [ -n "${STUDY_PROFILES_INPUT:-}" ]; then
   npm run prepare:study-profiles
 elif [ -n "${STUDY_CONFIG_INPUT:-}" ]; then
   npm run bootstrap:study -- "${STUDY_CSV_PATH}" "${STUDY_CONFIG_INPUT}"
-  npm run enrich:study -- "${STUDY_CSV_PATH}" "${STUDY_CONFIG_INPUT}"
 else
   npm run bootstrap:study -- "${STUDY_CSV_PATH}"
-  npm run enrich:study -- "${STUDY_CSV_PATH}"
 fi

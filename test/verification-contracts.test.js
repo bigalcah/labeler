@@ -9,6 +9,7 @@ import {
     runStudyMigrations,
 } from "../util/study-schema.js";
 import {assertStudySchemaReady, bootstrapStudy} from "../util/study-bootstrap.js";
+import {DEFAULT_STUDY_CONFIG} from "../util/study-config.js";
 import {
     loadParticipantCategories,
     loadStudyCard,
@@ -32,6 +33,7 @@ test("migration ledger accepts only ordered managed migrations and external reti
         "011_multi_study_cardinality",
         "012_global_normalized_username",
         "013_category_definition_color",
+        "014_copilot_369_cardinality",
     ]);
     assert.doesNotThrow(() => assertLedgerState([]));
     assert.doesNotThrow(() => assertLedgerState([ "001_study_foundation" ]));
@@ -223,13 +225,20 @@ test("bootstrap requires all managed migrations before any write", async () => {
                 {migration_id: "004_github_pr_api_enrichment"},
                 {migration_id: "005_github_enrichment_checkpoints"},
                 {migration_id: "006_github_api_telemetry"},
+                {migration_id: "007_local_accounts_sessions"},
+                {migration_id: "008_login_rate_limits"},
+                {migration_id: "009_csrf_contexts"},
+                {migration_id: "010_study_scoped_participant_categories"},
+                {migration_id: "011_multi_study_cardinality"},
+                {migration_id: "012_global_normalized_username"},
+                {migration_id: "013_category_definition_color"},
             ]};
         },
     };
 
     await assert.rejects(
         () => assertStudySchemaReady(incompletePool),
-        /requires migrations 001_study_foundation, 003_private_pr_discard, 004_github_pr_api_enrichment, 005_github_enrichment_checkpoints, 006_github_api_telemetry, 007_local_accounts_sessions/,
+        /requires migrations 001_study_foundation, 003_private_pr_discard, 004_github_pr_api_enrichment, 005_github_enrichment_checkpoints, 006_github_api_telemetry, 007_local_accounts_sessions, 008_login_rate_limits, 009_csrf_contexts, 010_study_scoped_participant_categories, 011_multi_study_cardinality, 012_global_normalized_username, 013_category_definition_color, 014_copilot_369_cardinality/,
     );
     assert.equal(queries.length, 1);
 
@@ -248,6 +257,7 @@ test("bootstrap requires all managed migrations before any write", async () => {
                 {migration_id: "011_multi_study_cardinality"},
                 {migration_id: "012_global_normalized_username"},
                 {migration_id: "013_category_definition_color"},
+                {migration_id: "014_copilot_369_cardinality"},
             ],
         }),
     };
@@ -273,11 +283,11 @@ test("bootstrap readiness failure happens before opening a write transaction", a
     await assert.rejects(
         () => bootstrapStudy({
             pool,
-            config: {studyKey: "study", expectedCardCount: 300, participants: [ "one" ]},
+            config: DEFAULT_STUDY_CONFIG,
             cards: [],
             sourceChecksum: "checksum",
         }),
-        /requires migrations 001_study_foundation, 003_private_pr_discard, 004_github_pr_api_enrichment, 005_github_enrichment_checkpoints, 006_github_api_telemetry, 007_local_accounts_sessions/,
+        /requires migrations 001_study_foundation, 003_private_pr_discard, 004_github_pr_api_enrichment, 005_github_enrichment_checkpoints, 006_github_api_telemetry, 007_local_accounts_sessions, 008_login_rate_limits, 009_csrf_contexts, 010_study_scoped_participant_categories, 011_multi_study_cardinality, 012_global_normalized_username, 013_category_definition_color, 014_copilot_369_cardinality/,
     );
     assert.equal(connectCalls, 0);
 });

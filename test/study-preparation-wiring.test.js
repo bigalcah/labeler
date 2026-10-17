@@ -50,7 +50,8 @@ test("GitHub configuration and secret wiring is limited to study preparation", (
     assert.match(enrichmentPrepareBlock, /GITHUB_ENRICHMENT_ENABLED:\s*"true"/);
     assert.doesNotMatch(serverBlock, /GITHUB_/);
     assert.match(prepare, /GITHUB_ENRICHMENT_ENABLED=.*false/);
-    assert.match(prepare, /npm run bootstrap:study[\s\S]*npm run enrich:study/);
+    assert.match(prepare, /npm run bootstrap:study/);
+    assert.doesNotMatch(prepare, /npm run enrich:study/);
     assert.equal(packageJson.scripts["enrich:study"], "node scripts/enrich-study.js");
     assert.doesNotMatch(compose, /owner\/repository/);
 });
@@ -94,11 +95,11 @@ test("enrichment command reports a sanitized failure without writing credential 
     assert.doesNotMatch(`${result.stdout}${result.stderr}`, new RegExp(secret));
 });
 
-test("a paused enrichment prevents successful preparation and server startup", () => {
+test("standalone enrichment fails closed when paused while CSV-only preparation never invokes it", () => {
     assert.match(enrichment, /result\.status === "PAUSED"/);
     assert.match(enrichment, /process\.exitCode = [1-9]/);
     assert.match(prepare, /set -eu/);
-    assert.match(prepare, /npm run enrich:study/);
+    assert.doesNotMatch(prepare, /npm run enrich:study/);
     assert.match(compose, /condition: service_completed_successfully/);
 });
 
@@ -184,7 +185,7 @@ test("existing Compose rendering needs no clean-only profile inputs or mounts", 
         ]) {
             assert.equal(prepareTargets.has(target), true, target);
         }
-        assert.equal(services["labeling-study-prepare"].environment.STUDY_CSV_PATH, "/labeling/data/pr-cards.csv");
+        assert.equal(services["labeling-study-prepare"].environment.STUDY_CSV_PATH, "/labeling/data/copilot-369-cards.csv");
         assert.equal(services["labeling-study-prepare"].environment.STUDY_PROFILES_INPUT, undefined);
     } finally {
         await rm(directory, {recursive: true, force: true});
@@ -271,7 +272,6 @@ test("clean preparation validates first, then migrates and bootstraps without a 
             "run retire:legacy:clean-check",
             "run migrate:study",
             "run bootstrap:study -- /input/cards.csv",
-            "run enrich:study -- /input/cards.csv",
         ]);
     } finally {
         await rm(directory, {recursive: true, force: true});
@@ -336,7 +336,7 @@ test("multi-study input failure stops before clean checks, migrations, or prepar
     }
 });
 
-test("multi-study enrichment failure propagates a nonzero prepare exit before server readiness", async () => {
+test("multi-study preparation failure propagates a nonzero exit before server readiness", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "labeler-prepare-enrichment-failure-"));
     const binDirectory = path.join(directory, "bin");
     const npmPath = path.join(binDirectory, "npm");
