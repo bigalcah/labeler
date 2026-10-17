@@ -167,7 +167,7 @@ test("anonymous Home emits only the welcome and one Login action despite client-
         assert.match(html, /<a href=(?:["'])?\/login(?:["'])?[^>]*>/);
         assert.doesNotMatch(html, /<header\b/);
         assert.doesNotMatch(html, /(?:navbar-toggler|data-bs-target=(?:["'])?#navbar)/);
-        assert.doesNotMatch(html, /<(?:a|form)\b[^>]*\b(?:href|action)=(?:["'])?\/(?:queue|progress|logout)(?:["'])?/);
+        assert.doesNotMatch(html, /<(?:a|form)\b[^>]*\b(?:href|action)=(?:["'])?\/(?:queue|progress|export|logout)(?:["'])?/);
         assert.doesNotMatch(html, /<div\b[^>]*\bclass=(?:["'])?[^>]*\bcard\b/);
         assert.doesNotMatch(html, /<span>participant-a<\/span>/);
         assert.doesNotMatch(html, /<form[^>]*action=(?:["'])?\/logout(?:["'])?[^>]*method=(?:["'])?post(?:["'])?[^>]*>/);
@@ -217,6 +217,7 @@ test("authenticated Home uses the signed session identity instead of client-supp
         assert.match(header, /<a\b[^>]*\bhref=(?:["'])?\/(?:["'])?[^>]*>Home<\/a>/);
         assert.match(header, /<a\b[^>]*\bhref=(?:["'])?\/queue(?:["'])?[^>]*>PR cards<\/a>/);
         assert.match(header, /<a\b[^>]*\bhref=(?:["'])?\/progress(?:["'])?[^>]*>Progress<\/a>/);
+        assert.match(header, /<a\b[^>]*\bhref=(?:["'])?\/export(?:["'])?[^>]*>Export<\/a>/);
         assert.match(html, /<span>participant-a<\/span>/);
         assert.match(html, /<form[^>]*action=(?:["'])?\/logout(?:["'])?[^>]*method=(?:["'])?post(?:["'])?[^>]*>/);
         assert.match(html, new RegExp(`<input[^>]*name=(?:["'])?csrf_token(?:["'])? value=(?:["'])?${sessionCsrfToken}(?:["'])?[^>]*>`));
@@ -231,11 +232,12 @@ test("authenticated Home uses the signed session identity instead of client-supp
                 title: block.match(/<title>([^<]*)<\/title>/)?.[1] || null,
             };
         });
-        assert.equal(actionCards.length, 2, "authenticated Home must render exactly two action cards inside main");
+        assert.equal(actionCards.length, 3, "authenticated Home must render exactly three action cards inside main");
         assert.deepEqual(actionCards, [
             {href: "/queue", title: "PR cards"},
             {href: "/progress", title: "Progress"},
-        ], "authenticated Home action cards must be PR cards to /queue and Progress to /progress");
+            {href: "/export", title: "Export"},
+        ], "authenticated Home action cards must be PR cards to /queue, Progress to /progress, then Export to /export");
         assert.equal(actionCards.filter(card => card.href === "/queue").length, 1, "authenticated Home must render exactly one action card targeting /queue");
         assert.doesNotMatch(html, /Pending cards/, "authenticated Home must not render a Pending cards action card");
 
@@ -295,7 +297,7 @@ test("public login is accessible, non-enumerating, and rejects missing or invali
         assert.doesNotMatch(html, /<header\b/);
         assert.doesNotMatch(html, /<nav\b[^>]*\bclass=(?:"[^"]*\bnavbar\b[^"]*"|[^\s>]*\bnavbar\b[^\s>]*)/);
         assert.doesNotMatch(html, /<a\b[^>]*\bhref=(?:["'])?https:\/\/seart\.si\.usi\.ch(?:["'])?[^>]*\bnavbar-brand\b/);
-        assert.doesNotMatch(html, /<(?:a|form)\b[^>]*\b(?:href|action)=(?:["'])?\/(?:queue|progress|logout)(?:["'])?/);
+        assert.doesNotMatch(html, /<(?:a|form)\b[^>]*\b(?:href|action)=(?:["'])?\/(?:queue|progress|export|logout)(?:["'])?/);
         assert.match(html, /<footer\b[^>]*>\s*<div class=(?:"container text-center"|container\s+text-center)>[\s\S]*?<\/footer>/);
         assert.match(html, /<form\b(?=[^>]*\bid=(?:"login-form"|login-form))(?=[^>]*\baction=(?:"\/login"|\/login))(?=[^>]*\bmethod=(?:"post"|post))(?=[^>]*\bautocomplete=(?:"on"|on))[^>]*>/);
         assert.match(html, /<label for=username>Username<\/label>/);
