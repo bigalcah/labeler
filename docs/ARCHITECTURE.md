@@ -115,10 +115,18 @@ Cada participante recibe todas las tarjetas del perfil en el mismo orden. `CLASS
 exactamente una categoría plana, privada y propia. `DISCARDED` conserva un motivo opcional y no
 elimina `pr_cards` ni `study_card`. No se difunden categorías, decisiones, descartes ni progreso.
 
-La exportación se ejecuta offline por un operador con `--study-key` explícito. Solo lee un estudio
-`READY` completamente terminado y publica `results.csv`, `categories.csv` y `manifest.json` en
-una ruta externa. El paquete usa pseudónimos HMAC y checksums, pero no contiene sesiones, hashes
-de credenciales, tokens, secretos, throttling ni payloads crudos. No existe ruta HTTP `/export`.
+La comparación usa `GET /export` para presentar el estado de la sesión y `POST /export/download`
+para la descarga. GET requiere sesión y es de solo lectura. El POST pasa validación de `Origin`,
+CSRF y sesión, y vuelve a comprobar que el solicitante y otra persona del mismo estudio hayan
+completado todas las tarjetas canónicas. Una instantánea de solo lectura fija participantes y
+decisiones; solo se publican bloques de participantes completos.
+
+El CSV tiene una fila por PR, empieza con `pr_id,pr_url` y agrega tres columnas por participante
+completo con ordinal estable, sin compactar huecos. Dos participantes dan 8 columnas y tres dan
+11. Se serializa como UTF-8, RFC 4180 y CRLF; la protección de fórmulas afecta únicamente la
+salida. No se escribe en la base ni se consulta GitHub. El archivo se construye entero antes de
+enviarse y los errores no incluyen CSV. El comando offline `export:study`, el paquete de tres
+archivos y su HMAC exclusivo fueron retirados; se conservan los backups y archivos históricos.
 
 ## Prepare y runtime
 
