@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>Labeler - Export</title>
+        <%- include('./partials/head/meta'); %>
+        <%- include('./partials/head/link'); %>
+        <%- include('./partials/head/noscript'); %>
+    </head>
+    <body class="min-vh-100 mw-100 d-flex flex-column justify-content-between">
+        <%- include('./partials/header'); %>
+        <main>
+            <div class="container py-3">
+                <div class="card">
+                    <section class="card-body<%= exportAvailability.state === "ready" ? " pb-0" : "" %>"
+                             aria-labelledby="export-title" data-export-panel aria-busy="false">
+                        <span class="pr-section-eyebrow">Study export</span>
+                        <h1 class="h2 mb-3" id="export-title">Export</h1>
+
+                        <% if (exportAvailability.state === "incomplete") { %>
+                            <p class="mb-0">Complete all of your assigned cards in PR cards, then return here.</p>
+                        <% } else if (exportAvailability.state === "waiting") { %>
+                            <p class="mb-0">Your work is complete. The export will be available when at least one other participant in this study has completed all assigned cards.</p>
+                        <% } else if (exportAvailability.state === "ready") { %>
+                            <p>Only participants who have completed all assigned cards are included. The CSV contains PR IDs and URLs, and each included participant’s category, description, and comment. Discarded cards are marked DESCARTADO.</p>
+                            <p class="text-muted small"><strong><%= exportAvailability.includedParticipantCount %></strong> participants included · <strong><%= exportAvailability.expectedCardCount %></strong> PR cards</p>
+                            <button type="button"
+                                    class="btn btn-primary"
+                                    id="study-export-download"
+                                    data-download-url="/export/download"
+                                    data-csrf-token="<%= locals.csrfToken %>"
+                                    aria-disabled="false"
+                                    aria-busy="false">
+                                Download CSV
+                            </button>
+                            <p class="alert alert-danger mt-3 mb-0 d-none" data-export-error role="alert">
+                                <span data-export-error-message></span>
+                                <a class="ms-1 d-none" data-export-login href="/login">Login</a>
+                            </p>
+                        <% } %>
+                    </section>
+                    <% if (exportAvailability.state === "ready") { %>
+                        <div class="card-body pt-0">
+                            <p class="mt-3 mb-0" data-export-status role="status" aria-live="polite" aria-atomic="true" hidden></p>
+                        </div>
+                    <% } %>
+                </div>
+            </div>
+        </main>
+        <%- include('./partials/footer'); %>
+        <%- include('./partials/scripts/bootstrap'); %>
+        <% if (exportAvailability.state === "ready") { %>
+            <script src="/js/export.js"></script>
+        <% } %>
+    </body>
+</html>

@@ -9,7 +9,7 @@ evidencia aprobada de ejecución de infraestructura, HTTP o VPS. `AGENTS.md` man
 - [`MULTI-STUDY-VALIDATION.md`](MULTI-STUDY-VALIDATION.md): perfiles 300 y 30, descriptor, orden de preparación y
   aislamiento.
 - [`PARTICIPANT-GUIDE.md`](PARTICIPANT-GUIDE.md): usernames asignados, login y flujo privado del participante.
-- [`EXPORT-RUNBOOK.md`](EXPORT-RUNBOOK.md): exportación offline operator-only y sus gates.
+- [`EXPORT-RUNBOOK.md`](EXPORT-RUNBOOK.md): comparación CSV en navegador, autorización, privacidad y errores.
 - [`deployment/GITHUB-ENRICHMENT.md`](../deployment/GITHUB-ENRICHMENT.md): aliases, permisos, conteos persistidos,
   estados, promoción y rerun.
 - [`deployment/ROLLBACK.md`](../deployment/ROLLBACK.md): backup, rollback read-only y restauración separada.
@@ -158,8 +158,9 @@ participante para cada ruta protegida. El navegador nunca elige el estudio por u
 query, formulario o cabecera. No hay selector de participante.
 
 Las categorías son planas y privadas por participante y estudio. `CLASSIFIED` tiene exactamente una categoría; el
-resultado `DISCARDED` conserva solo su motivo opcional. No hay UI administrativa, alta de cuentas ni una ruta HTTP de
-exportación. `/export` no es una superficie disponible.
+resultado `DISCARDED` conserva solo su motivo opcional. No hay UI administrativa ni alta de cuentas. La comparación CSV
+está disponible en `GET /export` para estado y `POST /export/download` para descargar, protegida por sesión, `Origin` y
+CSRF. Solo se incluyen el solicitante y otros participantes del mismo estudio que completaron todas las tarjetas.
 
 ## Reglas de despliegue
 
@@ -176,23 +177,23 @@ La selección de cada muestra procede del CSV validado. La fixture de 30 se obti
 con seis tarjetas por cada agente requerido. GitHub solo puede enriquecer snapshots desde `labeling-study-prepare`; no
 selecciona la muestra y no hay captura live durante la clasificación.
 
-## Exportación offline
+## Exportación comparativa
 
-La exportación es una operación local de operador, nunca una ruta web. El procedimiento completo está en
-[`EXPORT-RUNBOOK.md`](EXPORT-RUNBOOK.md). En resumen, crea un secreto HMAC externo de al menos 32 bytes, selecciona un
-directorio absoluto externo que todavía no exista y ejecuta:
+La vista `GET /export` requiere sesión, muestra el estado recalculado y es de solo lectura. El POST
+same-origin `POST /export/download` requiere sesión, `Origin` permitido y CSRF, y revalida que el
+solicitante y al menos otra persona del mismo estudio completaron exactamente las 30 o 300 tarjetas
+canónicas. La salida proviene de una única instantánea de solo lectura y solo contiene bloques de
+participantes completos.
 
-```bash
-export STUDY_EXPORT_HMAC_SECRET_FILE="$HOME/.config/labeler/secrets/export-hmac"
-npm run export:study -- \
-  --study-key pr-card-sorting-validation-30 \
-  --output "$HOME/.config/labeler/exports/validation-30"
-```
+El CSV incluye `pr_id,pr_url` y tres columnas por participante incluido, con ordinales persistidos
+estables y sin renumerar huecos. Dos participantes producen 8 columnas; tres producen 11. Es UTF-8,
+RFC 4180, con CRLF y protección de fórmulas en salida. No se escriben datos y no hay paquete parcial:
+el servidor termina de construir el archivo antes de responder. Estados y errores se detallan en
+[`EXPORT-RUNBOOK.md`](EXPORT-RUNBOOK.md).
 
-El comando solo publica `results.csv`, `categories.csv` y `manifest.json` si el estudio está `READY` y todas las tarjetas
-de cada participante tienen una decisión terminal. Lee PostgreSQL en una transacción `REPEATABLE READ READ ONLY`, no
-sobrescribe destinos y no imprime el secreto ni los datos exportados. Conserva el archivo HMAC para reproducir los mismos
-pseudónimos en exportaciones posteriores del mismo estudio.
+El comando `export:study`, sus tres archivos y la dependencia HMAC exclusiva fueron retirados; no
+hay alternativa de operador. Backups operativos y archivos históricos descargados permanecen
+intactos.
 
 ## Retiro legacy
 

@@ -31,10 +31,23 @@ El navegador y las rutas no deben llamar a GitHub. Los tokens GitHub pertenecen 
 enriquecimiento es opcional y prepare-only. PostgreSQL contiene decisiones privadas y snapshots normalizados, nunca tokens
 ni bodies crudos. No hay captura live durante la clasificación.
 
-La exportación es operator-only y offline. No existe `/export`, descarga desde el navegador ni otra ruta HTTP de exportación.
-El operador debe proporcionar un secreto HMAC externo y solo puede crear un paquete después de que todas las tarjetas de
-todos los participantes tengan una decisión terminal. El paquete no incluye tokens, sesiones, hashes de credenciales,
-secretos, datos de throttling ni payloads GitHub crudos.
+La comparación CSV es una excepción acotada a la privacidad ordinaria. `GET /export` requiere
+sesión, deriva participante y estudio de esa sesión y es de solo lectura; no requiere CSRF.
+`POST /export/download` exige sesión, `Origin` permitido y CSRF válido, y vuelve a validar el gate.
+La descarga solo se permite cuando el solicitante y al menos otra persona del mismo estudio han
+completado todas las 30 o 300 tarjetas canónicas con exactamente una decisión terminal por tarjeta.
+Solo se incluyen participantes completos; sus bloques conservan ordinales estables y no revelan
+columnas ni datos de personas incompletas.
+
+El servidor prepara el CSV entero desde una sola instantánea de solo lectura. Solo publica una
+respuesta `text/csv` si la generación termina; no escribe datos del estudio. El CSV usa UTF-8,
+RFC 4180 y CRLF. La protección contra fórmulas se aplica a los valores textuales de salida y no
+modifica lo persistido. Las respuestas de error no contienen adjunto ni bytes CSV; los errores
+internos son sanitizados. La página, los errores y el archivo son privados y no cacheables.
+
+Se retiraron `export:study`, el paquete anterior de tres archivos y el secreto HMAC exclusivo del
+exportador. No existe una alternativa de exportación de operador. Esta retirada no modifica
+backups operativos ni archivos históricos ya descargados.
 
 Usa placeholders `<...>` en documentación. Nunca commitees `.env`, tokens, claves privadas, passwords reales, payloads
 GitHub, dumps o logs sin revisar. GitHub exige routing `owner/name` exacto y permisos read-only.

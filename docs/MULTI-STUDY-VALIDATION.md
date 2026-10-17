@@ -94,8 +94,9 @@ repetición compatible conserva cuentas, hashes, versiones, tarjetas, membresía
 - Selector de estudio, selector de participante o interpretación de sufijos de username.
 - UI administrativa, autorregistro, invitaciones, MFA, OIDC o recuperación por correo.
 - Captura GitHub live, llamadas GitHub desde runtime, webhooks o workers permanentes.
-- Exportación HTTP, descarga desde el navegador, `/export` o JSONL legacy.
+- Exportación JSONL legacy.
 - Taxonomía jerárquica, normalización, acuerdo y adjudicación.
 
-La exportación aprobada es operator-only y offline. Su procedimiento está en [`EXPORT-RUNBOOK.md`](EXPORT-RUNBOOK.md).
+La comparación CSV vigente usa `GET /export` y `POST /export/download`; su contrato está en
+[`EXPORT-RUNBOOK.md`](EXPORT-RUNBOOK.md). No existe comando offline alternativo.
 Las fronteras de backup y restore, E2E histórico, E2E público en VPS, cierre documental y captura live siguen pendientes.

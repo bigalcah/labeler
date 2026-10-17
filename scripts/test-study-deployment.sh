@@ -165,16 +165,11 @@ process.stdout.write(`${JSON.stringify({
     "javier-30": validation[0], "diego-30": validation[1], "pablo-30": validation[2],
 })}\n`);
 NODE
-    node --input-type=module > "$runtime/multi-study-export-hmac-secret" <<'NODE'
-import {randomBytes} from "node:crypto";
-process.stdout.write(randomBytes(32).toString("base64url"));
-NODE
     cat > "$runtime/study-profiles.json" <<'JSON'
 {"profiles":[{"config":"/run/config/studies/current.json","csv":"/labeling/data/pr-cards.csv","accountManifest":"/run/secrets/studies/current.json","enrichmentEnabled":false},{"config":"/run/config/studies/validation-30.json","csv":"/labeling/data/validation-30-cards.csv","accountManifest":"/run/secrets/studies/validation-30.json","enrichmentEnabled":false}]}
 JSON
     chmod 0400 "$runtime/validation-study-config.json" "$runtime/study-profiles.json" \
-      "$runtime/validation-study-account-manifest.json" "$runtime/multi-study-e2e-credentials.json" \
-      "$runtime/multi-study-export-hmac-secret"
+      "$runtime/validation-study-account-manifest.json" "$runtime/multi-study-e2e-credentials.json"
   fi
   chmod 0400 "$runtime/database-password" "$runtime/session-current" "$runtime/session-previous" \
     "$runtime/study-config.json" "$runtime/study-account-manifest.json"
@@ -473,7 +468,7 @@ fi
 CLEAN_DATABASE_HOST=$(docker inspect --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${CLEAN_PROJECT}-database")
 [ -n "$CLEAN_DATABASE_HOST" ] || { printf 'isolated clean database IP is unavailable\n' >&2; exit 1; }
 MULTI_STUDY_E2E_LOG="$CLEAN_DIR/multi-study-hostile-e2e.log"
-MULTI_STUDY_E2E_OUTPUT="$CLEAN_DIR/multi-study-export"
+unset NODE_TEST_CONTEXT
 if ! env \
   STUDY_MULTI_STUDY_E2E_ISOLATED_RUNTIME=true \
   STUDY_MULTI_STUDY_E2E_BASE_URL="https://127.0.0.1:$CLEAN_HTTPS_PORT" \
@@ -484,8 +479,6 @@ if ! env \
   STUDY_MULTI_STUDY_E2E_DATABASE_USER=labeling_harness \
   STUDY_MULTI_STUDY_E2E_DATABASE_NAME=labeling_harness \
   STUDY_MULTI_STUDY_E2E_DATABASE_PASS_FILE="$CLEAN_DIR/database-password" \
-  STUDY_MULTI_STUDY_E2E_EXPORT_HMAC_SECRET_FILE="$CLEAN_DIR/multi-study-export-hmac-secret" \
-  STUDY_MULTI_STUDY_E2E_EXPORT_OUTPUT="$MULTI_STUDY_E2E_OUTPUT" \
   node --test "$ROOT/test/multi-study-hostile-e2e.integration.js" > "$MULTI_STUDY_E2E_LOG" 2>&1; then
   if [ -n "$EVIDENCE_DIR" ]; then
     cp "$MULTI_STUDY_E2E_LOG" "$EVIDENCE_DIR/multi-study-hostile-e2e.log" || true
@@ -496,8 +489,7 @@ if ! env \
 fi
 if [ -n "$EVIDENCE_DIR" ]; then
   cp "$MULTI_STUDY_E2E_LOG" "$EVIDENCE_DIR/multi-study-hostile-e2e.log"
-  cp "$MULTI_STUDY_E2E_OUTPUT/manifest.json" "$EVIDENCE_DIR/multi-study-export-manifest.json"
-  printf 'hostile_e2e=passed\ncredentials_outside_repository=true\ndatabase_host_port_published=false\nexport_output_outside_repository=true\n' \
+  printf 'hostile_e2e=passed\nsnapshot_export_cards=30\nsnapshot_export_participants=2\nsnapshot_export_columns=8\nfollowup_export_cards=30\nfollowup_export_participants=3\nfollowup_export_columns=11\ncredentials_outside_repository=true\ndatabase_host_port_published=false\n' \
     > "$EVIDENCE_DIR/multi-study-hostile-e2e.txt"
 fi
 printf 'MULTI_STUDY_HOSTILE_E2E_OK project=%s\n' "$CLEAN_PROJECT"

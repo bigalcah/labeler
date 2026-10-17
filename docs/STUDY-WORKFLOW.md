@@ -34,7 +34,13 @@ histórico, E2E en VPS o entorno público, cierre documental histórico y captur
     "participantSelector": "unavailable",
     "studySelector": "unavailable",
     "enrichment": {"mode": "optional-prepare-only", "liveCapture": "pending"},
-    "export": {"access": "offline-operator-only", "http": "unavailable", "path": "/export"},
+    "export": {
+        "access": "authenticated-session",
+        "http": "available",
+        "statusPath": "/export",
+        "downloadMethod": "POST",
+        "downloadPath": "/export/download"
+    },
     "adminUi": "unavailable",
     "evidence": {
         "backupRestore": "pending",
@@ -42,7 +48,7 @@ histórico, E2E en VPS o entorno público, cierre documental histórico y captur
         "vpsPublicE2E": "pending",
         "documentationClosure": "pending"
     },
-    "commands": ["validate:study-profiles", "prepare:study-profiles", "export:study", "docs:study-check"]
+    "commands": ["validate:study-profiles", "prepare:study-profiles", "docs:study-check"]
 }
 -->
 
@@ -140,24 +146,35 @@ forma parte del runtime del participante.
 El procedimiento canónico está en [`deployment/GITHUB-ENRICHMENT.md`](../deployment/GITHUB-ENRICHMENT.md); el rollback,
 en [`deployment/ROLLBACK.md`](../deployment/ROLLBACK.md).
 
-## Exportación offline
+## Comparación CSV desde el navegador
 
-El operador ejecuta la exportación desde fuera de la aplicación con un `study_key` explícito. La
-orden usa una transacción de solo lectura, exige que el estudio esté en `READY` y que todos los
-participantes hayan llevado todas sus tarjetas a un estado terminal. Genera `results.csv`,
-`categories.csv` y `manifest.json` con orden, pseudónimos HMAC, nombres de categorías, observaciones,
-motivos de descarte, URLs, procedencia y checksums.
+Una persona autenticada abre `GET /export` para ver su estado actual. La página y la descarga
+derivan el estudio y participante de la sesión; no aceptan selectores ni IDs de cliente. La vista
+GET es de solo lectura y no requiere CSRF. La descarga usa `POST /export/download`, protegido por
+validación de `Origin` y CSRF de la sesión, y vuelve a comprobar el gate en el servidor.
 
-```bash
-export STUDY_EXPORT_HMAC_SECRET_FILE="$HOME/.config/labeler/secrets/export-hmac"
-npm run export:study -- \
-  --study-key pr-card-sorting-validation-30 \
-  --output "$HOME/.config/labeler/exports/validation-30"
-```
+La descarga solo está disponible cuando quien la solicita y al menos otra persona del mismo
+estudio tienen una decisión terminal (`CLASSIFIED` o `DISCARDED`) en cada una de las 30 o 300
+tarjetas canónicas. Solo participantes completos aparecen en el archivo. Cada fila corresponde a
+un PR, con `pr_id,pr_url` seguidos por tres columnas por participante incluido: categoría,
+descripción y comentario. Los encabezados usan el ordinal estable de origen y no renumeran huecos;
+dos participantes producen 8 columnas y tres producen 11.
 
-La exportación es offline y solo para operadores. No existe exportación HTTP, descarga desde el
-navegador, UI administrativa ni ruta `/export`. El paquete no incluye sesiones, hashes de
-credenciales, tokens, secretos, datos de throttling o payloads GitHub crudos.
+El CSV se construye desde una única instantánea de solo lectura. Se genera completo antes de
+publicar la descarga; no escribe datos del estudio ni contiene datos incompletos. Su salida es
+UTF-8, delimitada por comas, con quoting RFC 4180 y CRLF. Los campos textuales que puedan
+interpretarse como fórmulas reciben protección en la salida, sin cambiar los datos persistidos.
+Los descartes se representan como `DESCARTADO` y dejan descripción y comentario vacíos.
+
+Si falta la sesión, la respuesta es 401 y no se entrega archivo. Un `Origin`/CSRF inválido o un
+gate no satisfecho produce 403; datos persistidos inconsistentes producen 409; un error interno
+produce 500 sanitizado. Los errores no incluyen adjunto ni CSV. El cliente solo inicia una descarga
+si recibe HTTP satisfactorio y `text/csv`; ante error ofrece reintento manual y nunca convierte
+HTML en archivo.
+
+El comando offline `export:study`, el paquete de tres archivos y su secreto HMAC exclusivo fueron
+retirados. No hay comando alternativo de operador. Conserva backups operativos y archivos
+históricos ya descargados sin modificarlos.
 
 ## Fuera de alcance
 

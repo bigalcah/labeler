@@ -7,7 +7,7 @@ rutas relativas. `npm ci` instala desde el lockfile. El estudio admite únicamen
 ## Scripts existentes
 
 `quality`, `lint`, `lint:js`, `lint:css`, `lint:md`, `test:unit`, `test:integration` y `test:e2e` son los gates
-estables. Para Wave 2 también existen `validate:study-profiles`, `prepare:study-profiles`, `export:study` y
+estables. Para Wave 2 también existen `validate:study-profiles` y `prepare:study-profiles` junto con
 `docs:study-check`. Los demás comandos incluyen `dev`, `start`, `minify`, `minify:css`, `backup:legacy`,
 `bootstrap:study`, `enrich:study`, `import:csv`, `migrate:study`, `retire:legacy:apply`,
 `retire:legacy:clean-check`, `retire:legacy:check`, `test:foundation`, `test:migrations`, `test:study-http`,
@@ -23,12 +23,11 @@ y pruebas unitarias autocontenidas. `test:integration` requiere `STUDY_HTTP_BASE
 si falta su destino y emiten líneas JSON con el comando y código de salida, sin valores de entorno.
 
 La ejecución del descriptor multiestudio exige validar todas las entradas antes de escribir y prepara
-300 antes de 30:
+300 antes de 30. La comparación CSV es una descarga autenticada desde `/export`, no un comando local.
 
 ```bash
 npm run validate:study-profiles
 npm run prepare:study-profiles
-npm run export:study -- --study-key <study-key> --output /absolute/external/directory
 npm run docs:study-check -- --root .
 ```
 
@@ -60,9 +59,9 @@ STUDY_E2E_BASE_URL=https://example.invalid npm run test:e2e
 ```
 
 Cada subcomando emite evidencia JSONL en stdout con `gate`, `command` y `exitCode`. Esta evidencia describe la ejecución
-sin copiar secretos ni valores de variables de entorno. La exportación requiere ejecución offline
-por un operador, `--study-key` explícito y un secreto HMAC externo. Produce los tres archivos
-`results.csv`, `categories.csv` y `manifest.json`; no existe ruta HTTP `/export`.
+sin copiar secretos ni valores de variables de entorno. El POST a `/export/download` requiere sesión, `Origin` permitido
+y CSRF, y el solicitante y al menos otra persona deben completar todas sus tarjetas. No existe `export:study` ni una
+exportación offline alternativa; el secreto HMAC exclusivo del exportador fue retirado.
 
 El servidor usa `3000` por defecto. Docker publica `7755:3000`; sus precondiciones están en
 [`docs/OPERATIONS.md`](OPERATIONS.md).

@@ -14,8 +14,9 @@ const CONTENT_SECURITY_POLICY = [
 ].join("; ");
 
 const createSecurityHeadersMiddleware = ({nodeEnv = process.env.NODE_ENV || "development"} = {}) => (req, res, next) => {
+    const isExportPath = req.path === "/export" || req.path.startsWith("/export/");
     res.set({
-        "Cache-Control": "no-store",
+        "Cache-Control": isExportPath ? "private, no-store" : "no-store",
         "Content-Security-Policy": CONTENT_SECURITY_POLICY,
         "Referrer-Policy": "strict-origin-when-cross-origin",
         "X-Content-Type-Options": "nosniff",

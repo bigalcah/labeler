@@ -31,7 +31,7 @@ const validContract = Object.freeze({
     participantSelector: "unavailable",
     studySelector: "unavailable",
     enrichment: {mode: "optional-prepare-only", liveCapture: "pending"},
-    export: {access: "offline-operator-only", http: "unavailable", path: "/export"},
+    export: {access: "authenticated-session", http: "available", statusPath: "/export", downloadMethod: "POST", downloadPath: "/export/download"},
     adminUi: "unavailable",
     evidence: {
         backupRestore: "pending",
@@ -39,7 +39,7 @@ const validContract = Object.freeze({
         vpsPublicE2E: "pending",
         documentationClosure: "pending",
     },
-    commands: [ "validate:study-profiles", "prepare:study-profiles", "export:study", "docs:study-check" ],
+    commands: [ "validate:study-profiles", "prepare:study-profiles", "docs:study-check" ],
 });
 
 const files = contract => ({
@@ -71,7 +71,6 @@ const files = contract => ({
     ].join("\n"),
     "scripts/validate-study-profiles.js": "",
     "scripts/prepare-study-profiles.js": "",
-    "scripts/export-study.js": "",
     "scripts/check-study-documentation.js": "",
 });
 
@@ -80,7 +79,6 @@ const packageJson = {
     scripts: {
         "validate:study-profiles": "node scripts/validate-study-profiles.js",
         "prepare:study-profiles": "node scripts/prepare-study-profiles.js",
-        "export:study": "node scripts/export-study.js",
         "docs:study-check": "node scripts/check-study-documentation.js",
     },
 };
@@ -126,7 +124,9 @@ test("Given contradictory structured claims when the checker runs then it emits 
         ["participant selector", contract => { contract.participantSelector = "available"; }, "CONTRACT_PARTICIPANT_SELECTOR_INVALID"],
         ["study selector", contract => { contract.studySelector = "available"; }, "CONTRACT_STUDY_SELECTOR_INVALID"],
         ["arbitrary count", contract => { contract.supportedCardCounts = [ 30, 40, 300 ]; }, "CONTRACT_SUPPORTED_COUNTS_INVALID"],
-        ["HTTP export", contract => { contract.export.http = "available"; }, "CONTRACT_EXPORT_HTTP_INVALID"],
+        ["export access", contract => { contract.export.access = "offline-operator-only"; }, "CONTRACT_EXPORT_ACCESS_INVALID"],
+        ["export HTTP", contract => { contract.export.http = "unavailable"; }, "CONTRACT_EXPORT_HTTP_INVALID"],
+        ["export download method", contract => { contract.export.downloadMethod = "GET"; }, "CONTRACT_EXPORT_DOWNLOAD_METHOD_INVALID"],
         ["admin UI", contract => { contract.adminUi = "available"; }, "CONTRACT_ADMIN_UI_INVALID"],
         ["backup restore", contract => { contract.evidence.backupRestore = "completed"; }, "CONTRACT_BACKUP_RESTORE_STATUS_INVALID"],
         ["historical E2E", contract => { contract.evidence.historicalE2E = "completed"; }, "CONTRACT_HISTORICAL_E2E_STATUS_INVALID"],
@@ -164,5 +164,20 @@ test("Given missing documentation links, commands, or profile counts when the ch
         assert.ok(codes.has("REQUIRED_LINK_MISSING"));
         assert.ok(codes.has("COMMAND_UNRESOLVED"));
         assert.ok(codes.has("PROFILE_SOURCE_COUNTS_INVALID"));
+    });
+});
+
+test("Given the retired offline command in the package when the checker runs then it rejects the selected root", async () => {
+    await withFixture(validContract, async root => {
+        await writeFile(path.join(root, "package.json"), JSON.stringify({
+            ...packageJson,
+            scripts: {...packageJson.scripts, "export:study": "node scripts/export-study.js"},
+        }), "utf8");
+
+        const result = await runChecker(root);
+        const output = JSON.parse(result.stdout);
+
+        assert.equal(result.exitCode, 1);
+        assert.ok(output.diagnostics.some(diagnostic => diagnostic.code === "COMMAND_RETIRED"));
     });
 });
