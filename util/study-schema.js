@@ -49,6 +49,10 @@ const managedMigrations = Object.freeze([
         id: "013_category_definition_color",
         url: new URL("../schema/migrations/013_category_definition_color.sql", import.meta.url),
     },
+    {
+        id: "014_copilot_369_cardinality",
+        url: new URL("../schema/migrations/014_copilot_369_cardinality.sql", import.meta.url),
+    },
 ]);
 const knownExternalMigrationIds = new Set([ "002_retire_legacy_labeler" ]);
 const advisoryLockKey = "labeler:study-schema";
