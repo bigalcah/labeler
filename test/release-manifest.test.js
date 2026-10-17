@@ -146,7 +146,7 @@ test("release manifest CLI rejects missing and unknown arguments before reading 
     await assert.rejects(() => run(unknownArguments), {code: "USAGE"});
 });
 
-test("Compose and server image package both study CSVs without host plans mounts", async () => {
+test("local Compose selects Copilot369 while the image preserves all protected sources without host plans mounts", async () => {
     // Given / When
     const [compose, cleanCompose, dockerfile] = await Promise.all([
         readFile(new URL("../deployment/docker-compose.yml", import.meta.url), "utf8"),
@@ -159,9 +159,12 @@ test("Compose and server image package both study CSVs without host plans mounts
     assert.equal((compose.match(/image: \$\{LABELER_SERVER_IMAGE:-seart\/labeling-server:1\.0\.0\}/g) ?? []).length, 2);
     assert.equal((compose.match(/^\s{4}build:$/gm) ?? []).length, 3);
     assert.doesNotMatch(`${compose}\n${cleanCompose}`, /\.\.\/plans\//);
-    assert.match(compose, /STUDY_CSV_PATH: \/labeling\/data\/pr-cards\.csv/);
+    assert.match(compose, /STUDY_CSV_PATH: \/labeling\/data\/copilot-369-cards\.csv/);
     assert.match(dockerfile, /COPY plans\/merged_after_rework_cards_seed_20260510\.csv data\/pr-cards\.csv/);
     assert.match(dockerfile, /COPY plans\/validation-30-cards\.csv data\/validation-30-cards\.csv/);
+    assert.match(dockerfile, /COPY plans\/copilot-369-cards\.csv data\/copilot-369-cards\.csv/);
+    assert.match(dockerfile, /COPY plans\/copilot-369-cards\.manifest\.json data\/copilot-369-cards\.manifest\.json/);
+    assert.match(dockerfile, /COPY plans\/validation-30-cards\.manifest\.json data\/validation-30-cards\.manifest\.json/);
     assert.equal(DEFAULT_PROFILE_ROOTS.csv, "/labeling/data");
 });
 
