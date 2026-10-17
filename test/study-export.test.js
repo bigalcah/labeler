@@ -1,204 +1,396 @@
 import assert from "node:assert/strict";
-import {createHash} from "node:crypto";
-import {mkdtemp, mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import {parse} from "csv-parse/sync";
 import test from "node:test";
-import {resolveStudyExportInputs} from "../util/study-export-input.js";
-import {assertSafeExportData} from "../util/study-export-format.js";
-import {createStudyExport} from "../util/study-export.js";
+import * as studyExport from "../util/study-export.js";
 
-const sha256 = value => createHash("sha256").update(value).digest("hex");
+const {createStudyComparisonExport, getStudyExportAvailability, StudyExportError} = studyExport;
 
-const study = Object.freeze({
-    id: "validation-study-id",
-    study_key: "pr-card-sorting-validation-30",
-    source_checksum: "source-checksum-30",
-    expected_card_count: 30,
-    bootstrap_state: "READY",
-    config: {participants: ["javier", "diego", "pablo"]},
-});
-const participants = Object.freeze([
-    {reviewer_id: 11, participant_key: "javier", participant_ordinal: 0},
-    {reviewer_id: 22, participant_key: "diego", participant_ordinal: 1},
-    {reviewer_id: 33, participant_key: "pablo", participant_ordinal: 2},
-]);
-const categories = participants.map(participant => ({
-    participant_key: participant.participant_key,
-    participant_ordinal: participant.participant_ordinal,
-    category_ordinal: 0,
-    category_name: `Category ${participant.participant_key}`,
-    category_definition: participant.participant_key === "javier" ? "Tracks missing test coverage" : null,
-    created_at: new Date("2026-09-01T00:00:00.000Z"),
-    updated_at: new Date("2026-09-02T00:00:00.000Z"),
-}));
-const results = participants.flatMap(participant => Array.from({length: 30}, (_value, cardOrdinal) => {
-    const classified = cardOrdinal % 2 === 0;
-    return {
-        participant_key: participant.participant_key,
-        participant_ordinal: participant.participant_ordinal,
-        card_ordinal: cardOrdinal,
-        source_card_id: `card-${cardOrdinal.toString().padStart(2, "0")}`,
-        decision: classified ? "CLASSIFIED" : "DISCARDED",
-        category_ordinal: classified ? 0 : null,
-        category_name: classified ? `Category ${participant.participant_key}` : null,
-        classification_remarks: classified ? `Remark ${cardOrdinal}` : null,
-        discard_reason: classified ? null : `Reason ${cardOrdinal}`,
-        decision_timestamp: new Date("2026-09-03T00:00:00.000Z"),
-        decision_updated_at: classified ? new Date("2026-09-04T00:00:00.000Z") : null,
-        decision_revision: classified ? 2 : 1,
-        source_html_url: `https://csv.example/pull/${cardOrdinal}`,
-        resolved_html_url: `https://github.example/pull/${cardOrdinal}`,
-        url_provenance: "GITHUB",
-        source_type: "CSV",
-        card_source_checksum: `membership-${cardOrdinal}`,
-        content_checksum: `content-${cardOrdinal}`,
-        enrichment_run_id: "run-30",
-        enrichment_snapshot_checksum: `snapshot-${cardOrdinal}`,
+const makeFixture = ({
+    expectedCardCount = 30,
+    completeOrdinals = [0, 2],
+    participantCount = 3,
+} = {}) => {
+    const study = {
+        id: `study-${expectedCardCount}`,
+        bootstrap_state: "READY",
+        expected_card_count: expectedCardCount,
+        config: {participants: Array.from({length: participantCount}, (_value, ordinal) => `participant-${ordinal}`)},
     };
-}));
-const enrichment = Object.freeze({
-    run_id: "run-30",
-    source_checksum: study.source_checksum,
-    promoted_at: new Date("2026-08-31T00:00:00.000Z"),
-    state: "COMPLETED",
-    manifest_checksum: "enrichment-manifest",
-    normalizer_version: "1",
-    coverage_count: 30,
-    snapshot_checksums_sha256: "snapshot-set-checksum",
+    const participants = Array.from({length: participantCount}, (_value, ordinal) => ({
+        reviewer_id: ordinal + 1,
+        participant_key: `participant-${ordinal}`,
+        participant_ordinal: ordinal,
+    }));
+    const cards = Array.from({length: expectedCardCount}, (_value, ordinal) => ({
+        pr_card_id: `pr-card-${ordinal}`,
+        card_ordinal: ordinal,
+        source_card_id: `PR-${ordinal}`,
+    }));
+    const decisions = new Map();
+
+    for (const participant of participants) {
+        for (const card of cards) {
+            const complete = completeOrdinals.includes(participant.participant_ordinal)
+                || card.card_ordinal < expectedCardCount - 1;
+            const classified = complete && card.card_ordinal % 2 === 0;
+            decisions.set(`${participant.reviewer_id}:${card.card_ordinal}`, {
+                decision: !complete ? "PENDING" : classified ? "CLASSIFIED" : "DISCARDED",
+                categoryValid: true,
+                categoryName: classified ? `Category ${participant.participant_ordinal}` : null,
+                categoryDefinition: classified ? `Definition ${participant.participant_ordinal}` : null,
+                classificationRemarks: classified ? `Remark ${card.card_ordinal}` : null,
+                sourceHtmlUrl: `https://csv.example/pr/${card.card_ordinal}`,
+                promotedHtmlUrl: card.card_ordinal === 0 ? `https://github.example/pr/${card.card_ordinal}` : null,
+            });
+        }
+    }
+
+    return {study, participants, cards, decisions};
+};
+
+const makeContext = (fixture, participantOrdinal = 0, overrides = {}) => ({
+    accountId: 700 + participantOrdinal,
+    studyId: fixture.study.id,
+    participantId: fixture.participants[participantOrdinal]?.reviewer_id,
+    participantKey: fixture.participants[participantOrdinal]?.participant_key,
+    ...overrides,
 });
 
 class ExportClient {
-    constructor({exportResults = results} = {}) {
-        this.exportResults = exportResults;
+    constructor(fixture) {
+        this.fixture = fixture;
         this.queries = [];
+        this.releaseCount = 0;
     }
 
     async query(sql, parameters = []) {
         this.queries.push({sql, parameters});
-        if (sql.startsWith("BEGIN")) return {rows: []};
+        if (sql.startsWith("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")) return {rows: []};
         if (sql === "COMMIT" || sql === "ROLLBACK") return {rows: []};
-        if (sql.includes("FROM study\n")) return {rows: [study]};
-        if (sql.includes("FROM study_participant")) return {rows: participants};
-        if (sql.includes("FROM study_card")) return {rows: this.exportResults};
-        if (sql.includes("FROM participant_category")) return {rows: categories};
-        if (sql.includes("FROM study_enrichment_promotion")) return {rows: [enrichment]};
+        if (sql.includes("study-export:study")) {
+            return {rows: parameters[0] === this.fixture.study.id ? [this.fixture.study] : []};
+        }
+        if (sql.includes("study-export:participants")) {
+            return {rows: parameters[0] === this.fixture.study.id
+                ? this.fixture.participants.map(participant => ({
+                    participant_id: participant.reviewer_id,
+                    participant_key: participant.participant_key,
+                    participant_ordinal: participant.participant_ordinal,
+                }))
+                : []};
+        }
+        if (sql.includes("study-export:cards")) {
+            return {rows: parameters[0] === this.fixture.study.id ? this.fixture.cards : []};
+        }
+        if (sql.includes("study-export:terminal-summary")) {
+            const rows = [];
+            for (const participant of this.fixture.participants) {
+                for (const card of this.fixture.cards) {
+                    const decision = this.fixture.decisions.get(`${participant.reviewer_id}:${card.card_ordinal}`);
+                    const classified = decision.decision === "CLASSIFIED";
+                    rows.push({
+                        participant_id: participant.reviewer_id,
+                        participant_ordinal: participant.participant_ordinal,
+                        card_ordinal: card.card_ordinal,
+                        classification_count: Number(decision.classificationCount ?? Number(classified)),
+                        discard_count: Number(decision.discardCount ?? Number(decision.decision === "DISCARDED")),
+                        category_reference_count: Number(decision.categoryReferenceCount ?? Number(classified)),
+                        valid_category_count: Number(decision.validCategoryCount ?? Number(classified && decision.categoryValid)),
+                    });
+                }
+            }
+            return {rows};
+        }
+        if (sql.includes("study-export:comparison-rows")) {
+            const selectedParticipantIds = new Set(parameters[1]);
+            const rows = [];
+            for (const participant of this.fixture.participants) {
+                if (!selectedParticipantIds.has(participant.reviewer_id)) continue;
+                for (const card of this.fixture.cards) {
+                    const decision = this.fixture.decisions.get(`${participant.reviewer_id}:${card.card_ordinal}`);
+                    rows.push({
+                        participant_id: participant.reviewer_id,
+                        participant_ordinal: participant.participant_ordinal,
+                        participant_key: participant.participant_key,
+                        card_ordinal: card.card_ordinal,
+                        source_card_id: card.source_card_id,
+                        source_html_url: `https://csv.example/pr/${card.card_ordinal}`,
+                        promoted_html_url: card.card_ordinal === 0 ? `https://github.example/pr/${card.card_ordinal}` : null,
+                        decision: decision.decision,
+                        category_id: decision.decision === "CLASSIFIED" && decision.categoryValid ? `category-${participant.reviewer_id}` : null,
+                        valid_category_id: decision.decision === "CLASSIFIED" && decision.categoryValid ? `category-${participant.reviewer_id}` : null,
+                        category_name: decision.categoryName,
+                        category_definition: decision.categoryDefinition,
+                        classification_remarks: decision.classificationRemarks,
+                        decision_timestamp: "not-for-export",
+                    });
+                }
+            }
+            return {rows};
+        }
         throw new Error(`Unexpected export query: ${sql}`);
     }
 
-    release() {}
+    release() {
+        this.releaseCount += 1;
+    }
 }
 
-const withDirectory = async operation => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "labeler-study-export-"));
-    try {
-        return await operation(directory);
-    } finally {
-        await rm(directory, {recursive: true, force: true});
-    }
+const makePool = fixture => {
+    const clients = [];
+    return {
+        clients,
+        async connect() {
+            const client = new ExportClient(fixture);
+            clients.push(client);
+            return client;
+        },
+    };
 };
 
-test("complete 30-card export publishes deterministic operator package without touching the 300 study", async () => withDirectory(async directory => {
-    const client = new ExportClient();
-    const destination = path.join(directory, "validation-export");
-    const manifest = await createStudyExport({
-        pool: {connect: async () => client},
-        studyKey: study.study_key,
-        destination,
-        hmacSecret: "external-export-secret-with-at-least-32-bytes",
-    });
+const parseCsv = buffer => parse(buffer, {
+    bom: false,
+    columns: false,
+    record_delimiter: "\r\n",
+});
 
-    assert.equal(manifest.study.expectedCardCount, 30);
-    assert.deepEqual(manifest.completion.totals, {participants: 3, classified: 45, discarded: 45, terminal: 90});
-    const resultsCsv = await readFile(path.join(destination, "results.csv"), "utf8");
-    const categoriesCsv = await readFile(path.join(destination, "categories.csv"), "utf8");
-    assert.equal(resultsCsv.trim().split("\n").length, 91);
-    assert.equal(categoriesCsv.trim().split("\n").length, 4);
-    const [categoriesHeader, ...categoryRows] = categoriesCsv.trim().split("\n");
-    assert.equal(categoriesHeader, [
-        "participant_ordinal", "participant_pseudonym", "category_ordinal", "category_name", "created_at", "updated_at",
-        "category_definition",
-    ].join(","));
-    assert.equal(categoryRows[0].split(",").at(-1), "Tracks missing test coverage");
-    assert.deepEqual(categoryRows.slice(1).map(row => row.split(",").at(-1)), ["", ""]);
-    for (const header of ["category_name", "classification_remarks", "discard_reason", "decision_revision",
-        "source_html_url", "resolved_html_url", "url_provenance", "enrichment_snapshot_checksum"]) {
-        assert.equal(resultsCsv.split("\n")[0].split(",").includes(header), true);
-    }
-    assert.match(categoriesCsv, /Category javier/);
-    assert.equal(manifest.enrichment.coverageCount, 30);
-    assert.equal(manifest.files["results.csv"].sha256, sha256(resultsCsv));
-    assert.equal(manifest.files["categories.csv"].sha256, sha256(categoriesCsv));
-    assert.doesNotMatch(`${resultsCsv}${categoriesCsv}${JSON.stringify(manifest)}`,
-        /raw_payload|password_hash|session_id|quota_metadata|external-export-secret/);
-    assert.deepEqual(client.queries.map(query => query.sql).slice(0, 2), [
-        "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY",
-        client.queries[1].sql,
-    ]);
-    assert.equal(client.queries.at(-1).sql, "COMMIT");
-    assert.equal(client.queries.filter(query => query.parameters.length > 0)
-        .every(query => query.parameters.includes(study.study_key) || query.parameters.includes(study.id)), true);
-    assert.equal(client.queries.some(query => /\b(?:INSERT|UPDATE|DELETE|TRUNCATE)\b/.test(query.sql)), false);
-}));
+const blockHeaders = ordinals => ordinals.flatMap(ordinal => [
+    `categoria_usuario_${ordinal + 1}`,
+    `descripcion_categoria_usuario_${ordinal + 1}`,
+    `comentario_clasificacion_usuario_${ordinal + 1}`,
+]);
 
-test("incomplete study rolls back and publishes no destination", async () => withDirectory(async directory => {
-    const client = new ExportClient({exportResults: results.slice(0, -1)});
-    const destination = path.join(directory, "incomplete-export");
-    await assert.rejects(() => createStudyExport({
-        pool: {connect: async () => client}, studyKey: study.study_key, destination, hmacSecret: "x".repeat(32),
-    }), /terminal decision/);
-    await assert.rejects(() => stat(destination), {code: "ENOENT"});
-    assert.equal(client.queries.at(-1).sql, "ROLLBACK");
-}));
+const assertExportError = (operation, status) => assert.rejects(operation, error => {
+    assert.ok(error instanceof StudyExportError);
+    assert.equal(error.status, status);
+    assert.doesNotMatch(error.message, /participant-[0-9]|PR-[0-9]|category-[0-9]|study-[0-9]/i);
+    return true;
+});
 
-test("export rejects prohibited fields before publishing", async () => {
-    for (const field of ["token", "secret", "session_id", "password_hash", "raw_payload", "quota_metadata"]) {
-        assert.throws(() => assertSafeExportData({safe: "value", [field]: "prohibited"}), /prohibited field/i);
+test("comparison export covers 30/300 cards and two/three complete participants", async t => {
+    for (const expectedCardCount of [30, 300]) {
+        for (const includedOrdinals of [[0, 2], [0, 1, 2]]) {
+            await t.test(`${expectedCardCount} cards, ${includedOrdinals.length} included`, async () => {
+                const fixture = makeFixture({expectedCardCount, completeOrdinals: includedOrdinals});
+                const pool = makePool(fixture);
+                const availability = await getStudyExportAvailability({pool, context: makeContext(fixture)});
+                assert.deepEqual(availability, {
+                    state: "ready",
+                    includedParticipantCount: includedOrdinals.length,
+                    expectedCardCount,
+                });
+
+                const buffer = await createStudyComparisonExport({pool, context: makeContext(fixture)});
+                assert.ok(Buffer.isBuffer(buffer));
+                const records = parseCsv(buffer);
+                assert.equal(records.length, expectedCardCount + 1);
+                assert.deepEqual(records[0], ["pr_id", "pr_url", ...blockHeaders(includedOrdinals)]);
+                assert.equal(records.every(record => record.length === records[0].length), true);
+                assert.equal(records[1][0], "PR-0");
+                assert.equal(records[1][1], "https://github.example/pr/0");
+                assert.equal(records[2][1], "https://csv.example/pr/1");
+                assert.equal(buffer.toString("utf8").endsWith("\r\n"), true);
+                assert.doesNotMatch(buffer.toString("utf8"), /(^|[^\r])\n/);
+                assert.doesNotMatch(buffer.toString("utf8"), /participant-[0-9]|not-for-export/);
+                assert.equal(pool.clients.every(client => client.releaseCount === 1), true);
+                assert.equal(pool.clients.every(client => client.queries.some(query => query.sql === "COMMIT")), true);
+                assert.equal(pool.clients.every(client => client.queries.some(query => query.sql.startsWith(
+                    "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY",
+                ))), true);
+                assert.equal(pool.clients.every(client => client.queries.some(query => /FROM study_card/.test(query.sql))), true);
+            });
+        }
     }
 });
 
-test("HMAC pseudonyms are isolated by study and exports are byte-identical", async () => withDirectory(async directory => {
-    const first = path.join(directory, "first");
-    const second = path.join(directory, "second");
-    const otherStudy = path.join(directory, "other-study");
-    for (const [destination, studyKey] of [[first, study.study_key], [second, study.study_key], [otherStudy, "other-study"]]) {
-        const client = new ExportClient();
-        client.query = async (sql, parameters = []) => {
-            if (sql.includes("FROM study\n")) return {rows: [{...study, study_key: studyKey}]};
-            return ExportClient.prototype.query.call(client, sql, parameters);
-        };
-        await createStudyExport({pool: {connect: async () => client}, studyKey, destination, hmacSecret: "h".repeat(32)});
-    }
-    for (const file of ["results.csv", "categories.csv", "manifest.json"]) {
-        assert.deepEqual(await readFile(path.join(first, file)), await readFile(path.join(second, file)));
-    }
-    const firstPseudonym = (await readFile(path.join(first, "results.csv"), "utf8")).split("\n")[1].split(",")[1];
-    const otherPseudonym = (await readFile(path.join(otherStudy, "results.csv"), "utf8")).split("\n")[1].split(",")[1];
-    assert.notEqual(firstPseudonym, otherPseudonym);
-}));
+test("availability hides other participants while requester is incomplete", async () => {
+    const fixture = makeFixture({completeOrdinals: [1, 2]});
+    const pool = makePool(fixture);
+    const availability = await getStudyExportAvailability({pool, context: makeContext(fixture)});
 
-test("export inputs require protected external secret and new external destination", async () => withDirectory(async directory => {
-    const repositoryRoot = path.resolve(new URL("..", import.meta.url).pathname);
-    const secretFile = path.join(directory, "export-hmac");
-    await writeFile(secretFile, "s".repeat(32), {mode: 0o400});
-    const inputs = resolveStudyExportInputs([
-        "--study-key", study.study_key, "--output", path.join(directory, "package"),
-    ], {STUDY_EXPORT_HMAC_SECRET_FILE: secretFile}, repositoryRoot);
-    assert.equal(inputs.hmacSecret, "s".repeat(32));
-    assert.equal(JSON.stringify(inputs).includes(secretFile), false);
-    assert.throws(() => resolveStudyExportInputs(["--study-key", study.study_key, "--output", path.join(repositoryRoot, "package")],
-        {STUDY_EXPORT_HMAC_SECRET_FILE: secretFile}, repositoryRoot), /outside the repository/);
-    await mkdir(path.join(directory, "existing"));
-    assert.throws(() => resolveStudyExportInputs(["--study-key", study.study_key, "--output", path.join(directory, "existing")],
-        {STUDY_EXPORT_HMAC_SECRET_FILE: secretFile}, repositoryRoot), /must not exist/);
-    const permissiveSecret = path.join(directory, "permissive-secret");
-    await writeFile(permissiveSecret, "p".repeat(32), {mode: 0o644});
-    assert.throws(() => resolveStudyExportInputs(["--study-key", study.study_key, "--output", path.join(directory, "other")],
-        {STUDY_EXPORT_HMAC_SECRET_FILE: permissiveSecret}, repositoryRoot), /HMAC_SECRET_FILE is invalid/);
-}));
+    assert.deepEqual(availability, {state: "incomplete"});
+    assert.equal(Object.hasOwn(availability, "includedParticipantCount"), false);
+    assert.equal(Object.hasOwn(availability, "expectedCardCount"), false);
+    assert.equal(pool.clients[0].queries.some(query => query.sql.includes("study-export:comparison-rows")), false);
+    const gateQuery = pool.clients[0].queries.find(query => query.sql.includes("study-export:terminal-summary"));
+    assert.doesNotMatch(gateQuery.sql, /raw_name|definition|remarks/i);
+    await assertExportError(
+        () => createStudyComparisonExport({pool, context: makeContext(fixture)}),
+        403,
+    );
+});
 
-test("package exposes only the offline study export command", async () => {
-    const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-    assert.equal(packageJson.scripts["export:study"], "node scripts/export-study.js");
-    assert.equal(Object.keys(packageJson.scripts).some(name => name.includes("export:http")), false);
+test("availability waits when only the requester is complete and another study cannot satisfy the gate", async () => {
+    const fixture = makeFixture({completeOrdinals: [0]});
+    fixture.otherStudyCompleteParticipantIds = [90, 91];
+    const pool = makePool(fixture);
+
+    assert.deepEqual(await getStudyExportAvailability({pool, context: makeContext(fixture)}), {state: "waiting"});
+    await assertExportError(
+        () => createStudyComparisonExport({pool, context: makeContext(fixture)}),
+        403,
+    );
+});
+
+test("one missing terminal decision stays incomplete even when rounded progress would be 100 percent", async () => {
+    const fixture = makeFixture({expectedCardCount: 300, completeOrdinals: [0, 1]});
+    fixture.decisions.set("1:299", {
+        decision: "PENDING",
+        categoryValid: true,
+        categoryName: null,
+        categoryDefinition: null,
+        classificationRemarks: null,
+        sourceHtmlUrl: "https://csv.example/pr/299",
+        promotedHtmlUrl: null,
+    });
+    const pool = makePool(fixture);
+
+    assert.deepEqual(await getStudyExportAvailability({pool, context: makeContext(fixture)}), {state: "incomplete"});
+    await assertExportError(() => createStudyComparisonExport({pool, context: makeContext(fixture)}), 403);
+});
+
+test("a missing or non-ready study is rejected without trusting client-selected scope", async () => {
+    const fixture = makeFixture({completeOrdinals: [0, 2]});
+    const pool = makePool(fixture);
+
+    await assertExportError(() => createStudyComparisonExport({
+        pool,
+        context: makeContext(fixture, 0, {studyId: "different-study", selectedStudyId: fixture.study.id}),
+    }), 403);
+    await assertExportError(() => createStudyComparisonExport({
+        pool,
+        context: makeContext(fixture, 0, {participantId: 99, selectedParticipantId: 1}),
+    }), 403);
+
+    fixture.study.bootstrap_state = "PENDING";
+    await assertExportError(() => createStudyComparisonExport({pool, context: makeContext(fixture)}), 409);
+});
+
+test("membership, canonical card coverage, and terminal exclusivity are validated", async () => {
+    const invalidMembershipFixture = makeFixture({completeOrdinals: [0, 2]});
+    invalidMembershipFixture.participants.pop();
+    await assertExportError(() => createStudyComparisonExport({
+        pool: makePool(invalidMembershipFixture),
+        context: makeContext(invalidMembershipFixture),
+    }), 409);
+
+    const missingCardFixture = makeFixture({completeOrdinals: [0, 2]});
+    missingCardFixture.cards.pop();
+    const missingCardPool = makePool(missingCardFixture);
+    await assertExportError(
+        () => createStudyComparisonExport({pool: missingCardPool, context: makeContext(missingCardFixture)}),
+        409,
+    );
+    assert.equal(missingCardPool.clients[0].queries.some(query => query.sql.includes("study-export:comparison-rows")), false);
+
+    const conflictFixture = makeFixture({completeOrdinals: [0, 2]});
+    conflictFixture.decisions.get("1:0").discardCount = 1;
+    await assertExportError(
+        () => createStudyComparisonExport({pool: makePool(conflictFixture), context: makeContext(conflictFixture)}),
+        409,
+    );
+});
+
+test("incomplete ordinal gaps remain visible, while invalid category references reject the whole export", async () => {
+    const fixture = makeFixture({completeOrdinals: [0, 2]});
+    const pool = makePool(fixture);
+    const buffer = await createStudyComparisonExport({pool, context: makeContext(fixture)});
+    const records = parseCsv(buffer);
+    assert.deepEqual(records[0], ["pr_id", "pr_url", ...blockHeaders([0, 2])]);
+    assert.equal(records.flat().some(value => value.includes("participant-1")), false);
+
+    const invalidCategoryFixture = makeFixture({completeOrdinals: [0, 2]});
+    invalidCategoryFixture.decisions.get("1:0").categoryValid = false;
+    const invalidCategoryPool = makePool(invalidCategoryFixture);
+    await assertExportError(() => createStudyComparisonExport({
+        pool: invalidCategoryPool,
+        context: makeContext(invalidCategoryFixture),
+    }), 409);
+    assert.equal(invalidCategoryPool.clients[0].queries.some(query => query.sql.includes("study-export:comparison-rows")), false);
+    assert.equal(invalidCategoryPool.clients[0].queries.at(-1).sql, "ROLLBACK");
+});
+
+test("classified, discarded, and optional cells map to separate CSV fields", async () => {
+    const fixture = makeFixture({completeOrdinals: [0, 2]});
+    for (const card of fixture.cards) {
+        fixture.decisions.set(`1:${card.card_ordinal}`, {
+            decision: "DISCARDED",
+            categoryValid: true,
+            categoryName: null,
+            categoryDefinition: null,
+            classificationRemarks: null,
+            sourceHtmlUrl: `https://csv.example/pr/${card.card_ordinal}`,
+            promotedHtmlUrl: null,
+        });
+    }
+    fixture.decisions.get("3:0").categoryDefinition = null;
+    fixture.decisions.get("3:0").classificationRemarks = null;
+    const records = parseCsv(await createStudyComparisonExport({pool: makePool(fixture), context: makeContext(fixture)}));
+
+    assert.deepEqual(records[1].slice(2, 5), ["DESCARTADO", "", ""]);
+    assert.deepEqual(records[1].slice(5, 8), ["Category 2", "", ""]);
+    assert.equal(records.length, fixture.study.expected_card_count + 1);
+});
+
+test("CSV quoting preserves Unicode, commas, quotes, multiline text, and formula protection only in output", async () => {
+    const fixture = makeFixture({completeOrdinals: [0, 2]});
+    const original = fixture.decisions.get("1:0");
+    Object.assign(original, {
+        categoryName: "=SUM(1,1)",
+        categoryDefinition: "  + café, \"texte\"\r\nsecond line",
+        classificationRemarks: "\t@HYPERLINK(\"https://example.test\")",
+    });
+    fixture.decisions.get("1:2").classificationRemarks = "'already protected";
+    const pool = makePool(fixture);
+    const buffer = await createStudyComparisonExport({pool, context: makeContext(fixture)});
+    const records = parseCsv(buffer);
+
+    assert.deepEqual(records[1].slice(2, 5), [
+        "'=SUM(1,1)",
+        "'  + café, \"texte\"\r\nsecond line",
+        "'\t@HYPERLINK(\"https://example.test\")",
+    ]);
+    assert.equal(records[3][4], "'already protected");
+    assert.equal(original.categoryName, "=SUM(1,1)");
+    assert.equal(original.categoryDefinition, "  + café, \"texte\"\r\nsecond line");
+    assert.match(buffer.toString("utf8"), /\r\n/);
+    assert.equal(parseCsv(buffer).every(record => record.length === records[0].length), true);
+});
+
+test("empty, leading CR/LF, and leading-space formula cells are protected without merging similar categories", async () => {
+    const fixture = makeFixture({completeOrdinals: [0, 2]});
+    fixture.decisions.get("1:0").categoryName = " =1+1";
+    fixture.decisions.get("1:0").categoryDefinition = "\rSUM(1,1)";
+    fixture.decisions.get("1:0").classificationRemarks = "\n@cmd";
+    fixture.decisions.get("3:0").categoryName = "Different spelling";
+    fixture.decisions.get("3:2").categoryName = "@command";
+    fixture.decisions.get("3:2").categoryDefinition = "-1+1";
+    fixture.decisions.get("3:2").classificationRemarks = "+1+1";
+    fixture.decisions.get("1:2").categoryDefinition = null;
+    fixture.decisions.get("1:2").classificationRemarks = null;
+    const records = parseCsv(await createStudyComparisonExport({pool: makePool(fixture), context: makeContext(fixture)}));
+
+    assert.deepEqual(records[1].slice(2, 5), ["' =1+1", "'\rSUM(1,1)", "'\n@cmd"]);
+    assert.deepEqual(records[3].slice(2, 5), ["Category 0", "", ""]);
+    assert.deepEqual(records[1].slice(5, 6), ["Different spelling"]);
+    assert.deepEqual(records[3].slice(5, 8), ["'@command", "'-1+1", "'+1+1"]);
+    assert.equal(records[1][2], "' =1+1");
+});
+
+test("only canonical study cards and approved export columns are serialized", async () => {
+    const fixture = makeFixture({completeOrdinals: [0, 2]});
+    fixture.outsideSampleDecision = {
+        source_card_id: "OUTSIDE-SAMPLE",
+        decision: "CLASSIFIED",
+        category_name: "outside",
+    };
+    const pool = makePool(fixture);
+    const buffer = await createStudyComparisonExport({pool, context: makeContext(fixture)});
+    const records = parseCsv(buffer);
+    const output = buffer.toString("utf8");
+
+    assert.equal(records.length, fixture.study.expected_card_count + 1);
+    assert.equal(records[0].length, 8);
+    assert.doesNotMatch(output, /OUTSIDE-SAMPLE|participant-[0-9]|not-for-export|decision_timestamp/);
+    assert.equal(pool.clients[0].queries.some(query => /INSERT|UPDATE|DELETE|TRUNCATE/i.test(query.sql)), false);
 });
