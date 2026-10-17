@@ -1,0 +1,10 @@
+{
+  "studyKey": "pr-card-sorting-local",
+  "expectedCardCount": 369,
+  "participants": ["javier", "diego", "pablo"],
+  "loginUsernames": {
+    "javier": "javier",
+    "diego": "diego",
+    "pablo": "pablo"
+  }
+}

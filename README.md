@@ -2,23 +2,37 @@
 
 ## Estudio de clasificación de PR
 
-La preparación del estudio admite exactamente dos perfiles, en este orden:
+La preparación ordinaria admite exactamente dos perfiles, en este orden:
 
-1. `pr-card-sorting-local`, con 300 tarjetas y los participantes visibles
+1. `pr-card-sorting-local`, con 369 tarjetas y los participantes visibles
    `javier`, `diego` y `pablo`. Sus usernames de login son `javier`, `diego` y `pablo`.
 2. `pr-card-sorting-validation-30`, con 30 tarjetas y los mismos participantes visibles. Sus
    usernames de login son `javier-30`, `diego-30` y `pablo-30`.
 
-La muestra de 300 tarjetas procede del CSV canónico. La muestra de 30 se deriva de ese CSV de
-forma determinista. Ambos perfiles usan la misma membresía ordenada para cada participante, pero
-sus categorías, clasificaciones, descartes, observaciones y progreso son privados y están
-acotados al `study_id` del estudio.
+La muestra primaria procede de `plans/copilot-369-cards.csv`, la fuente Copilot canónica de 85
+columnas con sidecar y checksum fijados. El CSV histórico de 300 se conserva solo como entrada
+esperada de la transición protegida de una primaria existente, no como perfil ordinario ni como
+fallback. La muestra de 30 y su CSV, manifest, membresía y snapshots existentes se conservan sin
+cambios. Ambos perfiles usan la misma membresía ordenada para cada participante, pero sus
+categorías, clasificaciones, descartes, observaciones y progreso son privados y están acotados al
+`study_id` del estudio.
+
+En una base vacía, la preparación coordinada crea 369 y después 30. Si ambos estudios aprobados ya
+existen y validan, su verificación es de solo lectura: no ejecuta bootstrap, reprovisión,
+reimportación, refresh ni enriquecimiento. Un par parcial, drift o primaria histórica de 300 falla
+cerrado. La primaria histórica solo puede pasar por el cutover dedicado, con autorización,
+mantenimiento y precondiciones exactas. Consulta el [runbook operativo Copilot 369](docs/COPILOT-369-RUNBOOK.md).
 
 El `study_id` autorizado procede de la cuenta y de la sesión de servidor. El username solo busca
 la cuenta y el sistema no interpreta el sufijo `-30`. No existe selector de participante ni de
 estudio, no se aceptan conteos arbitrarios y no hay UI administrativa.
 
 ## Release automático a la VPS
+
+Esta sección describe el contrato de release congelado, no una ruta de publicación de la primaria
+Copilot 369. El contrato actual aún valida 300 tarjetas y el CSV histórico, por lo que integración
+con CI, publicación en `master` y despliegue de 369 permanecen en **HOLD** hasta un cambio dedicado
+de pipeline aprobado. Consulta [`docs/COPILOT-369-RELEASE-HOLD.md`](docs/COPILOT-369-RELEASE-HOLD.md).
 
 Cada `push` a `master` inicia `.github/workflows/release.yml`. El job `quality` invoca la
 validación compartida y debe completar los gates de calidad, integración y E2E antes de que
@@ -88,15 +102,16 @@ de `LABELER_PUBLIC_BASE_URL/login`. Solo después del smoke test se publican `cu
 Cada intento conserva manifiesto, configuración, pull, inspección, backup, health checks, smoke
 test y diagnósticos.
 
-La imagen del servidor contiene el CSV canónico en `/labeling/data/pr-cards.csv`; Compose usa esa
-ruta como `STUDY_CSV_PATH`. Por tanto, la preparación no depende de `plans/` ni de un workspace del
-runner en la VPS. El `.env`, los secretos externos y el volumen `labeling-data` quedan fuera del
-paquete y no se sustituyen durante la release.
+El contrato de release actualmente contiene el CSV histórico en `/labeling/data/pr-cards.csv`;
+Compose usa esa ruta como `STUDY_CSV_PATH`. La fuente de producto 369 es un archivo separado y no
+cambia qué CSV identifica el manifiesto de release. El `.env`, los secretos externos y el volumen
+`labeling-data` quedan fuera del paquete y no se sustituyen durante la release.
 
 La composición que viaja en el paquete procede de `deployment/docker-compose.release.yml`. Incluye
-el descriptor de perfiles, las configuraciones de 300 y 30 tarjetas y ambos manifests como mounts
-externos parametrizados, todos limitados a `labeling-study-prepare`. El servidor y Caddy no reciben
-esos archivos; la ruta local `docker-compose.clean.yml` continúa siendo un overlay separado.
+el descriptor de perfiles del contrato de release congelado, las configuraciones de 300 y 30
+tarjetas y ambos manifests como mounts externos parametrizados, todos limitados a
+`labeling-study-prepare`. El servidor y Caddy no reciben esos archivos; la ruta local
+`docker-compose.clean.yml` continúa siendo un overlay separado.
 
 La recuperación de imagen solo puede usar `previous` si su manifiesto declara compatibilidad con el
 esquema activo. No revierte migraciones ni elimina `labeling-data`. Si la compatibilidad no está
@@ -150,7 +165,7 @@ export LABELER_ACCOUNT_PASSWORDS="$LABELER_SECRETS/account-passwords.json"
 export LABELER_ACCOUNT_MANIFEST="$LABELER_SECRETS/study-account-manifest.json"
 
 cat > "$LABELER_STUDY_CONFIG" <<'JSON'
-{"studyKey":"pr-card-sorting-local","expectedCardCount":300,"participants":["javier","diego","pablo"]}
+{"studyKey":"pr-card-sorting-local","expectedCardCount":369,"participants":["javier","diego","pablo"]}
 JSON
 
 node --input-type=module > "$LABELER_ACCOUNT_PASSWORDS" <<'NODE'
@@ -166,8 +181,8 @@ npm run credentials:generate -- \
 chmod 0400 "$LABELER_ACCOUNT_MANIFEST"
 ```
 
-El ejemplo genera el manifiesto del perfil actual. Para el perfil de validación usa un archivo de
-configuración y un manifiesto separados, con `expectedCardCount` igual a `30` y los usernames
+El ejemplo genera el manifiesto del perfil primario 369. Para el perfil de validación usa un archivo
+de configuración y un manifiesto separados, con `expectedCardCount` igual a `30` y los usernames
 `javier-30`, `diego-30` y `pablo-30`. No reutilices el manifiesto ni las contraseñas entre perfiles.
 
 ### 3. Configurar `deployment/.env`
@@ -197,7 +212,7 @@ por Node y `DATABASE_PASSWORD_DATABASE_HOST_PATH` por PostgreSQL; Compose monta 
 `POSTGRES_PASSWORD_FILE` y la primera como `DATABASE_PASS_FILE`.
 
 El bootstrap de perfiles valida todos los descriptores, CSV, manifests, checksums, conteos y
-asignaciones de login antes de escribir. Después prepara `pr-card-sorting-local` con 300 tarjetas
+asignaciones de login antes de escribir. Después prepara `pr-card-sorting-local` con 369 tarjetas
 y, solo si esa fase termina, `pr-card-sorting-validation-30` con 30. Cada perfil crea o reutiliza
 su estudio, participantes, tarjetas y membresía sin sobrescribir decisiones existentes. `reviewer`
 se conserva mientras existan referencias estructurales desde membresías, cuentas, categorías o
@@ -219,7 +234,7 @@ release automático.
 1. valida todos los insumos de los dos perfiles antes de iniciar escrituras;
 2. aplica las migraciones aditivas de base del estudio;
 3. inventaria objetos legacy del etiquetador anterior;
-4. prepara primero el perfil de 300 y después el de 30;
+4. prepara primero el perfil de 369 y después el de 30;
 5. deja ambos estudios en `READY` antes de que la aplicación y Caddy puedan quedar listos;
 6. falla si encuentra cualquier objeto legacy;
 7. prepara los participantes configurados y las tarjetas PR canónicas solo si la guarda anterior pasó.
@@ -270,14 +285,18 @@ No uses `down -v` sobre `labeling-data` salvo que hayas decidido borrar el volum
 
 `clean` es la ruta correcta para una base nueva o para una base que ya no contiene objetos legacy;
 falla de forma segura si todavía encuentra objetos del etiquetador anterior. Usa siempre el overlay
-explícito `deployment/docker-compose.clean.yml` para montar el descriptor y los dos perfiles 300/30.
+explícito `deployment/docker-compose.clean.yml` para montar el descriptor y los perfiles del bundle
+de producto 369/30.
 Antes de ejecutar los comandos `clean`, define en `deployment/.env` los cuatro valores exclusivos
 del overlay: `STUDY_PROFILES_INPUT_HOST_PATH`, `STUDY_CURRENT_CONFIG_HOST_PATH`,
 `STUDY_VALIDATION_CONFIG_HOST_PATH` y `STUDY_VALIDATION_ACCOUNT_MANIFEST_HOST_PATH`.
 Si la base contiene objetos legacy reales, no uses `clean`: sigue la ruta `existing` de la sección
 siguiente. Los overlays `clean` y `existing` son mutuamente excluyentes.
 
-## Retiro con base existente
+## Retiro legacy con base existente
+
+Este procedimiento retira objetos del etiquetador legacy y no es el cutover de 300 a 369. Para la
+transición protegida de membresía, usa únicamente el [runbook operativo Copilot 369](docs/COPILOT-369-RUNBOOK.md).
 
 El retiro es optativo, posterior y escalonado. No forma parte del arranque `clean` y no autoriza borrar tablas, rutas,
 SQL legacy, fixtures ni datos por conveniencia. Primero crea y verifica un backup legacy con `npm run backup:legacy`,
@@ -354,7 +373,7 @@ npm run import:csv -- plans/merged_after_rework_cards_seed_20260510.csv /tmp/pr-
 npm run docs:study-check -- --root .
 ```
 
-La preparación coordinada se ejecuta después de validar el descriptor y procesa siempre 300 antes
+La preparación coordinada se ejecuta después de validar el descriptor y procesa siempre 369 antes
 de 30:
 
 ```bash
@@ -362,16 +381,17 @@ npm run prepare:study-profiles
 ```
 
 El comando requiere `STUDY_PROFILES_INPUT` y las rutas montadas que se describen en el overlay
-`deployment/docker-compose.clean.yml`. El CSV selecciona las tarjetas. GitHub solo puede enriquecer
-snapshots de forma opcional durante `prepare`; no selecciona la muestra ni recibe llamadas desde la
-aplicación web o el navegador.
+`deployment/docker-compose.clean.yml`. El CSV selecciona las tarjetas. Los perfiles 369/30 exigen
+enriquecimiento deshabilitado y la preparación no invoca captura ni refresh. La aplicación web y
+el navegador usan datos locales sin consultar GitHub.
 
 ## Enriquecimiento GitHub
 
-El flujo opcional y prepare-only de snapshots GitHub, sus aliases, estados de endpoints, reglas de
+El flujo histórico separado de snapshots GitHub, sus aliases, estados de endpoints, reglas de
 repetición y restricciones de rollback están documentados en
 [`deployment/GITHUB-ENRICHMENT.md`](deployment/GITHUB-ENRICHMENT.md).
-La captura live sigue pendiente. Un perfil CSV-only no necesita token ni crea un run promovido.
+La captura live sigue pendiente y no forma parte de la preparación ordinaria 369/30. Los snapshots
+existentes se preservan; estos perfiles no necesitan token ni crean un run promovido.
 
 ## Comparación de clasificaciones
 
@@ -381,7 +401,8 @@ requiere CSRF. El botón envía `POST /export/download` same-origin con sesión 
 valida `Origin`, CSRF y sesión, y vuelve a comprobar la elegibilidad antes de crear el archivo.
 
 El solicitante y al menos otra persona del mismo estudio deben haber completado exactamente las
-30 o 300 tarjetas canónicas, cada una con una decisión terminal. La descarga incluye únicamente
+30 o 369 tarjetas de producto, cada una con una decisión terminal. El código de exportación también
+conserva compatibilidad con estudios históricos de 300. La descarga incluye únicamente
 participantes completos. El CSV contiene una fila por PR; empieza con `pr_id,pr_url` y añade tres
 columnas por participante incluido para categoría, descripción y comentario. Usa ordinales
 persistidos estables, sin renumerar huecos, así que dos participantes producen 8 columnas y tres
@@ -413,6 +434,8 @@ alcance, fecha y entorno.
 
 ## Documentation
 
+- [Copilot 369 operations runbook](docs/COPILOT-369-RUNBOOK.md)
+- [Copilot 369 release HOLD](docs/COPILOT-369-RELEASE-HOLD.md)
 - [Multi-study validation](docs/MULTI-STUDY-VALIDATION.md)
 - [Participant guide](docs/PARTICIPANT-GUIDE.md)
 - [Participant comparison CSV runbook](docs/EXPORT-RUNBOOK.md)

@@ -1,0 +1,9 @@
+{
+  "manifestVersion": 1,
+  "studyKey": "pr-card-sorting-local",
+  "accounts": [
+    {"participantKey": "javier", "normalizedUsername": "javier", "passwordHash": "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    {"participantKey": "diego", "normalizedUsername": "diego", "passwordHash": "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+    {"participantKey": "pablo", "normalizedUsername": "pablo", "passwordHash": "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHQ$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "source_type": "CSV",
+  "source_checksum": "fad0881b9e40b1b68a577e84ad60c90d48fcebe79db8d55d05613fc1746794fb",
+  "source_card_id": "12345678901234567890",
+  "source_pr_id": "12345678901234567890",
+  "repository": "fixture-owner/copilot-project",
+  "pr_number": 369,
+  "ordinal": 368,
+  "title": "Canonical Copilot source card",
+  "body": "Body paragraph with **Markdown** and <script>alert('body')</script>.",
+  "author": "source-pr-author",
+  "language": "TypeScript",
+  "state": "closed",
+  "merged": true,
+  "html_url": "https://github.com/fixture-owner/copilot-project/pull/369",
+  "dates": {
+    "created_at": "2026-01-01T10:00:00Z",
+    "closed_at": "2026-01-03T10:00:00Z",
+    "merged_at": "2026-01-03T10:00:00Z"
+  },
+  "evidence": {
+    "source": "CSV",
+    "reviews": [
+      {
+        "id": "review-1",
+        "user": "reviewer-source",
+        "author": "reviewer-source",
+        "state": "CHANGES_REQUESTED",
+        "body": "Review **detail**.",
+        "submitted_at": "2026-01-02T10:00:00Z",
+        "event_at": "2026-01-02T10:00:00Z",
+        "event_type": "review",
+        "source_url": "https://github.com/fixture-owner/copilot-project/pull/369#review-1"
+      }
+    ],
+    "comments": [
+      {
+        "id": "comment-1",
+        "user": "commenter-source",
+        "author": "commenter-source",
+        "body": "PR comment text.",
+        "created_at": "2026-01-02T11:00:00Z",
+        "event_at": "2026-01-02T11:00:00Z",
+        "event_type": "issue_comment",
+        "source_url": "https://github.com/fixture-owner/copilot-project/pull/369#comment-1"
+      }
+    ],
+    "review_comments": [
+      {
+        "id": "inline-1",
+        "user": "inline-reviewer-source",
+        "author": "inline-reviewer-source",
+        "body": "Inline comment text.",
+        "created_at": "2026-01-02T12:00:00Z",
+        "event_at": "2026-01-02T12:00:00Z",
+        "event_type": "inline_comment",
+        "path": "src/example.ts",
+        "source_url": "https://github.com/fixture-owner/copilot-project/pull/369#inline-1"
+      }
+    ]
+  },
+  "raw_payload": {
+    "pr_id": "12345678901234567890",
+    "agent": "Copilot",
+    "reviews_json": "[{\"id\":\"review-1\",\"user\":\"reviewer-source\",\"state\":\"CHANGES_REQUESTED\",\"body\":\"Review **detail**.\",\"submitted_at\":\"2026-01-02T10:00:00Z\",\"event_at\":\"2026-01-02T10:00:00Z\",\"event_type\":\"review\",\"source_url\":\"https://github.com/fixture-owner/copilot-project/pull/369#review-1\"}]",
+    "pr_comments_json": "[{\"id\":\"comment-1\",\"user\":\"commenter-source\",\"body\":\"PR comment text.\",\"created_at\":\"2026-01-02T11:00:00Z\",\"event_at\":\"2026-01-02T11:00:00Z\",\"event_type\":\"issue_comment\",\"source_url\":\"https://github.com/fixture-owner/copilot-project/pull/369#comment-1\"}]",
+    "inline_comments_json": "[{\"id\":\"inline-1\",\"user\":\"inline-reviewer-source\",\"body\":\"Inline comment text.\",\"created_at\":\"2026-01-02T12:00:00Z\",\"event_at\":\"2026-01-02T12:00:00Z\",\"event_type\":\"inline_comment\",\"path\":\"src/example.ts\",\"source_url\":\"https://github.com/fixture-owner/copilot-project/pull/369#inline-1\"}]",
+    "commits_json": "[{\"sha\":\"hidden-commit\",\"message\":\"MUST_NOT_RENDER\",\"author\":\"commit-author\",\"committed_at\":\"2026-01-02T13:00:00Z\"}]"
+  }
+}

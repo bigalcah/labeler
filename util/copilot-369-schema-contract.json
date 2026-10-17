@@ -1,0 +1,31 @@
+{
+  "postgresMajor": 17,
+  "migrations": [
+    {"id":"001_study_foundation","sha256":"e23cf70618e021ae896e0e431ebf1b7be967036eb4f7e98c6da16be10c041b73"},
+    {"id":"003_private_pr_discard","sha256":"98a1fb2e18d6cb2581183ee0bf2781dbf6f14a9d0979125b1d54be2c775c7283"},
+    {"id":"004_github_pr_api_enrichment","sha256":"69ea37912a6841bb3e33d28d68cdf49afd31923309449795dedbc4593fbdee41"},
+    {"id":"005_github_enrichment_checkpoints","sha256":"159831cf8dbc37aed45113246f438adb2410ad29cdd760211d27de9c4dafe60b"},
+    {"id":"006_github_api_telemetry","sha256":"bc8c15321b3ae49ee5c7682dcc0f765eef8024e8be9602b8ff284f6726367a00"},
+    {"id":"007_local_accounts_sessions","sha256":"2bad7669eb372afe8f1c9dd5028962398f9ef1634029d7e279d964998f59e172"},
+    {"id":"008_login_rate_limits","sha256":"3081b76e5ce001d5ad12829f8addda724fff2e643aea2925629fd06ce6e1392c"},
+    {"id":"009_csrf_contexts","sha256":"a55b709ed8d1cbc8b843519cf4587499ce466ea0dbae968721ba73a691fe0827"},
+    {"id":"010_study_scoped_participant_categories","sha256":"bf648e060cf5b226d4ba6bf9d039bae2b820aae68f012675530561fa51ba0266"},
+    {"id":"011_multi_study_cardinality","sha256":"e890bd5285d738e5d58d33f889df7d10d7d05e744561478c07efd909532c4088"},
+    {"id":"012_global_normalized_username","sha256":"dfe4f25e0b846b136da6af531e884f337ae56efe3c4282e73230c2bb72f696a2"},
+    {"id":"013_category_definition_color","sha256":"a26e25c2c8540be40d2d3baa355691bf3869d51b12880edcfbdf371a538d6364"},
+    {"id":"014_copilot_369_cardinality","sha256":"bb8540c8344c673b783af1c61bb5af6f19eb2a074af32bb9e2a3d1de1743a7b4"}
+  ],
+  "signatures": {
+    "namespaces":{"count":1,"sha256":"7e104b51c0321ed225f184cc935b9cc9de559febb543f93c8349ab2be222e0bb"},
+    "extensions":{"count":2,"sha256":"712ed441bc4927a29b0e9cde7b67b8ecb94238bd291ebfb9acaff8c3d585b610"},
+    "relations":{"count":76,"sha256":"8123c52fda9bdac158cfa095463f0f8d88db70bf6c28739459a10ba9063c6d4c"},
+    "columns":{"count":275,"sha256":"e890edc6a989e33102d6f29347c9b736778a123e8af96847d6e285109d57f834"},
+    "constraints":{"count":99,"sha256":"5be33d45a1d207e3da5a61757d289f34017df5a9914a5b0cea8b6dcaef2f9171"},
+    "indexes":{"count":56,"sha256":"93e24e8ecd78442bb7fa37bb63aa168f5226440aea00427877a03e06e09999f9"},
+    "triggers":{"count":131,"sha256":"4301daca5807c90724ffb6a525131ef0c81e68417766100fc96bb803281dd057"},
+    "functions":{"count":41,"sha256":"1f41262e3cf0c2d55b253c5edff8f810c61f7d799147f09130345d6bc7aed7ab"},
+    "dependencies":{"count":389,"sha256":"1a8c9810fa0185cb57d64fb5c91aae0242a387a2d1629475099174c5b064f47f"},
+    "rules":{"count":0,"sha256":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+    "policies":{"count":0,"sha256":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}
+  }
+}

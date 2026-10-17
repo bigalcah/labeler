@@ -56,7 +56,7 @@ services:
       DATABASE_USER: ${DATABASE_USER}
       DATABASE_PASS_FILE: /run/secrets/database-password
       STUDY_DATABASE_MODE: ${STUDY_DATABASE_MODE:-clean}
-      STUDY_CSV_PATH: /labeling/data/pr-cards.csv
+      STUDY_CSV_PATH: /labeling/data/copilot-369-cards.csv
       STUDY_CONFIG_INPUT: ${STUDY_CONFIG_INPUT:-}
       STUDY_ACCOUNT_MANIFEST_FILE: /run/secrets/studies/current.json
       GITHUB_ENRICHMENT_ENABLED: ${GITHUB_ENRICHMENT_ENABLED:-false}
