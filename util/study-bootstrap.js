@@ -1,9 +1,11 @@
 import {persistCards} from "./pr-card-persistence.js";
-import {resolveAuthoritativeStudyConfig} from "./study-config.js";
+import {persistCopilot369Cards} from "./copilot-369-persistence.js";
+import {assertNormalStudyConfig, parseStudyConfig, resolveAuthoritativeStudyConfig} from "./study-config.js";
 import {managedMigrations} from "./study-schema.js";
 import {withTransaction} from "./transaction.js";
 import {provisionParticipantAccounts} from "./credential-accounts.js";
 import {validateCredentialManifest} from "./credential-manifest.js";
+import {verifyExistingStudy} from "./study-existing-validation.js";
 
 class StudyBootstrapConflictError extends Error {
     constructor(message) {
@@ -158,19 +160,27 @@ const persistStudyCards = async options => {
 };
 
 const bootstrapStudy = async options => {
-    const {pool, config, cards, sourceChecksum, credentialManifest} = options;
+    const {pool, cards, sourceChecksum, credentialManifest} = options;
+    const config = assertNormalStudyConfig(parseStudyConfig(options.config));
     await assertStudySchemaReady(pool);
     assertBootstrapCards(cards, config.expectedCardCount);
+    const existing = await verifyExistingStudy(pool, {config, cards, sourceChecksum});
+    if (existing) return existing;
     const manifest = validateCredentialManifest(credentialManifest, config);
     return withTransaction(pool, async client => {
         const study = await findOrCreateStudy(client, config, sourceChecksum);
+        if (!study.created) {
+            throw new StudyBootstrapConflictError("Study appeared during preparation; retry after read-only verification");
+        }
         await persistParticipants({
             client,
             studyId: study.id,
             participants: config.participants,
             allowCreate: study.created,
         });
-        const persistedCards = await persistCards(client, cards, sourceChecksum);
+        const persistedCards = config.expectedCardCount === 369
+            ? await persistCopilot369Cards(client, cards, sourceChecksum)
+            : await persistCards(client, cards, sourceChecksum);
         await persistStudyCards({
             client,
             studyId: study.id,
