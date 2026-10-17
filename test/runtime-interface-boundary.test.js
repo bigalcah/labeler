@@ -19,9 +19,7 @@ const removedRuntimeFiles = [
     "routes/discards/remarks/index.js",
     "routes/instances/[id]/discard/index.js",
     "routes/instances/[id]/review/index.js",
-    "routes/export/index.js",
     "routes/export/[target]/index.js",
-    "views/export.ejs",
 ];
 
 const protectedRuntimeFiles = new Map([
@@ -29,6 +27,8 @@ const protectedRuntimeFiles = new Map([
     [ "routes/queue/[id]/classify/index.js", /classifyCard/ ],
     [ "routes/categories/index.js", /createCategory/ ],
     [ "routes/progress/index.js", /loadProgress/ ],
+    [ "routes/export/index.js", /getStudyExportAvailability/ ],
+    [ "routes/export/download/index.js", /createStudyComparisonExport/ ],
     [ "views/review.ejs", /\/categories/ ],
 ]);
 
@@ -40,7 +40,6 @@ const removedRequests = [
     [ "GET", "/discards/remarks" ],
     [ "POST", "/instances/card-id/discard" ],
     [ "POST", "/instances/card-id/review" ],
-    [ "GET", "/export" ],
     [ "GET", "/export/review" ],
 ];
 
@@ -76,9 +75,13 @@ test("file-routed legacy review, discard, conflict, and export interfaces are ab
     }));
 });
 
-test("offline study export has no HTTP route", async () => {
+test("comparison export exposes only the session overview and download routes", async () => {
     const routes = await collectFiles(fromRoot("routes"));
-    assert.equal(routes.some(file => file.includes(`${path.sep}export${path.sep}`)), false);
+    const exportRoutes = routes
+        .filter(file => file.includes(`${path.sep}export${path.sep}`))
+        .map(file => path.relative(root, file).split(path.sep).join("/"))
+        .sort();
+    assert.deepEqual(exportRoutes, ["routes/export/download/index.js", "routes/export/index.js"]);
 });
 
 for (const [ method, route ] of removedRequests) {
@@ -97,7 +100,7 @@ test("runtime routes and views contain no retired legacy interface references", 
     const runtimeSource = (await Promise.all(runtimeFiles.map(file => readFile(file, "utf8")))).join("\n");
 
     assert.doesNotMatch(runtimeSource, /instance_review|instance_discard|conflict_resolution_(?:review|discard)/);
-    assert.doesNotMatch(runtimeSource, /["'`](?:\/conflicts|\/export)(?:[/?"'`])/);
+    assert.doesNotMatch(runtimeSource, /["'`]\/conflicts(?:[/?"'`])/);
 });
 
 test("MVP card, queue, category, classification, progress, and review surfaces remain", async () => {
@@ -107,7 +110,7 @@ test("MVP card, queue, category, classification, progress, and review surfaces r
     }));
 });
 
-test("navigation links pending cards directly and omits retired entry points", async () => {
+test("navigation links pending cards and exposes export without retired entry points", async () => {
     const navigationSource = await Promise.all([
         readFile(fromRoot("views/index.ejs"), "utf8"),
         readFile(fromRoot("views/partials/header.ejs"), "utf8"),
@@ -116,7 +119,8 @@ test("navigation links pending cards directly and omits retired entry points", a
     for (const source of navigationSource) {
         assert.match(source, /\/queue/);
         assert.match(source, /\/progress/);
-        assert.doesNotMatch(source, /\/conflicts|\/export/);
+        assert.match(source, /\/export/);
+        assert.doesNotMatch(source, /\/conflicts/);
     }
 });
 

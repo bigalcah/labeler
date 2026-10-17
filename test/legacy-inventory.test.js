@@ -9,6 +9,12 @@ import {
 } from "../util/legacy-inventory.js";
 
 const root = path.resolve(new URL("..", import.meta.url).pathname);
+const expectedLegacyInventoryHash = "d215654b69782a96a49c84b678e5f3cf650dfc4c16da3ef26227800e4c57ab63";
+const approvedExportReplacements = new Map([
+    ["routes/export/index.js", /requireStudySession[\s\S]*getStudyExportAvailability[\s\S]*context[\s\S]*res\.render\("export"/],
+    ["views/export.ejs", /exportAvailability\.state === "incomplete"[\s\S]*exportAvailability\.state === "waiting"[\s\S]*exportAvailability\.state === "ready"[\s\S]*data-download-url="\/export\/download"[\s\S]*data-csrf-token="<%= locals\.csrfToken %>"[\s\S]*Download CSV/],
+]);
+const retiredSqlConsumerPattern = /instance_review|instance_discard|conflict_resolution_(?:review|discard)/;
 const expectedMigration002ProtectedTables = [
     "reviewer",
     "pr_cards",
@@ -22,6 +28,7 @@ const expectedMigration002ProtectedTables = [
 test("authoritative inventory covers legacy consensus and protected MVP objects", async () => {
     const inventory = await readLegacyInventory();
 
+    assert.equal(inventory.inventorySha256, expectedLegacyInventoryHash);
     assert.equal(computeInventoryHash(inventory.inventory), inventory.inventorySha256);
     assert.deepEqual(inventory.inventory.database.tables, [
         "instance",
@@ -68,13 +75,26 @@ test("inventory database names match every legacy SQL definition", async () => {
 
 test("inventory records removed consumers and existing protected runtime paths", async () => {
     const inventory = await readLegacyInventory();
+    const retiredPaths = [
+        ...inventory.inventory.runtime.retiredRoutes,
+        ...inventory.inventory.runtime.retiredViews,
+    ];
+    for (const replacementPath of approvedExportReplacements.keys()) {
+        assert.ok(retiredPaths.includes(replacementPath), `${replacementPath} must remain in the historical retired inventory`);
+    }
+
     await Promise.all([
-        ...inventory.inventory.runtime.retiredRoutes.map(relativePath =>
-            assert.rejects(access(path.join(root, relativePath)), {code: "ENOENT"})),
-        ...inventory.inventory.runtime.retiredViews.map(relativePath =>
+        ...retiredPaths.filter(relativePath => !approvedExportReplacements.has(relativePath)).map(relativePath =>
             assert.rejects(access(path.join(root, relativePath)), {code: "ENOENT"})),
         ...inventory.inventory.protected.runtimePaths.map(relativePath => access(path.join(root, relativePath))),
     ]);
+
+    for (const [relativePath, sourcePattern] of approvedExportReplacements) {
+        const source = await readFile(path.join(root, relativePath), "utf8");
+        assert.match(source, sourcePattern, `${relativePath} must implement its approved study export behavior`);
+        assert.doesNotMatch(source, retiredSqlConsumerPattern, `${relativePath} must not reference retired SQL consumers`);
+    }
+
     const packageDocument = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
     for (const dependency of inventory.inventory.runtime.retiredPackageDependencies) {
         assert.equal(packageDocument.dependencies[dependency], undefined);

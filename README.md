@@ -16,8 +16,7 @@ acotados al `study_id` del estudio.
 
 El `study_id` autorizado procede de la cuenta y de la sesión de servidor. El username solo busca
 la cuenta y el sistema no interpreta el sufijo `-30`. No existe selector de participante ni de
-estudio, no se aceptan conteos arbitrarios y no hay UI administrativa. La aplicación tampoco
-ofrece exportación HTTP ni la ruta `/export`; el operador exporta desde fuera del servidor.
+estudio, no se aceptan conteos arbitrarios y no hay UI administrativa.
 
 ## Release automático a la VPS
 
@@ -374,23 +373,28 @@ repetición y restricciones de rollback están documentados en
 [`deployment/GITHUB-ENRICHMENT.md`](deployment/GITHUB-ENRICHMENT.md).
 La captura live sigue pendiente. Un perfil CSV-only no necesita token ni crea un run promovido.
 
-## Exportación offline
+## Comparación de clasificaciones
 
-El operador selecciona un único estudio con `--study-key` y un directorio externo que no exista.
-La exportación exige estado `READY` y decisión terminal para todas las tarjetas de todos los
-participantes configurados. Es una operación local y de solo lectura que genera
-`results.csv`, `categories.csv` y `manifest.json`; no existe descarga desde el navegador, ruta HTTP
-ni `/export`.
+Las personas autenticadas pueden visitar `GET /export`. La página deriva el estudio y al
+participante de su sesión y muestra si su descarga está disponible. GET es de solo lectura y no
+requiere CSRF. El botón envía `POST /export/download` same-origin con sesión y CSRF; el servidor
+valida `Origin`, CSRF y sesión, y vuelve a comprobar la elegibilidad antes de crear el archivo.
 
-```bash
-export STUDY_EXPORT_HMAC_SECRET_FILE="$HOME/.config/labeler/secrets/export-hmac"
-npm run export:study -- \
-  --study-key pr-card-sorting-validation-30 \
-  --output "$HOME/.config/labeler/exports/validation-30"
-```
+El solicitante y al menos otra persona del mismo estudio deben haber completado exactamente las
+30 o 300 tarjetas canónicas, cada una con una decisión terminal. La descarga incluye únicamente
+participantes completos. El CSV contiene una fila por PR; empieza con `pr_id,pr_url` y añade tres
+columnas por participante incluido para categoría, descripción y comentario. Usa ordinales
+persistidos estables, sin renumerar huecos, así que dos participantes producen 8 columnas y tres
+producen 11. Descartes figuran como `DESCARTADO`; descripción y comentario quedan vacíos.
 
-La operación completa y sus requisitos están descritos en
-[`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+El servidor construye la salida completa desde una instantánea de solo lectura antes de responder.
+El CSV es UTF-8, separado por comas, con quoting RFC 4180 y CRLF. La protección de fórmulas se
+aplica solo al texto de salida. No hay comando alternativo de operador ni exportación offline.
+El antiguo comando `export:study`, su paquete y su secreto HMAC exclusivo fueron retirados. Los
+backups operativos y los archivos históricos ya descargados se conservan.
+
+El contrato y los estados están descritos en [`docs/EXPORT-RUNBOOK.md`](docs/EXPORT-RUNBOOK.md)
+y en [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
 ## Estado de la evidencia
 
@@ -411,7 +415,7 @@ alcance, fecha y entorno.
 
 - [Multi-study validation](docs/MULTI-STUDY-VALIDATION.md)
 - [Participant guide](docs/PARTICIPANT-GUIDE.md)
-- [Offline export runbook](docs/EXPORT-RUNBOOK.md)
+- [Participant comparison CSV runbook](docs/EXPORT-RUNBOOK.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Study workflow](docs/STUDY-WORKFLOW.md)
 - [Development](docs/DEVELOPMENT.md)

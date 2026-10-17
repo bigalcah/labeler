@@ -23,9 +23,9 @@ const REQUIRED_LINKS = Object.freeze([
 const REQUIRED_COMMANDS = Object.freeze([
     "validate:study-profiles",
     "prepare:study-profiles",
-    "export:study",
     "docs:study-check",
 ]);
+const RETIRED_COMMANDS = Object.freeze(["export:study"]);
 const EXPECTED_PROFILES = Object.freeze([
     Object.freeze({
         studyKey: "pr-card-sorting-local",
@@ -111,10 +111,19 @@ const validateContract = contract => {
         if (contract?.enrichment?.mode !== "optional-prepare-only") diagnostics.push(diagnostic("CONTRACT_ENRICHMENT_MODE_INVALID"));
         if (contract?.enrichment?.liveCapture !== "pending") diagnostics.push(diagnostic("CONTRACT_LIVE_CAPTURE_STATUS_INVALID"));
     }
-    if (!sameRecord(contract?.export, {access: "offline-operator-only", http: "unavailable", path: "/export"})) {
-        if (contract?.export?.access !== "offline-operator-only") diagnostics.push(diagnostic("CONTRACT_EXPORT_ACCESS_INVALID"));
-        if (contract?.export?.http !== "unavailable") diagnostics.push(diagnostic("CONTRACT_EXPORT_HTTP_INVALID"));
-        if (contract?.export?.path !== "/export") diagnostics.push(diagnostic("CONTRACT_EXPORT_PATH_INVALID"));
+    const expectedExport = {
+        access: "authenticated-session",
+        http: "available",
+        statusPath: "/export",
+        downloadMethod: "POST",
+        downloadPath: "/export/download",
+    };
+    if (!sameRecord(contract?.export, expectedExport)) {
+        if (contract?.export?.access !== expectedExport.access) diagnostics.push(diagnostic("CONTRACT_EXPORT_ACCESS_INVALID"));
+        if (contract?.export?.http !== "available") diagnostics.push(diagnostic("CONTRACT_EXPORT_HTTP_INVALID"));
+        if (contract?.export?.statusPath !== "/export") diagnostics.push(diagnostic("CONTRACT_EXPORT_PATH_INVALID"));
+        if (contract?.export?.downloadMethod !== "POST") diagnostics.push(diagnostic("CONTRACT_EXPORT_DOWNLOAD_METHOD_INVALID"));
+        if (contract?.export?.downloadPath !== "/export/download") diagnostics.push(diagnostic("CONTRACT_EXPORT_DOWNLOAD_PATH_INVALID"));
     }
     if (contract?.adminUi !== "unavailable") diagnostics.push(diagnostic("CONTRACT_ADMIN_UI_INVALID"));
     const evidence = contract?.evidence;
@@ -158,6 +167,9 @@ const validateCommands = async root => {
         return [diagnostic("PACKAGE_INVALID", {path: "package.json"})];
     }
     const diagnostics = [];
+    for (const command of RETIRED_COMMANDS) {
+        if (Object.hasOwn(packageJson?.scripts ?? {}, command)) diagnostics.push(diagnostic("COMMAND_RETIRED", {command}));
+    }
     for (const command of REQUIRED_COMMANDS) {
         const script = packageJson?.scripts?.[command];
         const scriptMatch = typeof script === "string" && /^node\s+(scripts\/[A-Za-z0-9._/-]+\.js)$/u.exec(script);

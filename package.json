@@ -24,7 +24,6 @@
     "release:manifest": "node scripts/create-release-manifest.js",
     "docs:study-check": "node scripts/check-study-documentation.js",
     "enrich:study": "node scripts/enrich-study.js",
-    "export:study": "node scripts/export-study.js",
     "verify:github-coverage": "node scripts/verify-github-coverage.js",
     "import:csv": "node scripts/import-pr-csv.js",
     "migrate:study": "node scripts/migrate-study-schema.js",

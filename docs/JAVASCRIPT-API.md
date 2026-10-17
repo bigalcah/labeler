@@ -13,7 +13,7 @@ consumidores externos se excluyen con razón explícita.
 
 El contexto de estudio no entra como parámetro del participante desde una ruta web. La cuenta y la
 sesión validada aportan el `study_id`, la membresía y el participante. La preparación admite solo
-300 y 30 tarjetas, en ese orden. La exportación se invoca offline por un operador y el
+300 y 30 tarjetas, en ese orden. La comparación CSV usa rutas web autenticadas y el
 enriquecimiento GitHub es opcional y prepare-only.
 
 ## Ledger
@@ -48,9 +48,7 @@ enriquecimiento GitHub es opcional y prepare-only.
 | `util/study-read-repository.js` | `findFirstPendingCard`; `findNextPendingCard`; `loadParticipantCategories`; `loadStudyCard`; `loadStudyProgress` | SQL de lectura interno | IMPLEMENTED-UNVERIFIED |
 | `util/study-write-repository.js` | `createParticipantCategory`; `createStudyClassification`; `createStudyDiscard`; `findParticipantCategory`; `loadLockedCardState`; `lockParticipantCategory`; `lockStudyCard`; `updateParticipantCategory`; `updateStudyClassification` | SQL de escritura interno | IMPLEMENTED-UNVERIFIED |
 | `util/study-github-enrichment.js` | `NORMALIZER_VERSION`; `assertCardSources`; `assertEndpointResults`; `enrichStudyWithGithub`; `loadStudyCardSources`; `persistCardEnrichment` | mappers de páginas triviales | IMPLEMENTED-UNVERIFIED |
-| `util/study-export-input.js` | `StudyExportInputError`; `resolveStudyExportInputs` | parser de opciones y comprobación de destino | IMPLEMENTED-UNVERIFIED |
-| `util/study-export.js` | `StudyExportError`; `createStudyExport` | consultas de lectura y publicación atómica internas | IMPLEMENTED-UNVERIFIED |
-| `util/study-export-format.js` | `StudyExportError`; `assertSafeExportData`; `buildStudyExportPackage` | serialización CSV, checksums y pseudónimos HMAC internos | IMPLEMENTED-UNVERIFIED |
+| `util/study-export.js` | `StudyExportError`; `getStudyExportAvailability`; `createStudyComparisonExport` | consultas de lectura, elegibilidad e instantánea internas | IMPLEMENTED-UNVERIFIED |
 | `util/study-mutation.js` | `assertParticipantCategory`; `lockStudyCard`; `normalizeDiscardReason`; `normalizeRemarks`; `parseExpectedRevision`; `readLockedCardState` | ninguna | IMPLEMENTED-UNVERIFIED |
 | `util/study-runtime.js` | `StudyRuntimeError`; `addCardDates`; `findFirstPendingCard`; `findNextPendingCard`; `isUuid`; `loadParticipantCategories`; `loadStudyCard`; `loadStudyProgress`; `respondWithStudyRuntimeError`; `resolveReadyStudy`; `resolveStudyParticipant` | `cardSelect` y parsing internos | IMPLEMENTED-UNVERIFIED |
 | `util/study-schema.js` | `assertLedgerState`; `knownExternalMigrationIds`; `managedMigrations`; `parseThrough`; `runStudyMigrations`; `readLedger` | advisory-lock key interna | IMPLEMENTED-UNVERIFIED |
@@ -60,7 +58,6 @@ enriquecimiento GitHub es opcional y prepare-only.
 | `scripts/enrich-study.js` | entrypoint `main`/argumentos de enriquecimiento | callbacks triviales | IMPLEMENTED-UNVERIFIED |
 | `scripts/validate-study-profiles.js` | entrypoint de validación de `STUDY_PROFILES_INPUT` | callbacks triviales | IMPLEMENTED-UNVERIFIED |
 | `scripts/prepare-study-profiles.js` | entrypoint de preparación secuencial, primero 300 y después 30 | callbacks de proceso hijo | IMPLEMENTED-UNVERIFIED |
-| `scripts/export-study.js` | entrypoint de exportación offline con `--study-key` y `--output` | callbacks triviales | IMPLEMENTED-UNVERIFIED |
 | `scripts/check-study-documentation.js` | entrypoint `checkDocumentation`; valida documentos, enlaces, contrato y comandos | helpers de parsing internos | VERIFIED (static) |
 | `scripts/import-pr-csv.js` | entrypoint y `persistCardsTransaction` | callbacks triviales | IMPLEMENTED-UNVERIFIED |
 | `scripts/migrate-study-schema.js` | entrypoint y argumentos `--through` | callbacks triviales | IMPLEMENTED-UNVERIFIED |
@@ -91,7 +88,8 @@ Los helpers locales sin consumidores externos permanecen excluidos en el ledger 
 | `readStudyProfilesInput(input, roots)` | descriptor montado de perfiles y raíces aprobadas | perfiles ordenados 300 y 30 | `StudyProfilesInputError` | valida rutas, checksums, conteos, participantes y usernames antes de escribir | IMPLEMENTED-UNVERIFIED |
 | `authenticateLogin(options)` | username, contraseña, IP y pool PostgreSQL | resultado autenticado o fallo genérico | límite de login, credencial inválida o error SQL | dummy verify y crea sesión asociada al `study_id` de la cuenta | IMPLEMENTED-UNVERIFIED |
 | `createSessionMiddleware(options)` | pool, cookie firmada y política temporal | contexto de sesión o ausencia | errores del store se tratan como no autenticado | recarga cuenta, membresía, `study_id`, expiración y CSRF | IMPLEMENTED-UNVERIFIED |
-| `createStudyExport(options)` | pool, `studyKey`, destino externo y secreto HMAC | manifest de exportación | `StudyExportError` o error SQL | transacción `REPEATABLE READ READ ONLY`; publica tres archivos offline | IMPLEMENTED-UNVERIFIED |
+| `getStudyExportAvailability(options)` | pool y contexto autenticado de sesión | estado de disponibilidad del participante | `StudyExportError` o error SQL | lee gate del mismo estudio sin modificar datos | IMPLEMENTED-UNVERIFIED |
+| `createStudyComparisonExport(options)` | pool y contexto autenticado de sesión | CSV comparativo completo | `StudyExportError` o error SQL | fija una instantánea de solo lectura, verifica gate y serializa el CSV antes de responder | IMPLEMENTED-UNVERIFIED |
 | `createGithubClient(config)` | configuración GitHub normalizada | cliente con operaciones de endpoint | `GithubRequestError` y errores de configuración | construye solicitudes autenticadas; usado por enriquecimiento | IMPLEMENTED-UNVERIFIED |
 | `fetchEndpoint(client, endpoint, options)` | cliente, endpoint y paginación | página normalizada | errores HTTP, rate limit o payload inválido | realiza I/O HTTP contra GitHub | IMPLEMENTED-UNVERIFIED |
 | `fetchPullRequest(client, repository, number)` | cliente, repositorio y número PR | snapshot de pull request | `GithubRequestError` | solicita datos de una PR | IMPLEMENTED-UNVERIFIED |
@@ -135,6 +133,8 @@ Los helpers locales sin consumidores externos permanecen excluidos en el ledger 
 | `post` en `routes/queue/[id]/classify/index.js` | categoría, remarks, revisión y CSRF | redirección | revisión obsoleta o entrada inválida | clasifica una tarjeta dentro del contexto de sesión | IMPLEMENTED-UNVERIFIED |
 | `post` en `routes/queue/[id]/discard/index.js` | razón, remarks, revisión y CSRF | redirección | revisión obsoleta o razón inválida | descarta una tarjeta dentro del contexto de sesión | IMPLEMENTED-UNVERIFIED |
 | `get` en `routes/progress/index.js` | contexto de participante | progreso renderizado | estudio no listo o error SQL | calcula progreso privado | IMPLEMENTED-UNVERIFIED |
+| `get` en `routes/export/index.js` | sesión validada | página de estado de exportación | 401 o error sanitizado | consulta elegibilidad y renderiza `/export` sin CSRF | IMPLEMENTED-UNVERIFIED |
+| `post` en `routes/export/download/index.js` | sesión, origen y token CSRF | adjunto CSV o error HTTP | 401, 403, 409 o 500 sanitizado | revalida gate y genera descarga privada; no acepta IDs de ámbito del cliente | IMPLEMENTED-UNVERIFIED |
 
 ### Inventario complementario
 
@@ -200,14 +200,14 @@ Los entrypoints de Wave 2 se ejecutan desde la raíz:
 ```bash
 npm run validate:study-profiles
 npm run prepare:study-profiles
-npm run export:study -- --study-key <study-key> --output /absolute/external/directory
 npm run docs:study-check -- --root .
 ```
 
 La preparación valida y procesa primero 300 y después 30. La API web deriva siempre el contexto
 de la cuenta y la sesión, sin selector de participante o estudio, sin conteos arbitrarios y sin UI
-administrativa. La exportación no tiene endpoint HTTP ni ruta `/export`. El enriquecimiento GitHub
-es opcional y prepare-only; la captura live permanece pendiente.
+administrativa. La exportación usa `GET /export` y `POST /export/download`, con sesión y, para el
+POST, `Origin` y CSRF. El comando offline `export:study` fue retirado y no tiene alternativa. El
+enriquecimiento GitHub es opcional y prepare-only; la captura live permanece pendiente.
 
 La implementación central y el E2E hostil aislado de los dos estudios están completados. Permanecen
 pendientes la evidencia externa de backup y restore, el E2E hostil histórico, el E2E en VPS o

@@ -45,8 +45,15 @@ la única señal. El color de cada categoría se mantiene en la selección, su g
 No hay selector de participante ni selector de estudio. La aplicación no acepta un participante o estudio en la URL, query,
 formulario o cabecera. No existe una UI administrativa para participantes.
 
-La exportación no está disponible en el navegador. No existe `/export`; el paquete de resultados solo lo crea un operador
-mediante una orden offline después de que todas las personas hayan terminado todas las tarjetas.
+Puedes abrir `Export` desde la aplicación para ver tu estado. La descarga solo aparece cuando tú y
+al menos otra persona del mismo estudio completaron todas las tarjetas.
+El archivo incluye únicamente a participantes completos y no revela el progreso de quienes aún
+están trabajando. El servidor vuelve a comprobar estas condiciones al descargar.
+
+La página muestra si todavía debes completar tu trabajo, si estás esperando a otra persona o si
+la descarga está disponible. Al descargar, el navegador puede indicar que la acción comenzó, pero
+la página no puede afirmar que el archivo ya se guardó. Consulta [`EXPORT-RUNBOOK.md`](EXPORT-RUNBOOK.md)
+para el contrato y los errores.
 
 Las tarjetas proceden del CSV preparado. GitHub no se consulta durante la clasificación. Si se habilita enriquecimiento,
 ocurre antes de la participación y solo durante la preparación operativa.
@@ -56,5 +63,4 @@ ocurre antes de la participación y solo durante la preparación operativa.
 Una tarjeta queda en estado `CLASSIFIED` o `DISCARDED`. La cola queda vacía cuando todas las tarjetas de tu estudio tienen
 una decisión terminal. El otro estudio y las decisiones de otros participantes siguen aislados.
 
-Para el procedimiento de preparación, consulta [`MULTI-STUDY-VALIDATION.md`](MULTI-STUDY-VALIDATION.md). Para la
-exportación operativa, consulta [`EXPORT-RUNBOOK.md`](EXPORT-RUNBOOK.md), que no es un procedimiento para participantes.
+Para el procedimiento de preparación, consulta [`MULTI-STUDY-VALIDATION.md`](MULTI-STUDY-VALIDATION.md).

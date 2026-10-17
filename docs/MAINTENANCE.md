@@ -32,9 +32,10 @@ visibles de participantes, pero sus cuentas, sesiones, categorías, decisiones, 
 observaciones y progreso quedan ligados a su propio `study_id`.
 
 La cuenta y la sesión son la autoridad de `study_id`. No existe selector de participante o estudio,
-no se aceptan conteos arbitrarios ni hay UI administrativa. La exportación es offline y solo para
-operadores, sin HTTP ni ruta `/export`; requiere `--study-key` y produce sus archivos fuera del
-repositorio. El enriquecimiento GitHub es opcional y prepare-only. La captura live sigue pendiente.
+no se aceptan conteos arbitrarios ni hay UI administrativa. La exportación es una descarga
+comparativa autenticada desde `/export`; el POST requiere `Origin` y CSRF y un gate de dos
+participantes completos del mismo estudio. El enriquecimiento GitHub es opcional y prepare-only.
+La captura live sigue pendiente.
 
 ## Cierre estático
 
@@ -47,9 +48,9 @@ openspec validate "card-sorting-prs-mvp" --strict
 ```
 
 `docs:study-check` valida los documentos requeridos, enlaces, perfiles, comandos y el marcador
-JSON de `docs/STUDY-WORKFLOW.md`. `prepare:study-profiles` procesa los perfiles después del
-preflight, primero 300 y luego 30. `export:study` se ejecuta offline con un `study_key` explícito y
-solo tras finalizar todos los participantes.
+JSON de `docs/STUDY-WORKFLOW.md`, incluida la ruta browser de comparación CSV. También rechaza
+que vuelva a declararse el comando retirado `export:study`. `prepare:study-profiles` procesa los
+perfiles después del preflight, primero 300 y luego 30.
 
 Docker/PostgreSQL solo puede marcarse `VERIFIED` con evidencia de un entorno desechable aprobado; de otro modo registra
 `IMPLEMENTED-UNVERIFIED`. La implementación central y el E2E hostil aislado de los dos perfiles

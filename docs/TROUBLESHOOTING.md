@@ -152,18 +152,22 @@ del estudio seleccionado, que puede ser 30 o 300. El camino CSV-only no necesita
 live de GitHub sigue pendiente. Consulta [`GITHUB-ENRICHMENT.md`](../deployment/GITHUB-ENRICHMENT.md)
 sin imprimir el token.
 
-## Exportación
+## Comparación CSV
 
-La exportación no es una ruta web. No existe `/export`, descarga desde navegador ni exportación
-administrativa. El operador debe proporcionar un secreto HMAC externo, `--study-key` explícito y
-un destino nuevo. Si falta una decisión terminal, el estudio no está `READY` o el secreto falta,
-`export:study` falla sin crear un paquete parcial.
+Abre `/export` con una sesión vigente. Si tu trabajo está incompleto, completa las tarjetas antes
+de volver. Si ya terminaste y la descarga aún no está disponible, al menos otra persona del mismo
+estudio todavía debe completar todas las tarjetas. La página no muestra quién ni cuánto le falta.
 
-```bash
-npm run export:study -- \
-  --study-key pr-card-sorting-validation-30 \
-  --output /absolute/external/validation-30
-```
+La descarga requiere `POST /export/download` same-origin con cookie de sesión y CSRF válido. Una
+respuesta 401 indica sesión ausente o expirada; vuelve a iniciar sesión. Un 403 indica `Origin`,
+CSRF o gate no válido; vuelve a consultar la página. Un 409 señala datos persistidos incompatibles;
+un 500 indica un error interno sanitizado. Estos errores no entregan CSV ni adjunto. Reintenta
+manualmente después de resolver la causa, el cliente no repite automáticamente la solicitud.
+
+El navegador solo descarga una respuesta exitosa `text/csv`; HTML de login o error nunca debe
+guardarse como CSV. Si falla la serialización, no se publica un archivo parcial. El comando offline
+`export:study`, el paquete anterior y su HMAC exclusivo se retiraron; no existe una alternativa de
+operador. Los backups y archivos históricos descargados se mantienen intactos.
 
 ## El health check o el smoke test falla
 
