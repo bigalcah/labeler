@@ -236,6 +236,9 @@ test("Given ordinary shell preparation When both approved routes execute Then ne
         const npm = path.join(bin, "npm");
         await writeFile(npm, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SHELL_LOG\"\n");
         await chmod(npm, 0o755);
+        const node = path.join(bin, "node");
+        await writeFile(node, "#!/bin/sh\n[ \"$1\" = scripts/study-readiness.js ] && [ \"$2\" = --prepare ] || exit 2\nprintf 'readiness\\n' >> \"$SHELL_LOG\"\n[ \"$SHELL_READINESS\" = EMPTY ] || exit 1\nprintf 'EMPTY\\n'\n");
+        await chmod(node, 0o755);
         for (const [index, profileInput] of [
             {STUDY_PROFILES_INPUT: "/profiles/input.json"},
             {STUDY_CONFIG_INPUT: "/profiles/369.json", STUDY_CSV_PATH: "/profiles/369.csv"},
@@ -243,10 +246,25 @@ test("Given ordinary shell preparation When both approved routes execute Then ne
             const log = path.join(directory, `${index}.log`);
             const result = spawnSync("sh", [path.join(REPOSITORY_ROOT, "scripts/prepare-study-deployment.sh")], {
                 encoding: "utf8",
-                env: {PATH: `${bin}:${process.env.PATH}`, SHELL_LOG: log, STUDY_DATABASE_MODE: "clean", ...profileInput},
+                env: {PATH: `${bin}:${process.env.PATH}`, SHELL_LOG: log, SHELL_READINESS: "EMPTY",
+                    STUDY_DATABASE_MODE: "clean", ...profileInput},
             });
             assert.equal(result.status, 0, result.stderr);
-            assert.doesNotMatch(await readFile(log, "utf8"), /enrich:study/);
+            const commands = (await readFile(log, "utf8")).trim().split("\n");
+            assert.equal(commands[1], "readiness");
+            assert.deepEqual(commands.slice(2, 4), ["run retire:legacy:clean-check", "run migrate:study"]);
+            assert.match(commands[4], index === 0 ? /^run prepare:study-profiles$/ : /^run bootstrap:study /);
+            assert.doesNotMatch(commands.join("\n"), /enrich:study/);
+
+            const blockedLog = path.join(directory, `${index}-blocked.log`);
+            const blocked = spawnSync("sh", [path.join(REPOSITORY_ROOT, "scripts/prepare-study-deployment.sh")], {
+                encoding: "utf8",
+                env: {PATH: `${bin}:${process.env.PATH}`, SHELL_LOG: blockedLog, SHELL_READINESS: "BLOCKED",
+                    STUDY_DATABASE_MODE: "clean", ...profileInput},
+            });
+            assert.notEqual(blocked.status, 0);
+            const blockedCommands = (await readFile(blockedLog, "utf8")).trim().split("\n");
+            assert.deepEqual(blockedCommands, [commands[0], "readiness"]);
         }
     } finally {
         await rm(directory, {recursive: true, force: true});

@@ -2,6 +2,7 @@ import {persistCards} from "./pr-card-persistence.js";
 import {persistCopilot369Cards} from "./copilot-369-persistence.js";
 import {assertNormalStudyConfig, parseStudyConfig, resolveAuthoritativeStudyConfig} from "./study-config.js";
 import {managedMigrations} from "./study-schema.js";
+import {readStudyLedger} from "./study-ledger.js";
 import {withTransaction} from "./transaction.js";
 import {provisionParticipantAccounts} from "./credential-accounts.js";
 import {validateCredentialManifest} from "./credential-manifest.js";
@@ -25,22 +26,17 @@ const assertBootstrapCards = (cards, expectedCardCount) => {
 
 const assertStudySchemaReady = async pool => {
     const prerequisiteMigrationIds = managedMigrations.map(migration => migration.id);
-    let rows;
+    let ledger;
     try {
-        ({rows} = await pool.query(
-            `SELECT migration_id
-             FROM labeler_migration
-             WHERE migration_id = ANY($1::text[])`,
-            [ prerequisiteMigrationIds ],
-        ));
+        ledger = await readStudyLedger(pool);
     } catch (error) {
         if (error.code === "42P01") {
             throw new StudyBootstrapConflictError("Study schema migrations are missing");
         }
-        throw error;
+        if (error.code) throw error;
+        throw new StudyBootstrapConflictError("Study schema migration ledger is invalid");
     }
-    const applied = new Set(rows.map(row => row.migration_id));
-    if (prerequisiteMigrationIds.some(migrationId => !applied.has(migrationId))) {
+    if (!ledger.complete) {
         throw new StudyBootstrapConflictError(
             `Bootstrap requires migrations ${prerequisiteMigrationIds.join(", ")}`,
         );
