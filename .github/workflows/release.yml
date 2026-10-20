@@ -34,8 +34,8 @@ jobs:
           repository="${GITHUB_REPOSITORY,,}"
           server_image="ghcr.io/${repository}-server:sha-${GITHUB_SHA}"
           database_image="ghcr.io/${repository}-database:sha-${GITHUB_SHA}"
-          docker build --file deployment/server/Dockerfile --tag "$server_image" .
-          docker build --file deployment/database/Dockerfile --tag "$database_image" .
+          docker build --file deployment/server/Dockerfile --label "org.opencontainers.image.revision=$GITHUB_SHA" --tag "$server_image" .
+          docker build --file deployment/database/Dockerfile --label "org.opencontainers.image.revision=$GITHUB_SHA" --tag "$database_image" .
           docker save --output "$RUNNER_TEMP/server-image.tar" "$server_image"
           docker save --output "$RUNNER_TEMP/database-image.tar" "$database_image"
 
@@ -114,9 +114,6 @@ jobs:
             --commit "$GITHUB_SHA" \
             --server-image "$SERVER_REFERENCE" \
             --database-image "$DATABASE_REFERENCE" \
-            --csv plans/merged_after_rework_cards_seed_20260510.csv \
-            --schema-produces "study-schema-2" \
-            --schema-application-supports "study-schema-1,study-schema-2" \
             --workflow "release/${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}" \
             --created-at "$built_at" \
             --output "$package_dir/release-manifest.json"
