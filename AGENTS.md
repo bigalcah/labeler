@@ -101,18 +101,21 @@ docker compose --env-file deployment/.env -f deployment/docker-compose.yml down
 
 ## Congelación de la canalización CI/CD de master
 
-- Regla absoluta para agentes: la canalización de master es intocable por cualquier motivo. Incluye los 7 workflows
-  de `.github/workflows/` y `deployment/docker-compose.release.yml`; deben permanecer byte por byte idénticos a la
-  línea base `b409233` tanto en `develop` como en `master`.
+- La línea base congelada comprende exactamente los 7 workflows de `.github/workflows/` y
+  `deployment/docker-compose.release.yml`, con los fingerprints SHA-256 de `b409233` conservados en
+  `deployment/ci-pipeline-fingerprints.json`. `.github/CODEOWNERS` también debe conservar su fingerprint actual fijado
+  por el contrato; no forma parte de la excepción.
 - Antes de cualquier merge a `master`, ejecuta literalmente:
   `git diff --name-only origin/master...develop -- .github/workflows deployment/docker-compose.release.yml`
-- El comando debe imprimir nada. Si imprime cualquier ruta, detente, informa de la desviación y no hagas el merge.
-- La única forma autorizada de modificar la canalización es mediante un cambio OpenSpec dedicado, aprobado
-  explícitamente por el usuario.
-- Ese mismo cambio debe modificar el workflow y actualizar los fingerprints de congelación y las pruebas de contrato.
-- Los merges de producto nunca deben transportar cambios de la canalización.
-- `test/ci-pipeline-freeze.test.js` verifica los fingerprints SHA-256 y el conjunto exacto de archivos workflow.
-- `.github/CODEOWNERS` asigna las rutas de la canalización a `@bigalcah`.
-- Para que la protección sea plenamente efectiva, la protección de ramas de GitHub debe exigir la revisión del owner y
-  el resultado satisfactorio de la prueba de congelación; configurar estos requisitos es una acción administrativa
-  documentada como obligatoria.
+- No suprimas ni filtres la salida. Para un merge ordinario, cualquier ruta impresa bloquea el merge; nunca traslades
+  cambios del pipeline mediante un merge de producto.
+- La única excepción aprobada para este cambio permite exactamente `.github/workflows/shared-validation.yml`,
+  `.github/workflows/release.yml` y `deployment/docker-compose.release.yml`, con los hashes `before` y `after` exactos
+  registrados en `deployment/ci-pipeline-fingerprints.json`. Una excepción requiere el cambio OpenSpec dedicado, aprobación
+  explícita del usuario y revisión de owner; cualquier ruta, hash o wildcard adicional bloquea el merge.
+- `test/ci-pipeline-freeze.test.js` comprueba los siete nombres exactos, todos los hashes históricos, los tres hashes
+  actuales aprobados, la allowlist y la huella preservada de CODEOWNERS; mutaciones de hash o ruta deben fallar.
+- `.github/CODEOWNERS` asigna las rutas del pipeline a `@bigalcah` y permanece sin cambios.
+- La verificación de branch protection, revisión requerida del owner, éxito de la prueba de congelación y pausa real del
+  environment `production` es un gate administrativo separado. Una prueba local no demuestra que esos controles estén
+  configurados ni habilita producción; mientras falte evidencia, se mantiene el HOLD.
