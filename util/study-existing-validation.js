@@ -108,26 +108,26 @@ const assertStudyCards = async (client, studyId, {config, cards, sourceChecksum}
     }
 };
 
-const verifyExistingStudy = async (pool, input) => {
+const verifyExistingStudyClient = async (client, input) => {
     const config = assertNormalStudyConfig(parseStudyConfig(input.config));
-    return withReadOnlyTransaction(pool, async client => {
-        const {rows} = await client.query(
-            `SELECT id, study_key, config, source_checksum, expected_card_count, bootstrap_state,
+    const {rows} = await client.query(
+        `SELECT id, study_key, config, source_checksum, expected_card_count, bootstrap_state,
                     created_at, updated_at
              FROM study
              WHERE study_key = $1`,
-            [config.studyKey],
-        );
-        const [study] = rows;
-        if (!study) return null;
-        if (study.study_key !== config.studyKey) {
-            throw new StudyExistingValidationError("Existing study key differs from the approved profile.");
-        }
-        assertExistingStudy(study, config, input.sourceChecksum);
-        await assertParticipants(client, study.id, config);
-        await assertStudyCards(client, study.id, input);
-        return {...study, created: false};
-    });
+        [config.studyKey],
+    );
+    const [study] = rows;
+    if (!study) return null;
+    if (study.study_key !== config.studyKey) {
+        throw new StudyExistingValidationError("Existing study key differs from the approved profile.");
+    }
+    assertExistingStudy(study, config, input.sourceChecksum);
+    await assertParticipants(client, study.id, config);
+    await assertStudyCards(client, study.id, input);
+    return {...study, created: false};
 };
 
-export {StudyExistingValidationError, verifyExistingStudy, withReadOnlyTransaction};
+const verifyExistingStudy = (pool, input) => withReadOnlyTransaction(pool, client => verifyExistingStudyClient(client, input));
+
+export {StudyExistingValidationError, verifyExistingStudy, verifyExistingStudyClient, withReadOnlyTransaction};
