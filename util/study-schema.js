@@ -1,4 +1,5 @@
 import {readFile} from "node:fs/promises";
+import {assertLedgerState, knownExternalMigrationIds, readStudyLedger, schemaAdvisoryLockKey} from "./study-ledger.js";
 
 const managedMigrations = Object.freeze([
     {
@@ -54,8 +55,7 @@ const managedMigrations = Object.freeze([
         url: new URL("../schema/migrations/014_copilot_369_cardinality.sql", import.meta.url),
     },
 ]);
-const knownExternalMigrationIds = new Set([ "002_retire_legacy_labeler" ]);
-const advisoryLockKey = "labeler:study-schema";
+const advisoryLockKey = schemaAdvisoryLockKey;
 
 const parseThrough = argumentsList => {
     const throughIndex = argumentsList.indexOf("--through");
@@ -77,38 +77,10 @@ const parseThrough = argumentsList => {
 
 const readLedger = async client => {
     try {
-        const {rows} = await client.query(
-            "SELECT migration_id FROM labeler_migration ORDER BY applied_at, migration_id",
-        );
-        return rows.map(row => row.migration_id);
+        return (await readStudyLedger(client)).ids;
     } catch (error) {
         if (error.code === "42P01") return [];
         throw error;
-    }
-};
-
-const assertLedgerState = ledgerIds => {
-    const knownIds = new Set(managedMigrations.map(migration => migration.id));
-    for (const migrationId of ledgerIds) {
-        if (!knownIds.has(migrationId) && !knownExternalMigrationIds.has(migrationId)) {
-            throw new Error(`Unknown migration ID in ledger: ${migrationId}`);
-        }
-    }
-    let missingManagedMigration = false;
-    for (const migration of managedMigrations) {
-        const applied = ledgerIds.includes(migration.id);
-        if (!applied) missingManagedMigration = true;
-        if (applied && missingManagedMigration) {
-            throw new Error(`Migration ledger is out of order at ${migration.id}`);
-        }
-    }
-    const externalIndex = ledgerIds.indexOf("002_retire_legacy_labeler");
-    if (externalIndex !== -1) {
-        const foundationIndex = ledgerIds.indexOf("001_study_foundation");
-        const discardIndex = ledgerIds.indexOf("003_private_pr_discard");
-        if (foundationIndex === -1 || externalIndex < foundationIndex || (discardIndex !== -1 && externalIndex > discardIndex)) {
-            throw new Error("Migration ledger is out of order at 002_retire_legacy_labeler");
-        }
     }
 };
 

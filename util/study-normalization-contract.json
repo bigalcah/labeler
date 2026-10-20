@@ -1,0 +1,28 @@
+{
+  "formatVersion": 1,
+  "migration": {
+    "id": "015_normalize_retired_study_schema",
+    "sha256": "53f8188e453101b9a06f16e1b2891c7538aecaed8e83b954d00cf3e6a4dbf951"
+  },
+  "retirementSource": {
+    "id": "002_retire_legacy_labeler",
+    "sha256": "5e02460750b0594058d64a401ce160f04507c1d49d384e201c63fb1ed8a06277"
+  },
+  "retiredSchema": {
+    "observation": "014_copilot_369_cardinality",
+    "fingerprint": "6d2ac8e6283a6ef3e9b79f70c2a3844f0c2e03f6a5a3ad5578bc10415c930858",
+    "signatures": {
+      "namespaces": {"count":1,"sha256":"7e104b51c0321ed225f184cc935b9cc9de559febb543f93c8349ab2be222e0bb"},
+      "extensions": {"count":2,"sha256":"712ed441bc4927a29b0e9cde7b67b8ecb94238bd291ebfb9acaff8c3d585b610"},
+      "relations": {"count":79,"sha256":"b4527bdee3bd69f9f24ad2d730f316736f83d2422fc84c00ab4d4c9a8fb1236f"},
+      "columns": {"count":279,"sha256":"55652726838b842e8f08b10f84b3f69a9bc4fdb2e379735c4089105b03e7e622"},
+      "constraints": {"count":98,"sha256":"e8ccd17dd3f5b049126e69c614f1da4e4b17ded5fc5d7650d4226bf00fe95ad5"},
+      "indexes": {"count":59,"sha256":"42e2a3f7aa8b1b0f27f1b35f2d9bd9b705bfe2b4bd99b593aedcc11264a4694f"},
+      "triggers": {"count":127,"sha256":"5ad370d151e88a87675252c494442ac8ac17468ff11ef085a5a1ef270ea07bb0"},
+      "functions": {"count":41,"sha256":"1f41262e3cf0c2d55b253c5edff8f810c61f7d799147f09130345d6bc7aed7ab"},
+      "dependencies": {"count":390,"sha256":"cee5b2ff8ed432758bd423252eafc17a589659346461a1ec7eb0dc26430b2f16"},
+      "rules": {"count":0,"sha256":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"},
+      "policies": {"count":0,"sha256":"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}
+    }
+  }
+}

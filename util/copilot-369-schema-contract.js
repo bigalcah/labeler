@@ -2,6 +2,7 @@ import {createHash} from "node:crypto";
 import {readFile} from "node:fs/promises";
 import {isDeepStrictEqual} from "node:util";
 import {managedMigrations} from "./study-schema.js";
+import {readStudyLedger} from "./study-ledger.js";
 
 const CUTOVER_TABLES = Object.freeze([
     "github_api_telemetry_event", "github_card_snapshot", "github_enrichment_run",
@@ -12,7 +13,7 @@ const CUTOVER_TABLES = Object.freeze([
 const digest = value => createHash("sha256").update(value).digest("hex");
 const userNamespace = "n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'";
 
-const readCopilot369SchemaContract = async client => {
+const readCopilot369SchemaContract = async (client, {normalizeDependencies = false} = {}) => {
     const queries = {
         namespaces: `SELECT n.nspname FROM pg_namespace n WHERE ${userNamespace} ORDER BY 1`,
         extensions: `SELECT e.extname, e.extversion, n.nspname FROM pg_extension e
@@ -69,7 +70,17 @@ const readCopilot369SchemaContract = async client => {
     };
     const signatures = {};
     for (const [section, query] of Object.entries(queries)) {
-        const {rows} = await client.query(query);
+        let {rows} = await client.query(query);
+        if (normalizeDependencies && section === "dependencies") {
+            rows = rows.map(row => ({...row,
+                dependent: row.dependent.replace(/toast table pg_toast\.pg_toast_[0-9]+/g, "toast table pg_toast.TOAST"),
+                referenced: row.referenced.replace(/toast table pg_toast\.pg_toast_[0-9]+/g, "toast table pg_toast.TOAST"),
+            })).sort((left, right) => {
+                const leftKey = JSON.stringify([left.deptype, left.dependent, left.referenced]);
+                const rightKey = JSON.stringify([right.deptype, right.dependent, right.referenced]);
+                return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+            });
+        }
         signatures[section] = {count: rows.length, sha256: digest(JSON.stringify(rows))};
     }
     const migrations = [];
@@ -90,18 +101,14 @@ const assertCopilot369SchemaContract = async client => {
     if (temporary.length || replication.session_replication_role !== "origin") {
         throw new Error("Unknown cutover schema execution context: temporary objects or bypassed triggers");
     }
-    const actual = await readCopilot369SchemaContract(client);
-    if (!isDeepStrictEqual(actual, pinned)) {
+    const actual = await readCopilot369SchemaContract(client, {normalizeDependencies: true});
+    const prefixes = JSON.parse(await readFile(new URL("./study-readiness-prefixes.json", import.meta.url), "utf8"));
+    if (!isDeepStrictEqual(actual.migrations, pinned.migrations)
+        || digest(JSON.stringify(actual.signatures)) !== prefixes[managedMigrations.at(-1).id]) {
         const changed = Object.keys(actual.signatures).filter(key => !isDeepStrictEqual(actual.signatures[key], pinned.signatures[key]));
         throw new Error(`Unknown cutover schema contract: ${changed.join(", ") || "migration source drift"}`);
     }
-    const {rows} = await client.query("SELECT migration_id FROM public.labeler_migration ORDER BY migration_id");
-    const ids = rows.map(row => row.migration_id);
-    const required = pinned.migrations.map(migration => migration.id);
-    if (!isDeepStrictEqual(ids.filter(id => id !== "002_retire_legacy_labeler"), required)
-        || ids.filter(id => id === "002_retire_legacy_labeler").length > 1) {
-        throw new Error("Cutover requires known migrations through 014 already applied; unknown or missing migration ledger");
-    }
+    await readStudyLedger(client, {requireComplete: true});
 };
 
 export {CUTOVER_TABLES, assertCopilot369SchemaContract, readCopilot369SchemaContract};
