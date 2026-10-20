@@ -167,6 +167,7 @@ const runBrowser = async (chrome, arguments_) => {
     try {
         return await executeFile(chrome, [
             "--headless=new",
+            "--password-store=basic",
             "--disable-background-networking",
             "--disable-default-apps",
             "--disable-extensions",
