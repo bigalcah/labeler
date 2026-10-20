@@ -284,6 +284,7 @@ const launchBrowser = async chrome => {
     const userDataDirectory = await mkdtemp(path.join(tmpdir(), "labeler-home-chrome-"));
     const child = spawn(chrome, [
         "--headless=new",
+        "--password-store=basic",
         "--disable-background-networking",
         "--disable-default-apps",
         "--disable-extensions",
