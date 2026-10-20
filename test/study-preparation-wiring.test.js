@@ -15,6 +15,12 @@ const bootstrap = await readFile(new URL("../scripts/bootstrap-study.js", import
 const enrichment = await readFile(new URL("../scripts/enrich-study.js", import.meta.url), "utf8");
 const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 
+const readinessSpy = async binDirectory => {
+    const file = path.join(binDirectory, "node");
+    await writeFile(file, "#!/bin/sh\nprintf 'readiness\\n' >> \"$PREPARE_LOG.node\"\n[ \"${PREPARE_READINESS:-EMPTY}\" != BLOCKED ] || exit 1\nprintf '%s\\n' \"${PREPARE_READINESS:-EMPTY}\"\n");
+    await chmod(file, 0o755);
+};
+
 const run = (command, argumentsList, environment) => new Promise(resolve => {
     const child = spawn(command, argumentsList, {env: environment});
     let stdout = "";
@@ -254,6 +260,7 @@ test("clean preparation validates first, then migrates and bootstraps without a 
 
     try {
         await mkdir(binDirectory);
+        await readinessSpy(binDirectory);
         await writeFile(npmPath, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$PREPARE_LOG\"\n");
         await chmod(npmPath, 0o755);
         const result = await run("sh", [ "scripts/prepare-study-deployment.sh" ], {
@@ -267,6 +274,7 @@ test("clean preparation validates first, then migrates and bootstraps without a 
         });
 
         assert.equal(result.status, 0);
+        assert.equal(await readFile(`${logPath}.node`, "utf8"), "readiness\n");
         assert.deepEqual((await readFile(logPath, "utf8")).trim().split("\n"), [
             "run validate:study-bootstrap -- /input/cards.csv",
             "run retire:legacy:clean-check",
@@ -343,6 +351,7 @@ test("multi-study preparation failure propagates a nonzero exit before server re
     const logPath = path.join(directory, "npm.log");
     try {
         await mkdir(binDirectory);
+        await readinessSpy(binDirectory);
         await writeFile(npmPath, [
             "#!/bin/sh",
             "printf '%s\\n' \"$*\" >> \"$PREPARE_LOG\"",
@@ -381,6 +390,7 @@ test("existing preparation refuses a missing passfile before migration or retire
 
     try {
         await mkdir(binDirectory);
+        await readinessSpy(binDirectory);
         await writeFile(npmPath, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$PREPARE_LOG\"\n");
         await chmod(npmPath, 0o755);
         await writeFile(archivePath, "archive");
@@ -403,6 +413,28 @@ test("existing preparation refuses a missing passfile before migration or retire
         assert.deepEqual((await readFile(logPath, "utf8")).trim().split("\n"), [
             "run validate:study-bootstrap -- /input/cards.csv",
         ]);
+    } finally {
+        await rm(directory, {recursive: true, force: true});
+    }
+});
+
+test("full preparation skips every writer for an exact pair and blocks unknown or interrupted observations", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "labeler-readiness-shell-"));
+    try {
+        const bin = path.join(directory, "bin");
+        await mkdir(bin);
+        await readinessSpy(bin);
+        await writeFile(path.join(bin, "npm"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$PREPARE_LOG\"\n");
+        await chmod(path.join(bin, "npm"), 0o755);
+        for (const readiness of ["EXACT", "BLOCKED", "unexpected"]) {
+            const log = path.join(directory, readiness);
+            const result = await run("sh", ["scripts/prepare-study-deployment.sh"], {...process.env,
+                PATH: `${bin}:${process.env.PATH}`, PREPARE_LOG: log, PREPARE_READINESS: readiness,
+                STUDY_DATABASE_MODE: "clean", STUDY_PROFILES_INPUT: "/run/config/study-profiles.json", STUDY_CONFIG_INPUT: ""});
+            assert.equal(result.status, readiness === "EXACT" ? 0 : 1);
+            assert.deepEqual((await readFile(log, "utf8")).trim().split("\n"), ["run validate:study-profiles"]);
+            assert.equal(await readFile(`${log}.node`, "utf8"), "readiness\n");
+        }
     } finally {
         await rm(directory, {recursive: true, force: true});
     }

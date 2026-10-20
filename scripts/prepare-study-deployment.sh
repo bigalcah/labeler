@@ -4,6 +4,10 @@ set -eu
 
 GITHUB_ENRICHMENT_ENABLED="${GITHUB_ENRICHMENT_ENABLED:-false}"
 export GITHUB_ENRICHMENT_ENABLED
+if [ "$GITHUB_ENRICHMENT_ENABLED" != "false" ]; then
+  echo "Ordinary study preparation requires GITHUB_ENRICHMENT_ENABLED=false" >&2
+  exit 1
+fi
 
 if [ -n "${STUDY_PROFILES_INPUT:-}" ] && [ -n "${STUDY_CONFIG_INPUT:-}" ]; then
   echo "STUDY_PROFILES_INPUT and STUDY_CONFIG_INPUT cannot be used together" >&2
@@ -30,6 +34,20 @@ elif [ -n "${STUDY_CONFIG_INPUT:-}" ]; then
 else
   npm run validate:study-bootstrap -- "${STUDY_CSV_PATH:?STUDY_CSV_PATH is required}"
 fi
+
+readiness="$(node scripts/study-readiness.js --prepare)"
+case "$readiness" in
+  EXACT)
+    echo "Approved 369+30 studies verified read-only"
+    exit 0
+    ;;
+  EMPTY)
+    ;;
+  *)
+    echo "Unknown readiness result; no migration or bootstrap is allowed" >&2
+    exit 1
+    ;;
+esac
 
 case "${STUDY_DATABASE_MODE}" in
   clean)
