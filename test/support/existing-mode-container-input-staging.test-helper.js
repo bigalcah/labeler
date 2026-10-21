@@ -49,6 +49,7 @@ test("existing-mode Node readers reject foreign-owned 0400 inputs until staging 
     const validArchive = path.join(originalBackupDirectory, "legacy.valid.dump");
     const originalManifest = path.join(originalBackupDirectory, "legacy.manifest.json");
     let stagedBackupDirectoryOwned = false;
+    let foreignArchiveParentOwned = false;
 
     try {
         await Promise.all([
@@ -59,6 +60,12 @@ test("existing-mode Node readers reject foreign-owned 0400 inputs until staging 
             mkdir(path.join(foreignDirectory, "manifest-only"), {recursive: true, mode: 0o711}),
             mkdir(path.join(foreignDirectory, "archive-only"), {recursive: true, mode: 0o711}),
         ]);
+        const traversalDirectories = [cliSourceDirectory, cliSourceBackupDirectory,
+            path.join(foreignDirectory, "passfile"), path.join(foreignDirectory, "backup-directory-only"),
+            path.join(foreignDirectory, "manifest-only"), path.join(foreignDirectory, "archive-only")];
+        await Promise.all(traversalDirectories.map(directory => chmod(directory, 0o711)));
+        const traversalDirectoryMetadata = await Promise.all(traversalDirectories.map(fileMetadata));
+        assert.deepEqual(traversalDirectoryMetadata.map(metadata => metadata.mode), Array(6).fill("0711"));
         const inventory = await readLegacyInventory();
         const archiveContent = Buffer.from("SYNTHETIC_LEGACY_BACKUP_CANARY");
         const databaseIdentity = {host: "labeling-database", port: "5432", database: "labeling_harness", user: "labeling_harness"};
@@ -121,6 +128,11 @@ test("existing-mode Node readers reject foreign-owned 0400 inputs until staging 
         const cliSourceForeignMetadata = (await setSyntheticInputOwner({fixtureDirectory: cliSourceDirectory,
             relativePaths: ["legacy-retirement.pgpass", "backup/legacy.dump", "backup/legacy.manifest.json"],
             uid: 2000, gid: 2000, helperImage})).map(metadata => ({...metadata, mode: metadata.mode.toString(8).padStart(4, "0")}));
+        foreignArchiveParentOwned = true;
+        await setSyntheticInputOwner({fixtureDirectory: foreignDirectory, relativePaths: ["archive-only"],
+            uid: 2000, gid: 2000, helperImage});
+        const foreignArchiveParentMetadata = await fileMetadata(path.join(foreignDirectory, "archive-only"));
+        assert.deepEqual(foreignArchiveParentMetadata, {uid: 2000, gid: 2000, mode: "0711"});
 
         const redPassfile = await probeLegacyBackupInputs({image, repositoryRoot,
             passfilePath: path.join(foreignDirectory, "passfile/legacy-retirement.pgpass"),
@@ -153,7 +165,8 @@ test("existing-mode Node readers reject foreign-owned 0400 inputs until staging 
         assert.equal(redArchive.manifestReadable, true);
         assert.equal(redArchive.archiveReadable, false);
         assert.equal(redArchive.unexpectedError, false);
-        await recordEvidence({fileName: "existing-red-archive.json", result: redArchive});
+        await recordEvidence({fileName: "existing-red-archive.json", result: redArchive,
+            traversalDirectoryMetadata, foreignArchiveParentMetadata});
 
         stageFiles(cliSourceDirectory, fixtureDirectory,
             ["legacy-retirement.pgpass", "backup/legacy.dump", "backup/legacy.manifest.json"]);
@@ -227,6 +240,10 @@ test("existing-mode Node readers reject foreign-owned 0400 inputs until staging 
         if (stagedBackupDirectoryOwned) {
             await setSyntheticInputOwner({fixtureDirectory: path.join(fixtureDirectory, "container-inputs"),
                 relativePaths: ["backup"], uid: process.getuid(), gid: process.getgid(), helperImage});
+        }
+        if (foreignArchiveParentOwned) {
+            await setSyntheticInputOwner({fixtureDirectory: foreignDirectory, relativePaths: ["archive-only"],
+                uid: process.getuid(), gid: process.getgid(), helperImage});
         }
         await rm(fixtureDirectory, {recursive: true, force: true});
     }
