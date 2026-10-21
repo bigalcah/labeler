@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {execFile} from "node:child_process";
 import {randomBytes, randomUUID} from "node:crypto";
 import {chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import {promisify} from "node:util";
 import pg from "pg";
@@ -12,13 +13,14 @@ import {createReadinessProfiles} from "../readiness-fixture.js";
 import {seedNormalizationDecisions} from "./study-normalization-fixture.js";
 import {seedHistoricalCopilot369Studies} from "./copilot-369-fixture.js";
 import {rehearsalCompose} from "./real-runtime-rehearsal-compose.js";
+import {assertRehearsalInputsPreserved, stageRehearsalInputs} from "./real-runtime-rehearsal-inputs.js";
 
 const execute = promisify(execFile);
 const root = path.resolve(new URL("../../", import.meta.url).pathname);
 const docker = async args => (await execute("docker", args, {timeout: 120000, maxBuffer: 8 * 1048576})).stdout;
 
 const createRuntimeRehearsal = async kind => {
-    const directory = await mkdtemp("/tmp/opencode/real-runtime-rehearsal-");
+    const directory = await mkdtemp(path.join(os.tmpdir(), "real-runtime-rehearsal-"));
     const project = `real-rehearsal-${randomUUID()}`;
     const fixture = {directory, project, root, commands: [], kind, fault: "", profiles: [],
         containers: [`${project}-db`, `${project}-app`, `${project}-edge`, `${project}-helper`],
@@ -28,20 +30,25 @@ const createRuntimeRehearsal = async kind => {
     fixture.close = async () => {
         const results = await Promise.allSettled(fixture.containers.map(name => docker(["rm", "--force", name])));
         if (fixture.composeWritten) await fixture.compose(["down", "--volumes", "--remove-orphans"]);
-        const absent = [];
-        for (const [type, names] of [["container", fixture.containers], ["volume", fixture.volumes], ["network", [fixture.network]]]) {
-            for (const name of names) {
-                await assert.rejects(docker([type, "inspect", name]), error => /no such|not found/i.test(error.stderr));
-                absent.push({type, name});
+        let inputAudit;
+        try {
+            if (fixture.originalInputs) inputAudit = await assertRehearsalInputsPreserved(fixture);
+        } finally {
+            const absent = [];
+            for (const [type, names] of [["container", fixture.containers], ["volume", fixture.volumes], ["network", [fixture.network]]]) {
+                for (const name of names) {
+                    await assert.rejects(docker([type, "inspect", name]), error => /no such|not found/i.test(error.stderr));
+                    absent.push({type, name});
+                }
             }
+            await writeFile(fixture.receipt, JSON.stringify({kind, project, images: fixture.images, commands: fixture.commands,
+                observations: fixture.observations, inputAudit, absent, containerRemovalAttempts: results.map(value => value.status), productionAuthorization: false}, null, 2), {mode: 0o600});
+            await docker(["run", "--rm", "--pull", "never", "--network", "none", "--read-only", "--cap-drop", "ALL", "--cap-add", "DAC_OVERRIDE",
+                "--mount", `type=bind,src=${directory},dst=/fixture`, "python:3.12-alpine", "python3", "-B", "-c",
+                "import shutil;from pathlib import Path;[shutil.rmtree(p) for p in Path('/fixture').iterdir() if p.is_dir() and p.name.startswith('host-')]"]);
+            if (fixture.profileRoot) await rm(fixture.profileRoot, {recursive: true, force: true});
+            await rm(directory, {recursive: true, force: true});
         }
-        await writeFile(fixture.receipt, JSON.stringify({kind, project, images: fixture.images, commands: fixture.commands,
-            observations: fixture.observations, absent, containerRemovalAttempts: results.map(value => value.status), productionAuthorization: false}, null, 2));
-        await docker(["run", "--rm", "--pull", "never", "--network", "none", "--read-only", "--cap-drop", "ALL", "--cap-add", "DAC_OVERRIDE",
-            "--mount", `type=bind,src=${directory},dst=/fixture`, "python:3.12-alpine", "python3", "-B", "-c",
-            "import shutil;from pathlib import Path;[shutil.rmtree(p) for p in Path('/fixture').iterdir() if p.is_dir() and p.name.startswith('host-')]"]);
-        if (fixture.profileRoot) await rm(fixture.profileRoot, {recursive: true, force: true});
-        await rm(directory, {recursive: true, force: true});
     };
     try {
         fixture.images = {};
@@ -62,6 +69,7 @@ const createRuntimeRehearsal = async kind => {
             await chmod(profile.accountManifest, 0o600);
             await writeFile(profile.accountManifest, JSON.stringify(accounts));
             await chmod(profile.accountManifest, 0o400);
+            await chmod(profile.config, 0o400);
             const suffix = index === 0 ? "current" : "validation-30";
             descriptor.profiles.push({config: `/run/config/studies/${suffix}.json`, csv: `/labeling/data/${path.basename(profile.csvPath)}`,
                 accountManifest: `/run/secrets/studies/${suffix}.json`, enrichmentEnabled: false});
@@ -73,9 +81,14 @@ const createRuntimeRehearsal = async kind => {
             "session-current": randomBytes(32).toString("base64url"), "session-previous": randomBytes(32).toString("base64url"),
             "descriptor.json": JSON.stringify(descriptor), "production.env": "DATABASE_NAME=rehearsal\n",
             Caddyfile: "https://localhost {\n tls internal\n @actuator path /actuator /actuator/*\n respond @actuator 404\n reverse_proxy labeling-server:3000\n}\n"})) {
-            await writeFile(path.join(directory, name), value, {mode: 0o444});
+            await writeFile(path.join(directory, name), value, {mode: 0o400});
         }
         await chmod(path.join(directory, "Caddyfile"), 0o444);
+        assert.equal(await readFile(path.join(directory, "production.env"), "utf8"), "DATABASE_NAME=rehearsal\n");
+        await chmod(path.join(directory, "production.env"), 0o444);
+        await copyFile(path.join(root, "plans/merged_after_rework_cards_seed_20260510.csv"), path.join(directory, "legacy.csv"));
+        await chmod(path.join(directory, "legacy.csv"), 0o400);
+        await stageRehearsalInputs(fixture);
         fixture.model = rehearsalCompose(fixture);
         await writeFile(path.join(directory, "compose.json"), JSON.stringify(fixture.model));
         fixture.composeWritten = true;
@@ -107,7 +120,6 @@ const createRuntimeRehearsal = async kind => {
             await pool.end();
         }
         await mkdir(path.join(directory, "host-output"));
-        await copyFile(path.join(root, "plans/merged_after_rework_cards_seed_20260510.csv"), path.join(directory, "legacy.csv"));
         return fixture;
     } catch (error) {
         await fixture.close();

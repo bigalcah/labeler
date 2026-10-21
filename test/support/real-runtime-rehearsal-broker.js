@@ -59,8 +59,8 @@ const runRehearsalController = async (fixture, mode) => {
                     DATABASE_USER: "labeler_inspection", DATABASE_PASS_FILE: "/run/secrets/inspection-password",
                     LABELER_READINESS_STRICT: "true", STUDY_PROFILES_INPUT: "/run/config/study-profiles.json"};
                 const args = ["run", "--rm", "--pull", "never", "--network", fixture.network, "--read-only", "--cap-drop", "ALL",
-                    "--mount", `type=bind,src=${path.join(directory, "inspection-password")},dst=/run/secrets/inspection-password,readonly`,
-                    "--mount", `type=bind,src=${path.join(directory, "legacy.csv")},dst=/labeling/data/pr-cards.csv,readonly`,
+                    "--mount", `type=bind,src=${path.join(fixture.nodeInputs, "inspection-password")},dst=/run/secrets/inspection-password,readonly`,
+                    "--mount", `type=bind,src=${path.join(fixture.nodeInputs, "legacy.csv")},dst=/labeling/data/pr-cards.csv,readonly`,
                     ...mounts.flatMap(mount => ["--mount", `type=bind,src=${mount.source},dst=${mount.target},readonly`]),
                     ...Object.entries(settings).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
                     "--entrypoint", "node", fixture.images.server, "scripts/study-readiness.js", "--normalization-probe"];
