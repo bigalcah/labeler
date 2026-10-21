@@ -60,18 +60,19 @@ def main() -> None:
     mode = sys.argv[2]
     root = directory / "host-state"
     root.mkdir(mode=0o700, exist_ok=True)
-    for name in ("database-password", "inspection-password", "session-current", "session-previous"):
-        path = directory / name
-        os.chown(path, 1000, 1000)
-        path.chmod(0o400)
     external = directory / "host-external"
     external.mkdir(mode=0o700, exist_ok=True)
+    environment = external / "production.env"
+    contracts.require((directory / "production.env").read_text() == "DATABASE_NAME=rehearsal\n",
+                      "rehearsal metadata environment must contain only the approved nonsecret database name")
+    environment.write_text("DATABASE_NAME=rehearsal\n")
+    environment.chmod(0o400)
     backup = external / "backup-fails"
     backup.write_text("#!/bin/sh\nexit 23\n")
     backup.chmod(0o500)
-    os.environ.update({"LABELER_ENV_FILE": str(directory / "production.env"),
+    os.environ.update({"LABELER_ENV_FILE": str(environment),
         "LABELER_PUBLIC_BASE_URL": "https://localhost", "LABELER_DATABASE_NAME": "rehearsal",
-        "LABELER_READONLY_USER": "labeler_inspection", "LABELER_READONLY_PASSWORD_FILE": str(directory / "inspection-password"),
+        "LABELER_READONLY_USER": "labeler_inspection", "LABELER_READONLY_PASSWORD_FILE": str(directory / "container-inputs/inspection-password"),
         "LABELER_AUTHORIZATION_FILE": str(external / "authorization.json"), "LABELER_BACKUP_COMMAND": str(backup)})
     with durable.lock(root):
         state = State(root)

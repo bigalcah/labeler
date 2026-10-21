@@ -1,20 +1,49 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
+import os from "node:os";
+import path from "node:path";
+import {inspect} from "node:util";
 import {assertSqlReadonly, createRuntimeRehearsal, docker, execute, readSqlWindow} from "./support/real-runtime-rehearsal-fixture.js";
 import {runRehearsalController} from "./support/real-runtime-rehearsal-broker.js";
+import {assertRehearsalInputsPreserved, challengeRehearsalInputs} from "./support/real-runtime-rehearsal-inputs.js";
 
 const createRuntimeRehearsalWithRestrictiveUmask = async kind => {
     const originalUmask = process.umask(0o077);
     try {
-        return await createRuntimeRehearsal(kind);
+        const fixture = await createRuntimeRehearsal(kind);
+        try {
+            assert.equal(path.dirname(fixture.directory), path.resolve(os.tmpdir()), "the actual fixture must honor the OS temp root");
+            await challengeRehearsalInputs(fixture);
+            return fixture;
+        } catch (error) {
+            await fixture.close();
+            throw error;
+        }
     } finally {
         process.umask(originalUmask);
     }
 };
 
 test("real backup boundary failure rejects before candidate startup or SQL on a provisioned 001 database", async () => {
-    const fixture = await createRuntimeRehearsal("backup");
+    const fixture = await createRuntimeRehearsalWithRestrictiveUmask("backup");
     try {
+        const originalInputs = fixture.originalInputs;
+        try {
+            fixture.originalInputs = originalInputs.map((value, index) => index === 0 ? {...value, sha256: "HASH_CANARY"} : value);
+            let auditError;
+            try {
+                await assertRehearsalInputsPreserved(fixture);
+            } catch (error) {
+                auditError = error;
+            }
+            assert.equal(auditError?.code, "ERR_ASSERTION", "changed expected content digest must fail the integrity audit");
+            assert.equal(/HASH_CANARY|[a-f0-9]{64}|\b(?:sha256|inode|uid|gid|mode)\s*:/.test(inspect(auditError, {depth: null})),
+                false, "integrity audit errors must not expose input snapshots");
+            assert.equal(typeof auditError.actual, "boolean", "audit assertion actual must contain only a boolean");
+            assert.equal(typeof auditError.expected, "boolean", "audit assertion expected must contain only a boolean");
+        } finally {
+            fixture.originalInputs = originalInputs;
+        }
         const sqlBefore = await readSqlWindow(fixture);
         const report = await runRehearsalController(fixture, "backup");
         assert.equal(report.result, "FAILED");
@@ -89,7 +118,7 @@ for (const mode of ["runtime", "smoke", "rollback"]) {
 
 for (const mode of ["interrupt-origin", "interrupt-target", "unknown"]) {
     test(`real killed owner ${mode} requires readonly reconcile without preparing, restarting or repairing`, async () => {
-        const fixture = await createRuntimeRehearsal(mode === "interrupt-origin" ? "backup" : mode);
+        const fixture = await createRuntimeRehearsalWithRestrictiveUmask(mode === "interrupt-origin" ? "backup" : mode);
         try {
             const interrupted = await runRehearsalController(fixture, mode);
             assert.deepEqual(interrupted, {crashed: true});
