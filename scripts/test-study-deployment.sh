@@ -1500,8 +1500,11 @@ const before = JSON.parse(readFileSync(beforePath, "utf8"));
 const after = JSON.parse(readFileSync(afterPath, "utf8"));
 assert.equal(before.probe.applied015, false);
 assert.equal(after.probe.applied015, false);
-assert.equal(before.probe.eligibility, "eligible");
-assert.equal(after.probe.eligibility, "eligible");
+for (const state of [before, after]) {
+    assert.equal(state.probe.eligibility, "ineligible");
+    assert.equal(state.probe.observation.schema, "study-schema-4");
+    assert.equal(state.historyProbe.applied016, true);
+}
 assert.equal(before.applicationRowsSha256, after.applicationRowsSha256);
 for (const key of ["schema", "dataBundle", "fingerprint", "schemaFingerprint", "databaseIdentity"]) {
     assert.deepEqual(after.probe.observation[key], before.probe.observation[key]);
