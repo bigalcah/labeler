@@ -29,13 +29,16 @@ estudio, no se aceptan conteos arbitrarios y no hay UI administrativa.
 
 ## Release automático a la VPS
 
-Esta sección describe el contrato de release congelado, no una ruta de publicación de la primaria
-Copilot 369. El contrato actual aún valida 300 tarjetas y el CSV histórico, por lo que integración
-con CI, publicación en `master` y despliegue de 369 permanecen en **HOLD** hasta un cambio dedicado
-de pipeline aprobado. Consulta [`docs/COPILOT-369-RELEASE-HOLD.md`](docs/COPILOT-369-RELEASE-HOLD.md).
+El consumidor de host v2 y el contrato del manifiesto v2 están implementados en el repositorio, pero la adopción real,
+las protecciones administrativas y la evidencia operativa siguen pendientes. La publicación y el
+despliegue permanecen en **HOLD**. Los manifiestos v1 y la muestra histórica de 300 son solo
+inventario/cutover readonly; no se aceptan como ingreso nuevo, fallback ni rollback compatible sin
+los dos tokens efectivos verificados. Consulta [`docs/COPILOT-369-RELEASE-HOLD.md`](docs/COPILOT-369-RELEASE-HOLD.md).
 
-Cada `push` a `master` inicia `.github/workflows/release.yml`. El job `quality` invoca la
-validación compartida y debe completar los gates de calidad, integración y E2E antes de que
+El workflow configurado para `push` a `master` es `.github/workflows/release.yml`. Sus jobs `quality`,
+`build`, `publish` y `deploy` requieren que los gates previos terminen satisfactoriamente. Hasta que
+se verifique la protección administrativa y la adopción en host, no se considera autorizada la publicación.
+El job `quality` invoca la validación compartida y debe completar los gates de calidad, integración y E2E antes de que
 `build`, `publish` o `deploy` puedan avanzar. Un fallo termina el intento sin publicar imágenes ni
 contactar la VPS. `develop`, las ramas de pull request y cualquier otra rama no despliegan
 producción.
@@ -47,19 +50,27 @@ El job `build` construye `labeling-server` y `labeling-database` desde el mismo 
 referencia efectiva siempre es `ghcr.io/<owner>/<image>:sha-<commit>@sha256:<64-hex>`. No uses `latest`,
 una etiqueta reutilizable ni un digest incompleto.
 
-El manifiesto que valida el launcher es `release-manifest.json` y debe ser inmutable dentro del
-paquete. Su contrato incluye `schemaVersion=1`, `releaseId`, `generation`, el commit de 40
-caracteres hexadecimales, `images.server` y `images.database` como referencias completas por
-digest, `csv.sha256` y `schemaCompatibility.produces` junto con
-`schemaCompatibility.applicationSupports`. El checksum corresponde al CSV canónico y los digests
-deben corresponder al commit del manifiesto.
+El manifiesto inmutable `release-manifest.json` usa `schemaVersion=2` y exactamente estas claves
+raíz: `schemaVersion`, `releaseId`, `generation`, `commit`, `images`, `dataBundle`,
+`schemaCompatibility`, `dataCompatibility`, `workflow` y `createdAt`. No tiene clave singular
+`csv`. `dataBundle.profiles` contiene, en este orden, los perfiles 369 y 30, cada uno con `csv` y
+`manifest` (`path` y `sha256`): `/labeling/data/copilot-369-cards.csv`
+(`fad0881b9e40b1b68a577e84ad60c90d48fcebe79db8d55d05613fc1746794fb`),
+`/labeling/data/copilot-369-cards.manifest.json`
+(`1837bc7a8cbd366349c8bc207cc236a0dec9d0b04f7f63325ee525884faf3f3a`),
+`/labeling/data/validation-30-cards.csv`
+(`1607cfe84cb687a2cc7b4c56d3e0abf106b1a1044810d7390663ef1d691b63ab`) y
+`/labeling/data/validation-30-cards.manifest.json`
+(`5049b9357468ce98bd4f83057ea3e59178a5d03793f97800252d7e3e87e7dc1a`). Los ejes de
+compatibilidad son `study-schema-3` y `copilot369-v1`; deben verificarse ambos contra la base real.
 
 La entrada del paquete contiene exactamente `Caddyfile`, `docker-compose.yml` y
 `release-manifest.json`. El workflow transmite el archivo por la entrada estándar de un canal
-OpenSSH que solicita `deploy <release-id>`. La cuenta restringida no acepta comandos arbitrarios y
-deja que
-`deployment/deploy-vps.sh deploy <release-id>` haga el preflight. La VPS no necesita un checkout
-del repositorio y no debe reconstruir imágenes de producción.
+OpenSSH que entrega `deploy <release-id>` en `SSH_ORIGINAL_COMMAND`. La cuenta restringida valida
+esa orden y consume el paquete por stdin; la invocación forzada no admite argumentos directos. Los
+modos locales son solo root y tienen una interfaz distinta, documentada en
+[`deployment/host/README.md`](deployment/host/README.md). La VPS no necesita un checkout del
+repositorio ni reconstruye imágenes de producción.
 
 El job `deploy` usa el entorno protegido `production` y las secrets `VPS_HOST`, `VPS_USER`,
 `VPS_KNOWN_HOSTS` y `VPS_SSH_PRIVATE_KEY`. La cuenta SSH solo puede invocar el launcher autorizado.
@@ -68,18 +79,23 @@ enriquecimiento y backup permanecen en la VPS. GitHub Actions no recibe ni trans
 La VPS no ejecuta un runner autoalojado; las imágenes se construyen en runners administrados por
 GitHub.
 
-El launcher exige estas variables externas de host, sin secretos inline:
+La configuración completa, las variables y el procedimiento de adopción del consumidor v2 están en
+[`deployment/host/README.md`](deployment/host/README.md). No uses este fragmento como configuración
+completa. El comando externo de backup es un prerrequisito de integración del operador, no lo
+suministra el repositorio:
 
 ```dotenv
-LABELER_DEPLOY_ROOT=/absolute/external/labeler
+LABELER_DEPLOY_ROOT=/absolute/host/labeler
 LABELER_ENV_FILE=/absolute/external/labeler/deployment.env
-LABELER_BACKUP_COMMAND=/absolute/external/labeler/bin/backup-study
-LABELER_PUBLIC_BASE_URL=https://<PUBLIC_HOSTNAME>
+LABELER_BACKUP_COMMAND=/absolute/external/labeler/bin/full-backup-and-restore
+LABELER_PUBLIC_BASE_URL=https://labeler.example
 ```
 
-`LABELER_BACKUP_COMMAND` debe ser un archivo ejecutable absoluto, fuera de `LABELER_DEPLOY_ROOT`,
-y su salida debe contener exactamente `STUDY_BACKUP_VERIFIED`. El launcher rechaza `PGPASSWORD` y
-`STUDY_BACKUP_ENCRYPTION_PASSPHRASE` como secretos inline.
+`LABELER_BACKUP_COMMAND` debe ser un ejecutable externo absoluto, propiedad de root y fuera de
+`LABELER_DEPLOY_ROOT`. Debe devolver únicamente la ruta absoluta de un recibo externo v1 tipado
+`labeler-full-postgresql-backup`, no `STUDY_BACKUP_VERIFIED`. Consulta la
+[`frontera de backup del host`](deployment/host/README.md#backup-boundary). El launcher rechaza
+`PGPASSWORD` y `STUDY_BACKUP_ENCRYPTION_PASSPHRASE` como secretos inline.
 
 El layout persistente es:
 
@@ -95,30 +111,32 @@ El layout persistente es:
   previous -> releases/<release-id>
 ```
 
-La secuencia fail-closed es: lock exclusivo, validación del paquete y del manifiesto, renderizado
-de `docker compose config`, descarga e inspección de imágenes, backup verificado, PostgreSQL
-saludable, `labeling-study-prepare`, servidor y Caddy con `--no-build --wait`, y smoke test HTTPS
-de `LABELER_PUBLIC_BASE_URL/login`. Solo después del smoke test se publican `current` y `previous`.
-Cada intento conserva manifiesto, configuración, pull, inspección, backup, health checks, smoke
-test y diagnósticos.
+La secuencia fail-closed v2 usa lock exclusivo, validación del paquete/manifiesto, configuración,
+descarga e inspección de imágenes, observación readonly de la base, escritores detenidos y backup
+completo verificado antes de la operación que pueda mutar. El recibo debe declarar origen e intervalo,
+archivo custom completo con hash, referencia de clave y retención, globals y prerrequisitos, además
+del restore aislado con fingerprints de esquema y datos. El host reobserva el origen y los escritores
+antes del handoff. La preparación/runtime/publicación requieren verificación real del journal, no solo
+punteros. La adopción inicial, protecciones administrativas, revisión de owner, backup/restore externo
+y evidencia pública siguen pendientes.
 
-El contrato de release actualmente contiene el CSV histórico en `/labeling/data/pr-cards.csv`;
-Compose usa esa ruta como `STUDY_CSV_PATH`. La fuente de producto 369 es un archivo separado y no
-cambia qué CSV identifica el manifiesto de release. El `.env`, los secretos externos y el volumen
-`labeling-data` quedan fuera del paquete y no se sustituyen durante la release.
+El manifiesto v2 vincula la release con los cuatro artefactos ordenados del bundle 369/30. El `.env`,
+los secretos externos y el volumen `labeling-data` quedan fuera del paquete y no se sustituyen
+durante la release. El manifiesto y los punteros publicados no acreditan el estado real de la base:
+esa prueba corresponde al journal y a la observación del host.
 
-La composición que viaja en el paquete procede de `deployment/docker-compose.release.yml`. Incluye
-el descriptor de perfiles del contrato de release congelado, las configuraciones de 300 y 30
-tarjetas y ambos manifests como mounts externos parametrizados, todos limitados a
-`labeling-study-prepare`. El servidor y Caddy no reciben esos archivos; la ruta local
-`docker-compose.clean.yml` continúa siendo un overlay separado.
+La composición que viaja en el paquete procede de `deployment/docker-compose.release.yml`. El
+contrato v2 monta los perfiles 369 y 30 y sus configuraciones/manifests externos únicamente en
+`labeling-study-prepare`. La muestra v1/300 se conserva solo en inventario readonly y cutover
+histórico, nunca como fallback. Las rutas canónicas y sus hashes están fijados en el manifiesto v2.
 
-La recuperación de imagen solo puede usar `previous` si su manifiesto declara compatibilidad con el
-esquema activo. No revierte migraciones ni elimina `labeling-data`. Si la compatibilidad no está
-declarada, sigue [`deployment/ROLLBACK.md`](deployment/ROLLBACK.md) para restauración verificada en
-un destino separado. La adopción inicial de una VPS existente está separada del primer release
-automático: sigue el [`checklist de adopción`](docs/VPS-ADOPTION-CHECKLIST.md) y registra el digest
-activo sin inventar evidencia de backup, restore o despliegue público.
+La recuperación de imagen solo puede considerar `previous` con journal verificado contra la base
+real y compatibilidad de ambos ejes, `study-schema-3` y `copilot369-v1`. Punteros o manifiestos
+publicados no prueban el estado SQL; un v1 no es fallback seguro. No se revierten migraciones ni se
+elimina `labeling-data`. La restauración escribible requiere backup verificado y destino separado.
+Consulta [`deployment/ROLLBACK.md`](deployment/ROLLBACK.md) y el
+[`checklist de adopción`](docs/VPS-ADOPTION-CHECKLIST.md); la adopción y la evidencia real siguen
+pendientes.
 
 ## Despliegue local y configuración base
 
@@ -273,6 +291,10 @@ usa un certificado interno, por eso `curl` necesita `--insecure`; en VPS se debe
 público y un certificado TLS confiable. Caddy es el único borde público y publica 80/443; no se
 publican los puertos de la aplicación ni PostgreSQL.
 
+Esta sección describe el arranque local del etiquetador. Para operación del host v2, backup full,
+adopción y releases, sigue [`deployment/host/README.md`](deployment/host/README.md); los pasos locales
+no sustituyen su autorización ni el recibo `labeler-full-postgresql-backup`.
+
 Para detener el stack sin borrar datos:
 
 ```bash
@@ -351,11 +373,17 @@ el volumen de producción.
 
 ## Backup cifrado del estudio
 
-El backup operativo completo es distinto del backup legacy previo al retiro. `npm run backup:study` genera un dump
+El backup operativo local de `npm run backup:study` es distinto del backup legacy previo al retiro. Genera un dump
 PostgreSQL de formato custom, cifra el flujo directamente con OpenSSL y publica de forma atómica el archivo cifrado y su
 manifiesto en rutas absolutas externas. El manifiesto registra checksum SHA-256 del archivo cifrado, identidad de base,
 retención y fingerprints de tarjetas, clasificaciones y cuentas, incluidos hash y `credential_version`. Los datos
 transitorios de sesiones, límites de login, CSRF y telemetría no se incluyen.
+
+Ese comando no produce un backup completo de host: excluye tablas transitorias y no representa por sí solo el
+recibo externo `labeler-full-postgresql-backup` requerido por host v2, ni demuestra los prerrequisitos de globals o un
+restore aislado enlazado a fingerprints. Esto también aplica a una base vacía o con solo la migración 001. La integración
+externa debe ser provista por el operador; no se incluye ejecutable ni formato de salida de ejemplo exitoso. Consulta
+[`deployment/host/README.md#backup-boundary`](deployment/host/README.md#backup-boundary).
 
 La configuración, política de retención y verificación de restore se describen en
 [`deployment/ROLLBACK.md`](deployment/ROLLBACK.md). La retención es responsabilidad del almacenamiento externo; la
