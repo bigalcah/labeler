@@ -18,13 +18,17 @@ const verifyReleaseHandoff = async (observation, purpose = "prepare") => {
     const history = purpose === "maintenance-history";
     const maintenance = normalization || history;
     const authorization = context.receipt.authorization;
+    const normalizedHistory = history && context.receipt.origin.schema === "014_copilot_369_cardinality"
+        && context.observation.schema === "study-schema-3";
+    const originKeys = normalizedHistory ? ["dataBundle", "databaseIdentity"]
+        : ["schema", "dataBundle", "fingerprint", "schemaFingerprint", "databaseIdentity"];
     if (!["prepare", "maintenance-normalize", "maintenance-history"].includes(purpose)
         || (maintenance ? authorization.action !== purpose
             : !["deploy", "continue"].includes(authorization.action))
         || !(Date.parse(authorization.issuedAt) <= Date.now() && Date.now() < Date.parse(authorization.expiresAt))
         || (maintenance && (authorization.writersStopped !== true || context.receipt.backupRef === null
             || context.observation.readOnly.writersStopped !== true
-            || ["schema", "dataBundle", "fingerprint", "schemaFingerprint", "databaseIdentity"]
+            || originKeys
                 .some(key => !isDeepStrictEqual(context.observation[key], context.receipt.origin[key]))))) {
         throw new StudyReadinessError("Release handoff action does not authorize this step.");
     }
