@@ -1,4 +1,5 @@
 import {StudyExportError} from "./study-export-format.js";
+import {STUDY_EXPORT_COMPARISON_ROWS_SQL} from "./study-export-queries.js";
 
 const DATA_ERROR = () => new StudyExportError(409);
 const ELIGIBILITY_ERROR = () => new StudyExportError(403);
@@ -31,7 +32,7 @@ const assertContext = context => {
 const assertStudyScope = (studyRows, context) => {
     if (studyRows.length !== 1 || studyRows[0].id !== context.studyId) throw ELIGIBILITY_ERROR();
     const study = studyRows[0];
-    if (study.bootstrap_state !== "READY" || ![30, 300].includes(study.expected_card_count)) throw DATA_ERROR();
+    if (study.bootstrap_state !== "READY" || ![30, 300, 369].includes(study.expected_card_count)) throw DATA_ERROR();
     return study;
 };
 
@@ -184,51 +185,7 @@ const validateIncludedCategories = gate => {
 
 const loadStudyExportRows = async (client, studyId, participants, cards) => {
     const {rows} = await client.query(
-        `/* study-export:comparison-rows */
-         WITH promoted_metadata AS (
-             SELECT DISTINCT ON (page.run_id, page.pr_card_id)
-                    page.run_id, page.pr_card_id,
-                    page.normalized_payload ->> 'html_url' AS promoted_html_url
-             FROM github_run_page page
-             WHERE page.study_id = $1 AND page.endpoint = 'metadata'
-               AND page.state IN ('COMPLETE', 'COMPLETE_EMPTY')
-             ORDER BY page.run_id, page.pr_card_id, page.page_ordinal DESC
-         )
-         SELECT participant.reviewer_id AS participant_id,
-                participant.ordinal AS participant_ordinal,
-                card.ordinal AS card_ordinal,
-                card.source_card_id,
-                source_card.html_url AS source_html_url,
-                metadata.promoted_html_url,
-                CASE WHEN classification.id IS NOT NULL THEN 'CLASSIFIED'
-                     WHEN discard.pr_card_id IS NOT NULL THEN 'DISCARDED'
-                     ELSE 'PENDING' END AS decision,
-                classification.category_id,
-                category.id AS valid_category_id,
-                category.raw_name AS category_name,
-                category.definition AS category_definition,
-                classification.remarks AS classification_remarks
-         FROM study_participant participant
-         INNER JOIN study_card card ON card.study_id = participant.study_id
-         INNER JOIN pr_cards source_card ON source_card.id = card.pr_card_id
-             AND source_card.source_card_id = card.source_card_id
-         LEFT JOIN pr_classification classification
-             ON classification.study_id = participant.study_id
-            AND classification.pr_card_id = card.pr_card_id
-            AND classification.participant_id = participant.reviewer_id
-         LEFT JOIN participant_category category
-             ON category.id = classification.category_id
-            AND category.study_id = participant.study_id
-            AND category.participant_id = participant.reviewer_id
-         LEFT JOIN pr_discard discard
-             ON discard.study_id = participant.study_id
-            AND discard.pr_card_id = card.pr_card_id
-            AND discard.participant_id = participant.reviewer_id
-         LEFT JOIN study_enrichment_promotion promotion ON promotion.study_id = participant.study_id
-         LEFT JOIN promoted_metadata metadata
-             ON metadata.run_id = promotion.run_id AND metadata.pr_card_id = card.pr_card_id
-         WHERE participant.study_id = $1 AND participant.reviewer_id = ANY($2::INTEGER[])
-         ORDER BY participant.ordinal, card.ordinal`,
+        STUDY_EXPORT_COMPARISON_ROWS_SQL,
         [studyId, participants.map(participant => participant.participant_id)],
     );
     return validateComparisonRows(rows, participants, cards);

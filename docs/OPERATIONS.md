@@ -1,12 +1,16 @@
 # Operaciones
 
+El [modo automático delegado](AUTOMATIC-DEPLOYMENT.md), aprobado el 21 de octubre de 2026, elimina backup/restore
+como prerrequisito de deploy y conserva los controles de datos. Sus requisitos sustituyen las exigencias manuales
+de este documento solo cuando la política root está instalada; el resto describe el modo manual histórico.
+
 La operación del estudio está documentada como `IMPLEMENTED-UNVERIFIED`. Hay código y contratos estáticos, pero no hay
 evidencia aprobada de ejecución de infraestructura, HTTP o VPS. `AGENTS.md` mantiene el baseline ejecutable como
 `LEGACY`; no presentes una tarea pendiente o un archivo existente como runtime verificado.
 
 ## Runbooks canónicos
 
-- [`MULTI-STUDY-VALIDATION.md`](MULTI-STUDY-VALIDATION.md): perfiles 300 y 30, descriptor, orden de preparación y
+- [`MULTI-STUDY-VALIDATION.md`](MULTI-STUDY-VALIDATION.md): perfiles, descriptor, orden de preparación y
   aislamiento.
 - [`PARTICIPANT-GUIDE.md`](PARTICIPANT-GUIDE.md): usernames asignados, login y flujo privado del participante.
 - [`EXPORT-RUNBOOK.md`](EXPORT-RUNBOOK.md): comparación CSV en navegador, autorización, privacidad y errores.
@@ -22,7 +26,9 @@ de Caddy en 80 y 443.
 
 ## Release automático de producción
 
-El único origen de producción es `push` a `master`. El workflow de release reutiliza los gates de
+El workflow configurado se activa con `push` a `master`. La publicación y despliegue permanecen en **HOLD** hasta acreditar
+protecciones administrativas reales, revisión de owner, adopción del consumidor en host, backup y restore externos y
+prueba pública en VPS. El workflow de release reutiliza los gates de
 calidad, integración y E2E. No publica imágenes, no envía un paquete y no conecta con la VPS si
 uno de esos gates falla. Los cambios de `develop` y de pull request siguen su validación propia y
 no despliegan producción.
@@ -34,48 +40,62 @@ publica ambas imágenes en GHCR con tags `GITHUB_SHA`, resuelve sus digests y cr
 `release-package-<release-id>.tar.gz`. `<release-id>` tiene la forma
 `<GITHUB_RUN_NUMBER>-<GITHUB_RUN_ATTEMPT>-<GITHUB_SHA>`.
 
-El manifiesto inmutable `release-manifest.json` que acepta el launcher contiene:
+El manifiesto inmutable v2 `release-manifest.json` que acepta el consumidor contiene exactamente estas claves raíz:
 
-- `schemaVersion=1`, `releaseId` y una `generation` entera;
-- un `commit` de 40 caracteres hexadecimales;
-- `images.server` y `images.database` como referencias completas con
-  `@sha256:<64 caracteres hexadecimales>`;
-- `csv.sha256` para el CSV canónico;
-- `schemaCompatibility.produces` y `schemaCompatibility.applicationSupports`.
+- `schemaVersion`, `releaseId`, `generation`, `commit`, `images`, `dataBundle`, `schemaCompatibility`,
+  `dataCompatibility`, `workflow` y `createdAt`;
+- `schemaVersion=2`, sin clave singular `csv`;
+- `dataBundle.profiles` con 369 y después 30, cada uno con `csv` y `manifest` (`path` y `sha256`) fijados para los
+  archivos canónicos definidos en `manifest.ARTIFACTS` del validador host v2;
+- compatibilidad separada para ambos ejes, `study-schema-4` y `copilot369-v1`.
 
-El tag derivado del SHA sirve para localizar la construcción, pero la referencia efectiva es el
-digest registrado en el manifiesto. No uses `latest`, tags reutilizables ni una imagen sin digest.
+El tag derivado del SHA sirve para localizar la construcción, pero la referencia efectiva es el digest registrado en el
+manifiesto. No uses `latest`, tags reutilizables ni una imagen sin digest. Los manifiestos v1 con muestra histórica 300
+son readonly para inventario/cutover: no son ingreso nuevo, fallback ni rollback compatible sin ambos tokens efectivos.
 
 El paquete transferido contiene exactamente `Caddyfile`, `docker-compose.yml` y
 `release-manifest.json`. No incluye `.env`, contraseñas, tokens, claves, manifests privados de
 cuentas ni archivos temporales del runner. La VPS no necesita un checkout del repositorio.
 
-La imagen de servidor contiene el CSV canónico en `/labeling/data/pr-cards.csv` y Compose configura
-`STUDY_CSV_PATH` con esa ruta. El preparador no debe leer `plans/` ni un workspace del runner.
+La imagen de servidor contiene estos cuatro artefactos canónicos del bundle, en este orden:
+`/labeling/data/copilot-369-cards.csv`, `/labeling/data/copilot-369-cards.manifest.json`,
+`/labeling/data/validation-30-cards.csv` y `/labeling/data/validation-30-cards.manifest.json`.
+`STUDY_CSV_PATH` apunta al CSV primario `/labeling/data/copilot-369-cards.csv`. El preparador no
+debe leer `plans/` ni un workspace del runner.
 
 ### Secuencia fail-closed
 
-El launcher de VPS (`deployment/deploy-vps.sh`) ejecuta la release con una cuenta SSH dedicada y
-restringida. El canal OpenSSH transmite el paquete por su entrada estándar y solicita la orden
-`deploy <release-id>`; el launcher valida y lo instala en
-`LABELER_DEPLOY_ROOT/releases/<release-id>` sin aceptar comandos arbitrarios. La secuencia no debe
-cambiarse ni saltarse:
+El consumidor v2 de host (`deployment/deploy-vps.sh`) usa una cuenta SSH dedicada y restringida. La
+invocación forzada acepta únicamente `SSH_ORIGINAL_COMMAND` con `deploy <release-id>` o `rollback`,
+no argumentos directos; el paquete llega por stdin. Los modos locales root-only usan
+`deployment/release-host-control.py` y aceptan sus argumentos de control autorizados; no son una
+interfaz SSH ni un bypass de la orden forzada. La configuración completa y la adopción están en
+[`deployment/host/README.md`](../deployment/host/README.md). Una release publicada o un puntero no
+prueban por sí solos el estado de la base.
 
-```bash
-/absolute/path/to/deployment/deploy-vps.sh deploy <release-id>
-/absolute/path/to/deployment/deploy-vps.sh rollback
-```
+La orden `rollback` no recibe identificador en SSH; opera bajo lock y exige journal `verified` frente a la base real, compatibilidad
+de ambos ejes (`study-schema-4` y `copilot369-v1`) y verificación runtime/smoke. Los punteros publicados no prueban SQL;
+v1 no es fallback seguro.
 
-El comando `rollback` no recibe un identificador: selecciona `previous` bajo lock y solo puede
-intercambiarlo con `current` tras verificar compatibilidad de esquema y el smoke test.
+La actualización de esquema va separada del cutover: el consumidor y observador revisados deben estar instalados
+antes de admitir el candidato. Un origen canónico 013/014 usa mantenimiento local `maintenance history <release-id>`
+con autorización `maintenance-history`, escritores detenidos y backup/restore completo del origen.
+Un catálogo retirado requiere primero la normalización 015 fijada, sin inventar entradas 002/015.
+El checkpoint `history_schema_verified` conserva la muestra observada. Para `continue` se necesita autorización
+nueva y backup/restore del baseline posterior a 016. El historial cerrado de enriquecimiento se conserva;
+solo decisiones/descartes primarios impiden el cutover. Los recibos antiguos siguen legibles, pero schema-3
+no es ingreso ni rollback compatible con schema-4. Véase el
+[procedimiento de historia y continuación](COPILOT-369-RUNBOOK.md#host-schema-checkpoint-and-continuation).
 
 1. Adquirir el lock del host y rechazar una generación anterior a la release activa.
 2. Validar el paquete allowlisted sin secretos, el manifiesto, las variables externas y
    `docker compose config --format json`.
 3. Descargar las imágenes exactas con `docker compose pull` y comprobar su estado e identidad.
-4. Ejecutar `LABELER_BACKUP_COMMAND` y exigir la línea exacta `STUDY_BACKUP_VERIFIED`.
-5. Comprobar PostgreSQL saludable y ejecutar `labeling-study-prepare` de la release. La
-   preparación conserva el orden multiestudio: primero 300 tarjetas y después 30.
+4. Para inicialización o mutación de mantenimiento autorizada, observar base y escritores detenidos y exigir que `LABELER_BACKUP_COMMAND`
+   devuelva solo la ruta absoluta al recibo v1 `labeler-full-postgresql-backup`, verificado con backup custom completo,
+   globals y prerrequisitos, retención, y restore aislado con fingerprints coincidentes.
+5. Comprobar PostgreSQL saludable y ejecutar `labeling-study-prepare` de la release. La preparación valida o crea los
+   perfiles 369 y después 30. Un origen v1/300 solo pasa por mantenimiento/cutover explícito, nunca por prepare ordinario.
 6. Recrear servidor y Caddy con `up -d --no-build --wait`, y esperar sus health checks.
 7. Ejecutar desde fuera del contenedor una petición HTTPS a `/login` contra
    `LABELER_PUBLIC_BASE_URL`.
@@ -85,9 +105,10 @@ intercambiarlo con `current` tras verificar compatibilidad de esquema y el smoke
 
 Un fallo de preflight, descarga, lock o backup conserva la release activa y no ejecuta migraciones
 nuevas. Un fallo del preparador impide continuar hacia el tráfico público, no borra
-`labeling-data` y deja su evidencia diagnóstica. Un fallo posterior al reemplazo solo permite
-activar `previous` si la release declara compatibilidad con el esquema existente. El launcher no
-revierte migraciones y nunca usa `down -v`.
+`labeling-data` y deja su evidencia diagnóstica. Un fallo posterior solo permite activar `previous`
+con journal `verified` contra la base real y soporte de ambos ejes, `study-schema-4` y
+`copilot369-v1`. Punteros y manifiestos publicados no prueban SQL; releases v1 no son fallback seguro.
+El launcher no revierte migraciones y nunca usa `down -v`.
 
 ### Variables, layout y evidencia
 
@@ -95,17 +116,20 @@ El operador debe instalar un directorio externo de releases y un archivo `.env` 
 requiere estas variables del host:
 
 ```dotenv
-LABELER_DEPLOY_ROOT=/absolute/external/labeler
+LABELER_DEPLOY_ROOT=/absolute/host/labeler
 LABELER_ENV_FILE=/absolute/external/labeler/deployment.env
-LABELER_BACKUP_COMMAND=/absolute/external/labeler/bin/backup-study
-LABELER_PUBLIC_BASE_URL=https://<PUBLIC_HOSTNAME>
+LABELER_BACKUP_COMMAND=/absolute/external/labeler/bin/full-backup-and-restore
+LABELER_PUBLIC_BASE_URL=https://labeler.example
 ```
 
-`LABELER_DEPLOY_ROOT`, `LABELER_ENV_FILE` y `LABELER_BACKUP_COMMAND` deben ser rutas absolutas.
-El directorio de releases, el archivo `.env` y el comando de backup deben ser recursos regulares
-del host, no enlaces simbólicos; la configuración y el backup deben permanecer fuera del directorio
-de releases. El launcher rechaza `PGPASSWORD` y
-`STUDY_BACKUP_ENCRYPTION_PASSPHRASE`; las contraseñas y claves solo se leen desde archivos externos.
+La raíz de estado debe ser distinta de las entradas externas: `LABELER_DEPLOY_ROOT=/absolute/host/labeler`, mientras
+`.env` y el ejecutable externo quedan bajo `/absolute/external/labeler/`. Las rutas de configuración y ejecutable son
+entradas externas a la raíz de estado, conforme a
+[`deployment/host/README.md`](../deployment/host/README.md); esta muestra no es configuración
+completa. El ejecutable de backup es una integración externa a proveer por el operador,
+root-owned, absoluto y ejecutable. Devuelve solo la ruta del recibo `labeler-full-postgresql-backup`, nunca
+`STUDY_BACKUP_VERIFIED`. Consulta [`deployment/host/README.md#backup-boundary`](../deployment/host/README.md#backup-boundary).
+No se admiten secretos inline.
 
 La forma lógica del layout es:
 
@@ -121,6 +145,10 @@ La forma lógica del layout es:
   previous -> releases/<release-id>    # release anterior conservada
 ```
 
+La configuración completa del host está en [`deployment/host/README.md`](../deployment/host/README.md). La invocación SSH
+forzada acepta solo `SSH_ORIGINAL_COMMAND`; no acepta argumentos directos para `deploy <release-id>`. Esta secuencia
+documental no acredita adopción ni autorización de producción.
+
 El lock efectivo es `locks/deploy.lock`; la generación más alta está en
 `state/highest-generation` y el esquema activo en `state/active-schema-version`. No los sustituyas
 por archivos del workspace temporal de GitHub. Cada directorio de evidencia debe permitir
@@ -134,21 +162,33 @@ copiarlos al paquete ni imprimir sus valores.
 
 ## Perfiles y orden de preparación
 
-Solo existen dos perfiles aprobados. `pr-card-sorting-local` tiene `expectedCardCount=300` y usa las claves visibles
+El backup standalone `npm run backup:study` conserva su uso local, pero excluye tablas transitorias y no genera el recibo
+externo `labeler-full-postgresql-backup` exigido por el host v2; tampoco basta en una base vacía o con solo 001. La
+integración full es externa y la aporta el operador. Se requiere backup/restore para inicialización mutante desde vacío,
+cutover histórico y mutaciones reautorizadas; el par exacto 369/30 verificado readonly no requiere recibo de inicialización.
+Consulta [`deployment/host/README.md#backup-boundary`](../deployment/host/README.md#backup-boundary).
+
+En una base con el par exacto 369/30, prepare verifica readonly: no migra, reprovisiona, reimporta, refresca ni enriquece.
+Solo una base elegible vacía puede inicializar ambos perfiles bajo el handoff confiable del host v2. La primaria histórica
+300 se rechaza en prepare ordinario y queda pendiente de mantenimiento/cutover dedicado. El retiro legacy (`existing`) y
+el enriquecimiento GitHub descritos más abajo son flujos legacy separados, no preparación Copilot ordinaria.
+
+Solo existen dos perfiles aprobados. `pr-card-sorting-local` tiene `expectedCardCount=369` y usa las claves visibles
 `javier`, `diego` y `pablo`, con usernames de login `javier`, `diego` y `pablo`. `pr-card-sorting-validation-30` tiene
 `expectedCardCount=30` y conserva las mismas claves visibles, pero usa `javier-30`, `diego-30` y `pablo-30` para login.
 No se admiten conteos arbitrarios.
 
-El orden bloqueado es el siguiente:
+Para la inicialización autorizada de una base vacía elegible, el orden es el siguiente; no se repite
+este aprovisionamiento sobre una pareja existente exacta:
 
 1. Esperar PostgreSQL saludable.
 2. Validar todos los descriptores, CSV, manifests, checksums, conteos, claves y usernames antes de escribir.
-3. Preparar de forma transaccional `pr-card-sorting-local`, primero, y `pr-card-sorting-validation-30`, después.
+3. Preparar de forma transaccional `pr-card-sorting-local` (369), primero, y `pr-card-sorting-validation-30` (30), después.
 4. Crear o reutilizar la membresía y provisionar las cuentas de cada estudio sin resetear credenciales compatibles.
 5. Confirmar ambos estudios como `READY` y comprobar la readiness interna de la aplicación.
 6. Permitir que Caddy publique solo después de esa readiness.
 
-Un fallo del segundo perfil deja intacto el estudio de 300, pero mantiene la publicación no lista. Repetir una preparación
+Un fallo del segundo perfil deja intacto el estudio primario, pero mantiene la publicación no lista. Repetir una preparación
 compatible conserva tarjetas, membresías, cuentas, categorías, decisiones, descartes y enriquecimiento existentes.
 
 ## Identidad y límites de superficie
@@ -181,7 +221,7 @@ selecciona la muestra y no hay captura live durante la clasificación.
 
 La vista `GET /export` requiere sesión, muestra el estado recalculado y es de solo lectura. El POST
 same-origin `POST /export/download` requiere sesión, `Origin` permitido y CSRF, y revalida que el
-solicitante y al menos otra persona del mismo estudio completaron exactamente las 30 o 300 tarjetas
+solicitante y al menos otra persona del mismo estudio completaron exactamente las 30 o 369 tarjetas
 canónicas. La salida proviene de una única instantánea de solo lectura y solo contiene bloques de
 participantes completos.
 

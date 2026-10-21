@@ -1,0 +1,15 @@
+{
+  "001_study_foundation": "8644e1cd48e5a4237fe0296d327bf416115a4b6a989b5a212a502f0537bda955",
+  "003_private_pr_discard": "4827a130109a2173ebcd691954d3d57013933ba78d7b9131c40877cc40c7b513",
+  "004_github_pr_api_enrichment": "f9bf2d3f25d349dcfdb14ceb938c24c6a564a7b0b47b18058b0cbac7200e5608",
+  "005_github_enrichment_checkpoints": "9a0659bd80f38db54dbf798fdd66f198ed5fe6c0ee1bb94bfb827cbd7af86172",
+  "006_github_api_telemetry": "0ab7e36ba84f9359b460e2bb968348cba38a854fc33a9302f910643749eb3c5e",
+  "007_local_accounts_sessions": "a2261b0168aa0e87ce90ee88a2a69f82c472b54c571809e961501472a0b3c1df",
+  "008_login_rate_limits": "c702ad0de2c02d9924fdf11bc3ab254c165905f855a6b5d999f3489069f434f3",
+  "009_csrf_contexts": "b9440db26a492036d415a4be72e0a53f8589adb2d78b7b391984eff3f8256ac3",
+  "010_study_scoped_participant_categories": "2dad2a48e9816b921955ea1b2e280a690805bcfba59e0e94578e6b0a9f194d24",
+  "011_multi_study_cardinality": "224ec06b65c7ef2aad80950c14d0d40d824e279ab9a4f165ca31cabf3a36d7d0",
+  "012_global_normalized_username": "5751077d33d27fc2d30d186d2b277b3ab9ebd271edfbf2531832c114b6479e4e",
+  "013_category_definition_color": "b92644024763d560185529e5c5e60d55fa9051a588c97ced6b6be6d49340b4d1",
+  "014_copilot_369_cardinality": "8d66bf9c17f2ba145b103a3bc13618c3805b3e5cc39ba9fe4a0a8a6f1b50daa3"
+}

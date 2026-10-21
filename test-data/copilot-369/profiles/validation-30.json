@@ -1,0 +1,10 @@
+{
+  "studyKey": "pr-card-sorting-validation-30",
+  "expectedCardCount": 30,
+  "participants": ["javier", "diego", "pablo"],
+  "loginUsernames": {
+    "javier": "javier-30",
+    "diego": "diego-30",
+    "pablo": "pablo-30"
+  }
+}

@@ -14,11 +14,11 @@ histórico, E2E en VPS o entorno público, cierre documental histórico y captur
 <!-- study-documentation-contract:
 {
     "schemaVersion": 1,
-    "supportedCardCounts": [30, 300],
+    "supportedCardCounts": [30, 369],
     "profiles": [
         {
             "studyKey": "pr-card-sorting-local",
-            "expectedCardCount": 300,
+            "expectedCardCount": 369,
             "participants": ["javier", "diego", "pablo"],
             "loginUsernames": {"javier": "javier", "diego": "diego", "pablo": "pablo"}
         },
@@ -58,16 +58,17 @@ La preparación admite únicamente estos perfiles ordenados:
 
 | Orden | `study_key` | Conteo | Usernames |
 | --- | --- | ---: | --- |
-| 1 | `pr-card-sorting-local` | 300 | `javier`, `diego`, `pablo` |
+| 1 | `pr-card-sorting-local` | 369 | `javier`, `diego`, `pablo` |
 | 2 | `pr-card-sorting-validation-30` | 30 | `javier-30`, `diego-30`, `pablo-30` |
 
-El CSV de cada perfil es la autoridad de selección e identidad. El CSV canónico fija las 300
-tarjetas y la fixture de validación selecciona 30 de forma determinista desde esa fuente. Cada
+El CSV de cada perfil es la autoridad de selección e identidad. El CSV canónico Copilot fija las 369
+tarjetas. La validación conserva sus 30 tarjetas seleccionadas del CSV histórico de 300;
+no se vuelve a muestrear desde Copilot ni cambia su manifest. Cada
 archivo debe conservar `source_card_id` únicos, ordinal, checksum, contenido canónico, baseline
 `pr_cards` y lenguaje. `study_card` conserva una sola pertenencia y orden comunes por estudio;
 no se crean copias por participante.
 
-El parser admite campos multilinea y JSON incrustado. Un conteo distinto de 30 o 300, IDs
+El parser admite campos multilinea y JSON incrustado. Un conteo distinto de 30 o 369, IDs
 duplicados, drift canónico o una fixture que no corresponda con la fuente debe bloquear la
 preparación sin sobrescribir tarjetas, decisiones o membresía.
 
@@ -75,7 +76,7 @@ preparación sin sobrescribir tarjetas, decisiones o membresía.
 
 El preflight valida todos los descriptores, CSV, manifests, checksums, conteos, claves de estudio,
 participantes, usernames y opciones de enriquecimiento antes de iniciar cualquier escritura. Después
-procesa `pr-card-sorting-local` con 300 tarjetas y, solo tras completar esa transacción, procesa
+procesa `pr-card-sorting-local` con 369 tarjetas y, solo tras completar esa transacción, procesa
 `pr-card-sorting-validation-30` con 30. Cada perfil puede quedar en `READY`, y la aplicación y
 Caddy solo avanzan cuando las dos fases y las cuentas están confirmadas.
 
@@ -89,7 +90,7 @@ npm run docs:study-check -- --root .
 
 `validate:study-profiles` exige `STUDY_PROFILES_INPUT` y devuelve un resultado no válido si falta
 un archivo montado, cambia un checksum, aparece un conteo no admitido o no coincide el mapeo de
-login. `prepare:study-profiles` repite esa validación y ejecuta el orden 300, luego 30. Un fallo
+login. `prepare:study-profiles` repite esa validación y ejecuta el orden 369, luego 30. Un fallo
 del segundo perfil no borra ni reescribe el primero y mantiene la publicación no lista.
 
 `clean` falla ante objetos legacy y no los elimina automáticamente. `existing` exige confirmación
@@ -97,10 +98,15 @@ explícita y backup externo verificable antes de la retirada protegida. No uses 
 rollback y no restaures sobre producción. Los detalles están en
 [`deployment/ROLLBACK.md`](../deployment/ROLLBACK.md).
 
+La preparación desplegada requiere el contrato físico `study-schema-4`. Una base vacía solo
+recibe 016 bajo el handoff pendiente root-owned; una pareja existente se verifica sin escrituras.
+La primaria histórica de 300 usa el [cutover protegido](COPILOT-369-RUNBOOK.md), que conserva
+historial cerrado, identidad, cuentas y validación 30 mediante referencias históricas append-only.
+
 ## Participantes y categorías
 
 La configuración usa `studyKey`, `expectedCardCount` y participantes únicos. El fallback del
-perfil actual contiene tres participantes y exige 300 tarjetas. El perfil de validación contiene
+perfil actual contiene tres participantes y exige 369 tarjetas. El perfil de validación contiene
 los mismos participantes visibles y exige 30. Cada participante comparte las mismas tarjetas del
 perfil, pero sus categorías, clasificaciones, descartes, observaciones y progreso se filtran por
 `study_id` y `participant_id` derivados de la sesión.
@@ -124,7 +130,7 @@ Las transiciones son `PENDING -> CLASSIFIED` o `PENDING -> DISCARDED`. Una tarje
 una clasificada no puede descartarse. El replay del descarte solo es válido si el motivo coincide. Otros participantes
 pueden decidir la misma tarjeta independientemente.
 
-El progreso cumple `classified + discarded + pending = total`, con total esperado 300 o 30 según
+El progreso cumple `classified + discarded + pending = total`, con total esperado 369 o 30 según
 el `expectedCardCount` persistido. No hay labels globales, multiselección compartida ni difusión
 Socket.io. El mismo PR puede tener decisiones independientes en cada participante y estudio.
 
@@ -140,8 +146,11 @@ perfil persistido y sin decisiones previas puede promocionarse. El staging incom
 visible. La proyección parte del CSV, puede usar valores GitHub no nulos de endpoints completos,
 mantiene `language` del CSV y separa evidencia/procedencia.
 
-Un perfil CSV-only no necesita token ni crea un run promovido. La captura live sigue pendiente y no
-forma parte del runtime del participante.
+Los perfiles de release son CSV-only: no necesitan token ni crean un run promovido.
+La primaria 369 no admite el comando de enriquecimiento 30/300. Sus promociones históricas de 300
+siguen almacenadas, pero no se usan para lectura, decisiones o exportación de la fuente 369.
+La promoción y procedencia de validación 30 permanecen intactas. La captura live sigue pendiente y
+no forma parte del runtime del participante.
 
 El procedimiento canónico está en [`deployment/GITHUB-ENRICHMENT.md`](../deployment/GITHUB-ENRICHMENT.md); el rollback,
 en [`deployment/ROLLBACK.md`](../deployment/ROLLBACK.md).
@@ -154,7 +163,7 @@ GET es de solo lectura y no requiere CSRF. La descarga usa `POST /export/downloa
 validación de `Origin` y CSRF de la sesión, y vuelve a comprobar el gate en el servidor.
 
 La descarga solo está disponible cuando quien la solicita y al menos otra persona del mismo
-estudio tienen una decisión terminal (`CLASSIFIED` o `DISCARDED`) en cada una de las 30 o 300
+estudio tienen una decisión terminal (`CLASSIFIED` o `DISCARDED`) en cada una de las 30 o 369
 tarjetas canónicas. Solo participantes completos aparecen en el archivo. Cada fila corresponde a
 un PR, con `pr_id,pr_url` seguidos por tres columnas por participante incluido: categoría,
 descripción y comentario. Los encabezados usan el ordinal estable de origen y no renumeran huecos;

@@ -12,7 +12,7 @@ const context = Object.freeze({
     participantKey: "participant-a",
 });
 
-const makeExportFixture = ({completeParticipantOrdinals = [0, 1], invalidCategoryOrdinal = null} = {}) => {
+const makeExportFixture = ({expectedCardCount = 30, completeParticipantOrdinals = [0, 1], invalidCategoryOrdinal = null} = {}) => {
     const participants = Array.from({length: 3}, (_value, ordinal) => ({
         participant_id: 11 + ordinal * 11,
         participant_key: `participant-${ordinal}`,
@@ -22,11 +22,11 @@ const makeExportFixture = ({completeParticipantOrdinals = [0, 1], invalidCategor
         study: {
             id: context.studyId,
             bootstrap_state: "READY",
-            expected_card_count: 30,
+            expected_card_count: expectedCardCount,
             config: {participants: participants.map(participant => participant.participant_key)},
         },
         participants,
-        cards: Array.from({length: 30}, (_value, ordinal) => ({
+        cards: Array.from({length: expectedCardCount}, (_value, ordinal) => ({
             pr_card_id: `card-${ordinal}`,
             source_card_id: `PR-${ordinal}`,
             card_ordinal: ordinal,
@@ -338,48 +338,65 @@ test("export commit failures return sanitized 500 responses and roll back before
     }
 });
 
-test("POST /export/download returns a private RFC-compatible CSV for session scope only", async () => {
-    const pool = makeExportPool(makeExportFixture({completeParticipantOrdinals: [0, 1]}));
+test("POST /export/download returns a private RFC-compatible CSV for session scope only", async t => {
+    for (const expectedCardCount of [30, 369]) {
+        for (const includedCount of [2, 3]) {
+            await t.test(`${expectedCardCount} cards, ${includedCount} participants`, async () => {
+                const completeParticipantOrdinals = Array.from({length: includedCount}, (_value, ordinal) => ordinal);
+                const pool = makeExportPool(makeExportFixture({expectedCardCount, completeParticipantOrdinals}));
+                const server = await startServer({pool});
+                const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+                try {
+                    const response = await post(baseUrl);
+                    assert.equal(response.status, 200);
+                    assert.equal(response.headers.get("content-type"), "text/csv; charset=utf-8");
+                    assert.equal(response.headers.get("content-disposition"), "attachment; filename=\"pr-classifications.csv\"");
+                    assertPrivateHeaders(response);
+
+                    const csv = Buffer.from(await response.arrayBuffer());
+                    const records = parse(csv, {record_delimiter: "\r\n"});
+                    assert.equal(records.length, expectedCardCount + 1);
+                    assert.deepEqual(records[0], ["pr_id", "pr_url", ...completeParticipantOrdinals.flatMap(ordinal => [
+                        `categoria_usuario_${ordinal + 1}`,
+                        `descripcion_categoria_usuario_${ordinal + 1}`,
+                        `comentario_clasificacion_usuario_${ordinal + 1}`,
+                    ])]);
+                    assert.equal(records[0].length, includedCount === 2 ? 8 : 11);
+                    assert.ok(records.every(record => record.length === records[0].length));
+                    assert.deepEqual(records[1], [
+                        "PR-0",
+                        "https://github.example/pr/0",
+                        ...completeParticipantOrdinals.flatMap(ordinal => [
+                            `Category ${ordinal}`,
+                            `Definition ${ordinal}`,
+                            `Remark ${ordinal}`,
+                        ]),
+                    ]);
+                    assert.deepEqual(records[2].slice(2), completeParticipantOrdinals.flatMap(() => ["DESCARTADO", "", ""]));
+
+                    const parameters = JSON.stringify(pool.clientQueries.map(query => query.parameters));
+                    assert.doesNotMatch(parameters, /attacker-study|999/);
+                    assert.match(parameters, /study-1/);
+                    assert.doesNotMatch(csv.toString("utf8"), /participant-[0-9]|study-1/);
+                } finally {
+                    await closeServer(server);
+                }
+            });
+        }
+    }
+});
+
+test("no offline export endpoint is available", async () => {
+    const pool = makeExportPool(makeExportFixture({expectedCardCount: 369}));
     const server = await startServer({pool});
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
 
     try {
-        const response = await post(baseUrl);
-        assert.equal(response.status, 200);
-        assert.equal(response.headers.get("content-type"), "text/csv; charset=utf-8");
-        assert.equal(response.headers.get("content-disposition"), "attachment; filename=\"pr-classifications.csv\"");
-        assertPrivateHeaders(response);
-
-        const csv = Buffer.from(await response.arrayBuffer());
-        const records = parse(csv, {record_delimiter: "\r\n"});
-        assert.equal(records.length, 31);
-        assert.deepEqual(records[0], [
-            "pr_id",
-            "pr_url",
-            "categoria_usuario_1",
-            "descripcion_categoria_usuario_1",
-            "comentario_clasificacion_usuario_1",
-            "categoria_usuario_2",
-            "descripcion_categoria_usuario_2",
-            "comentario_clasificacion_usuario_2",
-        ]);
-        assert.ok(records.every(record => record.length === 8));
-        assert.deepEqual(records[1], [
-            "PR-0",
-            "https://github.example/pr/0",
-            "Category 0",
-            "Definition 0",
-            "Remark 0",
-            "Category 1",
-            "Definition 1",
-            "Remark 1",
-        ]);
-        assert.deepEqual(records[2].slice(2), ["DESCARTADO", "", "", "DESCARTADO", "", ""]);
-
-        const parameters = JSON.stringify(pool.clientQueries.map(query => query.parameters));
-        assert.doesNotMatch(parameters, /attacker-study|999/);
-        assert.match(parameters, /study-1/);
-        assert.doesNotMatch(csv.toString("utf8"), /participant-[0-9]|study-1/);
+        const response = await fetch(`${baseUrl}/export/offline`, {headers: {cookie: "__Host-session=session-a"}});
+        assert.equal(response.status, 404);
+        assert.equal(response.headers.get("content-disposition"), null);
+        assert.equal(pool.clientQueries.length, 0);
     } finally {
         await closeServer(server);
     }

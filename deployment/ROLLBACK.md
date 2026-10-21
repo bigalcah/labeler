@@ -23,30 +23,44 @@ fallo del preparador tampoco permite publicar el servidor nuevo. Si el smoke tes
 reemplazar la aplicación, conserva logs y metadatos antes de decidir la recuperación. No apuntes
 `current` a una release antigua a mano ni borres la release fallida.
 
-El rollback de imagen puede activar `previous` solo si su manifiesto declara compatibilidad con el
-esquema que ya existe en `labeling-data`. Activar una imagen anterior no deshace una migración. Si
-la compatibilidad no está declarada, la única recuperación escribible es la restauración verificada
-descrita más abajo, en un destino separado o aprobado. Ninguna ruta automática usa `down -v` ni
-elimina el volumen persistente.
+El rollback de imagen solo puede activar `previous` con journal `verified` basado en una lectura de
+la base real y si la aplicación anterior declara compatibilidad con ambos ejes: `study-schema-4` y
+`copilot369-v1`. La mera publicación de manifiestos o el estado de los punteros no prueban SQL. Una
+aplicación v1 que carece del token `copilot369-v1` no es fallback compatible, aunque declare soporte
+de esquema. Activar una imagen anterior no deshace una migración. Si no hay compatibilidad verificada,
+la recuperación escribible requiere restore aprobado en un destino separado. Ninguna ruta automática
+usa `down -v` ni elimina el volumen persistente.
 
 ## Backup antes de preparar
 
-Cada release debe completar un backup de estudio antes de ejecutar `labeling-study-prepare`. El
-launcher ejecuta el archivo externo configurado en `LABELER_BACKUP_COMMAND` y exige que su salida
-contenga exactamente `STUDY_BACKUP_VERIFIED`. El backup es un requisito de la secuencia de
-despliegue, no una tarea posterior al smoke test. Si falla, el launcher conserva `current`, no
-ejecuta migraciones nuevas y conserva la salida para diagnóstico.
+Antes de cualquier handoff mutante, la secuencia de host v2 exige un backup completo PostgreSQL y
+restore aislado ligados a la observación readonly del origen, con escritores detenidos. El ejecutable
+externo configurado en `LABELER_BACKUP_COMMAND` debe ser absoluto, ejecutable y propiedad de root;
+devuelve únicamente la ruta absoluta de un recibo externo v1 tipado cuyo `kind` es
+`labeler-full-postgresql-backup`. Nunca devuelve el marcador obsoleto `STUDY_BACKUP_VERIFIED`.
+La integración ejecutable la debe aportar el operador, no se distribuye con el repositorio. El
+contrato completo está en [`deployment/host/README.md#backup-boundary`](host/README.md#backup-boundary).
+Si falla la verificación, no se inicia la mutación.
 
-El backup del estudio es distinto del backup legacy requerido por `STUDY_DATABASE_MODE=existing`.
+El backup del estudio y el recibo full host `labeler-full-postgresql-backup` son distintos del backup legacy requerido
+por `STUDY_DATABASE_MODE=existing`.
 Para el retiro legacy, crea y verifica primero el backup externo con `npm run backup:legacy`, la
 confirmación `LEGACY_RETIREMENT_CONFIRM=retire-legacy-labeler` y el overlay `existing`. No uses el
 backup operativo como sustituto de esa protección.
 
 ## Backup cifrado y retención
 
-El backup operativo del estudio se crea desde el host, fuera del stack público. Requiere PostgreSQL client, OpenSSL y
-rutas absolutas externas para todos los archivos. La contraseña de PostgreSQL y la clave de cifrado se entregan solo
-mediante archivos `0400` o `0600`; no se aceptan secretos inline. Define:
+El ejemplo siguiente corresponde solo a `npm run backup:study`, no a la integración de backup del
+host v2. Conserva ese comando standalone, pero sus exclusiones de tablas transitorias impiden que
+constituya por sí solo un backup full host o un recibo `labeler-full-postgresql-backup`; tampoco
+satisface por sí solo el requisito para una base vacía o con solo 001. El operador debe proveer un
+ejecutable externo y root-owned que cumpla la frontera canónica en
+[`deployment/host/README.md#backup-boundary`](host/README.md#backup-boundary). No se proporciona
+ejecutable ni ejemplo de recibo exitoso.
+
+El backup de estudio local requiere PostgreSQL client, OpenSSL y rutas absolutas externas para sus archivos. La contraseña
+de PostgreSQL y la clave de cifrado se entregan solo mediante archivos `0400` o `0600`; no se aceptan secretos inline.
+La muestra local siguiente no representa la integración externa completa:
 
 ```dotenv
 PGHOST=<host-produccion>
@@ -60,24 +74,32 @@ STUDY_BACKUP_ENCRYPTION_KEY_FILE=/absolute/external/backup-encryption-key
 STUDY_BACKUP_RETENTION_DAYS=30
 ```
 
-Ejecuta `npm run backup:study`. El proceso transmite `pg_dump --format=custom` directamente a OpenSSL AES-256-CBC con
+Ejecuta `npm run backup:study` únicamente para la finalidad de backup de estudio indicada. El proceso transmite
+`pg_dump --format=custom` directamente a OpenSSL AES-256-CBC con
 PBKDF2-SHA256 y 600000 iteraciones; no crea un dump intermedio sin cifrar. Falla si un destino ya existe. El manifiesto
 incluye la identidad de origen, el checksum SHA-256 del archivo cifrado, la política de cifrado, los días de retención y
 fingerprints de `pr_cards`, `pr_classification` y `participant_account`, incluidos hashes y `credential_version`. Se
 excluyen solamente los datos transitorios de `app_session`, `login_ip_attempt`, `login_csrf_context` y
 `github_api_telemetry_event`.
 
-`STUDY_BACKUP_RETENTION_DAYS` es un input obligatorio del manifiesto, no una autorización de borrado. El almacenamiento
-externo debe conservar cada pareja archivo/manifiesto al menos ese número de días y aplicar su política fuera de esta
-herramienta. Conserva además cualquier backup requerido por una migración o por obligaciones de recuperación aunque haya
-superado esa edad. La herramienta nunca poda ni reemplaza archivos.
+`STUDY_BACKUP_RETENTION_DAYS` es un input obligatorio del manifiesto local, no una autorización de borrado. Para el
+recibo de host v2 se requieren además identidad y observación del origen, hash del archivo, referencia de clave,
+retención, hash y tratamiento aprobado de globals/prerrequisitos y restore aislado con fingerprints coincidentes. El
+almacenamiento externo debe conservar cada pareja archivo/manifiesto al menos ese número de días y aplicar su política
+fuera de esta herramienta. Conserva además cualquier backup requerido por una migración o por obligaciones de recuperación
+aunque haya superado esa edad. La herramienta nunca poda ni reemplaza archivos.
 
 ## Verificación de restore aislado
+
+La siguiente es la verificación standalone del backup de estudio y su salida `ISOLATED_STUDY_RESTORE_VERIFIED` no
+constituye aceptación del backup/restore full host ni reemplaza el recibo `labeler-full-postgresql-backup`. El recibo
+host requiere restore aislado real del archivo custom full con fingerprints de esquema/datos coincidentes y sistema,
+endpoint y volumen distintos; véase [`deployment/host/README.md#backup-boundary`](host/README.md#backup-boundary).
 
 La producción debe seguir ejecutándose y permanecer intacta durante toda esta prueba. En una VPS sin checkout, no
 detengas ni reinicies el stack, no uses `labeling-data`, no uses la red productiva y no montes sus credenciales. La fuente
 de verdad de la referencia es `images.server` en
-`<LABELER_DEPLOY_ROOT>/current/release-manifest.json`; comprueba que coincide con la referencia del contenedor activo
+`/absolute/host/labeler/current/release-manifest.json`; comprueba que coincide con la referencia del contenedor activo
 `labeling-server` y úsala exactamente, siempre fijada por digest. No la sustituyas por `latest`, una etiqueta reutilizable
 ni una imagen reconstruida. Usa también la imagen `labeling-database` activa, fijada por digest.
 
@@ -119,7 +141,7 @@ current_server_image="$(docker inspect --format '{{.Config.Image}}' labeling-ser
 current_database_image="$(docker inspect --format '{{.Config.Image}}' labeling-database)"
 case "$current_server_image" in *@sha256:*) ;; *) exit 1 ;; esac
 case "$current_database_image" in *@sha256:*) ;; *) exit 1 ;; esac
-manifest_server_line="$(grep -F '"server":' /absolute/external/labeler/current/release-manifest.json)"
+manifest_server_line="$(grep -F '"server":' /absolute/host/labeler/current/release-manifest.json)"
 case "$manifest_server_line" in *"$current_server_image"*) ;; *) exit 1 ;; esac
 printf '%s\n' "$manifest_server_line" > "$evidence_dir/current-manifest-server-line.txt"
 printf '%s\n' "$attempt_utc" > "$evidence_dir/utc.txt"
@@ -280,43 +302,51 @@ cambia las tareas 10.2 a 10.4.
 
 ## Rollback de imagen mediante el launcher
 
-Usa la ruta de rollback del launcher autorizada para la VPS. La operación no recibe un release ID:
-selecciona la release referenciada por `previous` y se invoca como `rollback`.
+El rollback SSH forzado acepta solo `SSH_ORIGINAL_COMMAND=rollback`, sin argumentos directos, y
+selecciona `previous`. Las operaciones locales privilegiadas usan la interfaz separada descrita en
+[`deployment/host/README.md`](host/README.md). Los siguientes valores ambientales solo ilustran el contexto
+del proceso; no son una invocación manual de la operación. La orden remota es `rollback`, sin ID,
+y el wrapper forzado la recibe mediante `SSH_ORIGINAL_COMMAND`, sin argumentos directos.
 
-```bash
-LABELER_DEPLOY_ROOT=/absolute/external/labeler \
-LABELER_ENV_FILE=/absolute/external/labeler/deployment.env \
-LABELER_BACKUP_COMMAND=/absolute/external/labeler/bin/backup-study \
-LABELER_PUBLIC_BASE_URL=https://<PUBLIC_HOSTNAME> \
-/absolute/path/to/deployment/deploy-vps.sh rollback
+```dotenv
+LABELER_DEPLOY_ROOT=/absolute/host/labeler
+LABELER_ENV_FILE=/absolute/external/labeler/deployment.env
+LABELER_BACKUP_COMMAND=/absolute/external/labeler/bin/full-backup-and-restore
+LABELER_PUBLIC_BASE_URL=https://labeler.example
 ```
 
-No reconstruyas desde un checkout ni sustituyas el digest por `latest`. Antes de activar la release
-anterior, el launcher confirma en su manifiesto `schemaCompatibility.applicationSupports` para el
-esquema de `state/active-schema-version`, conserva el manifiesto y los logs del intento fallido y
-verifica que el volumen siga siendo `labeling-data`.
+No reconstruyas desde un checkout ni sustituyas el digest por `latest`. Esta muestra no es la
+configuración completa: consulta [`deployment/host/README.md`](host/README.md). Solo se activa una
+release v2 si el journal está `verified` mediante lectura de la base real y su aplicación soporta
+simultáneamente `study-schema-4` y `copilot369-v1`. Los punteros y manifiestos publicados no prueban
+el estado de SQL. Un manifiesto histórico v1 no es fallback compatible. Se conserva la evidencia y
+se verifica el volumen `labeling-data`.
 
-La operación debe volver a esperar el health check de PostgreSQL, el servidor y Caddy, y comprobar
-`LABELER_PUBLIC_BASE_URL/login` desde fuera del stack. Solo después de esa comprobación el launcher
-intercambia `current` y `previous`: la release que estaba activa queda en `previous` y la anterior
-pasa a `current`. Si la verificación falla, el launcher intenta restaurar la aplicación que estaba
-activa y conserva la evidencia. No encadenes varios cambios de imagen sin registrar cada resultado.
+La operación v2 solo puede completar la recuperación después de releer el estado real, mantener
+journal verificado, confirmar ambos tokens y pasar health/smoke. No infieras resultado SQL ni
+compatibilidad de `current` o `previous`. La adopción real del host permanece pendiente.
 
-## Rollback de solo lectura
+## Rollback de solo lectura, ruta legacy
 
-1. Detén el stack actual sin eliminar el volumen:
+Esta secuencia manual pertenece al flujo anterior y no es fallback del controlador host v2. No la
+uses para el host adoptado; una imagen solo puede arrancar tras verificar ambos tokens efectivos
+con el journal contra la base real. En host v2, si no hay release compatible, mantén HOLD y usa
+restauración escribible solo en un destino separado aprobado.
+
+1. Esta es una recuperación legacy separada, no el controlador host v2. En esta ruta detén el stack sin eliminar el volumen:
 
    ```bash
    docker compose --env-file "$LABELER_ENV_FILE" \
      -f "$LABELER_DEPLOY_ROOT/current/docker-compose.yml" down
    ```
 
-2. Crea o verifica, fuera del flujo de despliegue, un rol `labeling_readonly` sin privilegios `INSERT`, `UPDATE`, `DELETE`,
+2. Crea o verifica, fuera del flujo legacy, un rol `labeling_readonly` sin privilegios
+   `INSERT`, `UPDATE`, `DELETE`,
    `TRUNCATE`, `CREATE`, `ALTER` ni `DROP`. Guarda su contraseña en un archivo externo protegido y configura su ruta
    absoluta mediante `ROLLBACK_DATABASE_PASSWORD_HOST_PATH`; si procede, cambia el nombre mediante
    `ROLLBACK_DATABASE_USER`. El launcher monta el archivo solo de lectura y entrega su ruta como `DATABASE_PASS_FILE`.
 
-3. Selecciona la imagen anterior y arranca exclusivamente el launcher de rollback:
+3. Selecciona la imagen anterior y arranca la composición legacy de rollback readonly:
 
    ```bash
    ROLLBACK_SERVER_IMAGE=ghcr.io/<owner>/<server-image>@sha256:<server-digest-anterior> \
@@ -324,9 +354,9 @@ activa y conserva la evidencia. No encadenes varios cambios de imagen sin regist
      -f /absolute/path/to/docker-compose.rollback-readonly.yml up --no-build --wait -d
    ```
 
-   Esta ruta manual es un fallback aislado para lectura cuando el launcher de release no puede
-   completar el rollback normal. Usa una copia aprobada externa de la composición read-only y no
-   depende del checkout del repositorio de la aplicación. No cambia `current` ni `previous`, no incluye
+   Esta ruta manual legacy es una instancia aislada de lectura, no un fallback para host v2. Usa una
+    copia aprobada externa de la composición read-only y no depende del checkout de la aplicación.
+    No cambia `current` ni `previous`, no incluye
    `labeling-study-prepare`, no ejecuta migraciones ni bootstrap, y configura PostgreSQL con
    `default_transaction_read_only=on`.
 
@@ -336,9 +366,9 @@ activa y conserva la evidencia. No encadenes varios cambios de imagen sin regist
 ## Restauración escribible de PostgreSQL
 
 Una recuperación escribible **solo** está permitida restaurando un backup verificado creado antes del primer descarte.
-Para recuperar una preparación, el backup debe ser anterior a esa preparación. Usa otra base de datos aprobada y detén
-el stack afectado, restaura el archivo y su manifiesto verificados en ese destino separado, valida
-su identidad y checksum, y apunta allí una instalación aislada de la versión anterior. La
+Para recuperar una preparación, el backup debe ser anterior a esa preparación. Usa otra base de datos aprobada, restaura
+el archivo y su manifiesto verificados en ese destino separado, valida su identidad y checksum, y apunta allí una
+instalación aislada de la versión anterior que soporte ambos ejes efectivos. La
 restauración no es un paso automático del launcher y no debe ejecutarse sobre el volumen productivo.
 
 Nunca restaures sobre `labeling-data`, nunca pruebes la restauración en producción, nunca uses

@@ -1,9 +1,13 @@
 import {persistCards} from "./pr-card-persistence.js";
-import {resolveAuthoritativeStudyConfig} from "./study-config.js";
+import {persistCopilot369Cards} from "./copilot-369-persistence.js";
+import {assertNormalStudyConfig, parseStudyConfig, resolveAuthoritativeStudyConfig} from "./study-config.js";
 import {managedMigrations} from "./study-schema.js";
+import {readStudyLedger} from "./study-ledger.js";
 import {withTransaction} from "./transaction.js";
 import {provisionParticipantAccounts} from "./credential-accounts.js";
 import {validateCredentialManifest} from "./credential-manifest.js";
+import {verifyExistingStudy} from "./study-existing-validation.js";
+import {appendStudySourceMembership} from "./study-source-history.js";
 
 class StudyBootstrapConflictError extends Error {
     constructor(message) {
@@ -23,22 +27,17 @@ const assertBootstrapCards = (cards, expectedCardCount) => {
 
 const assertStudySchemaReady = async pool => {
     const prerequisiteMigrationIds = managedMigrations.map(migration => migration.id);
-    let rows;
+    let ledger;
     try {
-        ({rows} = await pool.query(
-            `SELECT migration_id
-             FROM labeler_migration
-             WHERE migration_id = ANY($1::text[])`,
-            [ prerequisiteMigrationIds ],
-        ));
+        ledger = await readStudyLedger(pool);
     } catch (error) {
         if (error.code === "42P01") {
             throw new StudyBootstrapConflictError("Study schema migrations are missing");
         }
-        throw error;
+        if (error.code) throw error;
+        throw new StudyBootstrapConflictError("Study schema migration ledger is invalid");
     }
-    const applied = new Set(rows.map(row => row.migration_id));
-    if (prerequisiteMigrationIds.some(migrationId => !applied.has(migrationId))) {
+    if (!ledger.complete) {
         throw new StudyBootstrapConflictError(
             `Bootstrap requires migrations ${prerequisiteMigrationIds.join(", ")}`,
         );
@@ -158,19 +157,27 @@ const persistStudyCards = async options => {
 };
 
 const bootstrapStudy = async options => {
-    const {pool, config, cards, sourceChecksum, credentialManifest} = options;
+    const {pool, cards, sourceChecksum, credentialManifest} = options;
+    const config = assertNormalStudyConfig(parseStudyConfig(options.config));
     await assertStudySchemaReady(pool);
     assertBootstrapCards(cards, config.expectedCardCount);
+    const existing = await verifyExistingStudy(pool, {config, cards, sourceChecksum});
+    if (existing) return existing;
     const manifest = validateCredentialManifest(credentialManifest, config);
     return withTransaction(pool, async client => {
         const study = await findOrCreateStudy(client, config, sourceChecksum);
+        if (!study.created) {
+            throw new StudyBootstrapConflictError("Study appeared during preparation; retry after read-only verification");
+        }
         await persistParticipants({
             client,
             studyId: study.id,
             participants: config.participants,
             allowCreate: study.created,
         });
-        const persistedCards = await persistCards(client, cards, sourceChecksum);
+        const persistedCards = config.expectedCardCount === 369
+            ? await persistCopilot369Cards(client, cards, sourceChecksum)
+            : await persistCards(client, cards, sourceChecksum);
         await persistStudyCards({
             client,
             studyId: study.id,
@@ -178,6 +185,9 @@ const bootstrapStudy = async options => {
             persistedCards,
             allowCreate: study.created,
         });
+        if ((await readStudyLedger(client)).applied016) {
+            await appendStudySourceMembership(client, study.id, sourceChecksum, persistedCards);
+        }
         await provisionParticipantAccounts({
             client,
             studyId: study.id,
