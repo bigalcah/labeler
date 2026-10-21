@@ -18,6 +18,7 @@ import {startHostNormalizationDatabase} from "./fixtures/host/normalization-data
 import {runCommitted015Reconcile} from "./support/normalization-post015-host.js";
 import {probePost015Normalization} from "./support/normalization-post015-prepare.js";
 import {runRealMaintenanceEntrypoint} from "./support/real-maintenance-entrypoint.js";
+import {stageReadinessContainerInputs} from "./support/readiness-container-inputs.js";
 
 const execute = promisify(execFile);
 const root = path.resolve(new URL("..", import.meta.url).pathname);
@@ -98,11 +99,14 @@ for (const bundle of ["empty", "legacy300-v1", "copilot369-v1"]) {
                 csv: `${targets.csv}/${path.basename(profile.csv)}`,
                 accountManifest: `${targets.accountManifest}/${path.basename(profile.accountManifest)}`, enrichmentEnabled: false,
             }))}));
-            for (const [kind, target] of Object.entries(targets)) {
-                mounts.push("--mount", `type=bind,src=${path.join(fixture.root, kind)},dst=${target},readonly`);
+            const staged = await stageReadinessContainerInputs({fixtureRoot: fixture.root,
+                descriptor: path.join(fixture.root, "descriptor/profiles.json"), password});
+            for (const kind of ["config", "accountManifest", "csv"]) {
+                mounts.push("--mount", `type=bind,src=${staged[kind]},dst=${targets[kind]},readonly`);
             }
-            mounts.push("--mount", `type=bind,src=${path.join(directory, ready.path)},dst=/run/labeler-release/context.json,readonly`,
-                "--mount", `type=bind,src=${password},dst=/normalization-password,readonly`);
+            mounts.push("--mount", `type=bind,src=${staged.descriptor},dst=${targets.descriptor}/profiles.json,readonly`,
+                "--mount", `type=bind,src=${path.join(directory, ready.path)},dst=/run/labeler-release/context.json,readonly`,
+                "--mount", `type=bind,src=${staged.password},dst=/normalization-password,readonly`);
             const environment = {DATABASE_HOST: "127.0.0.1", DATABASE_PORT: String(connection.port), DATABASE_NAME: name,
                 DATABASE_USER: connection.user, DATABASE_PASS_FILE: "/normalization-password", STUDY_PROFILES_INPUT: "/run/config/profiles/profiles.json",
                 LABELER_RELEASE_CONTEXT: "/run/labeler-release/context.json"};

@@ -5,6 +5,7 @@ import {writeFile} from "node:fs/promises";
 import {promisify} from "node:util";
 import path from "node:path";
 import {probeStudyNormalization} from "../../util/study-readiness.js";
+import {stageReadinessContainerInputs} from "./readiness-container-inputs.js";
 
 const execute = promisify(execFile);
 const root = path.resolve(new URL("../..", import.meta.url).pathname);
@@ -76,15 +77,16 @@ const runPost015Prepare = async ({database, fixture, observation}) => {
     }))}));
     const containerName = `post015-prepare-${randomUUID()}`;
     const handoff = observation ? await createHandoff(fixture.root, observation) : null;
+    const staged = await stageReadinessContainerInputs({fixtureRoot: fixture.root, descriptor, password});
     const mounts = [
         [path.join(root, "util"), "/labeling/util"],
         [path.join(root, "scripts"), "/labeling/scripts"],
         [path.join(root, "schema/migrations"), "/labeling/schema/migrations"],
-        [path.join(fixture.root, "config"), "/run/config/studies"],
-        [path.join(fixture.root, "accountManifest"), "/run/secrets/studies"],
-        [password, "/run/secrets/database-password"],
-        [path.join(fixture.root, "csv"), "/labeling/data"],
-        [descriptor, "/run/config/study-profiles.json"],
+        [staged.config, "/run/config/studies"],
+        [staged.accountManifest, "/run/secrets/studies"],
+        [staged.password, "/run/secrets/database-password"],
+        [staged.csv, "/labeling/data"],
+        [staged.descriptor, "/run/config/study-profiles.json"],
     ];
     if (handoff) mounts.push([handoff, "/run/labeler-release/context.json"]);
     const argumentsList = ["run", "--rm", "--name", containerName, "--read-only",
