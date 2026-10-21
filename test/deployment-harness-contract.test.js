@@ -3,6 +3,7 @@ import {spawnSync} from "node:child_process";
 import {readFile, stat} from "node:fs/promises";
 import test from "node:test";
 import "./support/deployment-harness-readiness.test-helper.js";
+import "./support/deployment-container-inputs-contract.test-helper.js";
 
 const harnessUrl = new URL("../scripts/test-study-deployment.sh", import.meta.url);
 const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
@@ -94,36 +95,6 @@ test("clean dual-profile harness invokes authenticated CSV and snapshot-race che
     assert.match(harness, /MULTI_STUDY_HOSTILE_E2E_OK/);
     assert.ok(harness.indexOf("multi-study-hostile-e2e.integration.js") > harness.indexOf("SEED_SQL"));
     assert.ok(harness.indexOf("multi-study-hostile-e2e.integration.js") < harness.indexOf("STAGE_SUCCESSIVE_READONLY_PRESERVATION_OK"));
-});
-
-test("Given an empty initialized database When prepare is admitted Then the real root-owned pending handoff stays locked and binds the live origin", async () => {
-    const harness = await readFile(harnessUrl, "utf8");
-
-    assert.match(harness, /docker build --tag "\$CLEAN_PROJECT-database-fixture:latest"/);
-    assert.match(harness, /up --no-build --wait --wait-timeout 240 labeling-database/);
-    assert.match(harness, /requireRestrictedRole: true/);
-    assert.match(harness, /STAGE_UNTRUSTED_CONTEXT_REJECTIONS_OK/);
-    assert.match(harness, /Initialization requires the locked host's root-owned pending handoff/);
-    assert.match(harness, /Untrusted release context path\./);
-    assert.match(harness, /HANDOFF_LOCK_HELD_THROUGH_PREPARE=true/);
-    assert.match(handoffHelper, /with durable\.lock\(HOST_ROOT\)/);
-    assert.match(handoffHelper, /state\.reserve\(binding, origin, auth\(\)\)/);
-    assert.match(handoffHelper, /state\.advance\(receipt, "pending"\)/);
-    assert.match(handoffHelper, /state\.handoff\(receipt, origin, 1000\)/);
-    assert.match(handoffHelper, /fcntl\.LOCK_EX \| fcntl\.LOCK_NB/);
-    assert.match(handoffHelper, /HANDOFF_CLEANED/);
-    assert.match(harness, /\/run\/labeler-release\/context\.json:ro/);
-    assert.match(harness, /"root handoff is not mounted readonly into prepare"/);
-    assert.match(harness, /host-control\/host-handoff\/context\.json:\/run\/labeler-release\/context\.json:ro/);
-    assert.match(harness, /verify_clean_origin_unchanged/);
-    assert.match(harness, /wait-for-docker-log\.js/);
-    assert.match(harness, /database initialization log marker is missing/);
-    assert.match(harness, /wait_database_initialization "\$CLEAN_PROJECT" "\$CLEAN_DIR"/);
-    assert.match(harness, /wait_database_initialization "\$EXISTING_PROJECT" "\$EXISTING_DIR"/);
-    assert.ok(harness.indexOf("wait_database_initialization \"$CLEAN_PROJECT\" \"$CLEAN_DIR\"")
-        > harness.indexOf("up --build --wait --wait-timeout 240 labeling-database"));
-    assert.match(harness, /primary-369-before\.sha256/);
-    assert.match(harness, /primary-369-after\.sha256/);
 });
 
 test("deployment harness has a separate explicit package gate", () => {

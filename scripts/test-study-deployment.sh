@@ -74,6 +74,18 @@ compose_for() {
   fi
 }
 
+report_prepare_probe_diagnostic() {
+  probe_name=$1
+  probe_status=$2
+  probe_output=$3
+  probe_diagnostic_json=$(printf '%s' "$probe_output" \
+    | node "$ROOT/test/support/prepare-probe-diagnostic.js" "$probe_name" "$probe_status")
+  printf '%s\n' "$probe_diagnostic_json" >&2
+  if [ -n "$EVIDENCE_DIR" ]; then
+    printf '%s\n' "$probe_diagnostic_json" > "$EVIDENCE_DIR/$CLEAN_PROJECT-$probe_name-diagnostic.json"
+  fi
+}
+
 compose_for_existing_clean_profiles() {
   project=$1
   runtime=$2
@@ -552,6 +564,10 @@ JSON
     "$runtime/study-config.json" "$runtime/study-account-manifest.json"
   chmod 0444 "$runtime/database-password-postgres"
 
+  stage_node_container_inputs "$runtime" \
+    database-password session-current session-previous study-account-manifest.json \
+    study-profiles.json study-config.json validation-study-config.json validation-study-account-manifest.json
+
   cat > "$runtime/Caddyfile" <<CADDY
 http://localhost {
     redir https://localhost:${HTTPS_PORT}{uri} permanent
@@ -570,11 +586,11 @@ CADDY
   cat > "$runtime/compose.env" <<ENV
 DATABASE_NAME=labeling_harness
 DATABASE_USER=labeling_harness
-DATABASE_PASSWORD_HOST_PATH=$runtime/database-password
+DATABASE_PASSWORD_HOST_PATH=$runtime/container-inputs/database-password
 DATABASE_PASSWORD_DATABASE_HOST_PATH=$runtime/database-password-postgres
-SESSION_SECRET_CURRENT_HOST_PATH=$runtime/session-current
-SESSION_SECRET_PREVIOUS_HOST_PATH=$runtime/session-previous
-STUDY_ACCOUNT_MANIFEST_HOST_PATH=$runtime/study-account-manifest.json
+SESSION_SECRET_CURRENT_HOST_PATH=$runtime/container-inputs/session-current
+SESSION_SECRET_PREVIOUS_HOST_PATH=$runtime/container-inputs/session-previous
+STUDY_ACCOUNT_MANIFEST_HOST_PATH=$runtime/container-inputs/study-account-manifest.json
 STUDY_DATABASE_MODE=$mode
 PUBLIC_HOSTNAME=localhost
 APP_ORIGIN=https://localhost:$HTTPS_PORT
@@ -582,10 +598,10 @@ GITHUB_ENRICHMENT_ENABLED=false
 LABELER_SERVER_IMAGE=$CLEAN_SERVER_IMAGE
 ENV
   cat >> "$runtime/compose.env" <<ENV
-STUDY_VALIDATION_ACCOUNT_MANIFEST_HOST_PATH=$runtime/validation-study-account-manifest.json
-STUDY_PROFILES_INPUT_HOST_PATH=$runtime/study-profiles.json
-STUDY_CURRENT_CONFIG_HOST_PATH=$runtime/study-config.json
-STUDY_VALIDATION_CONFIG_HOST_PATH=$runtime/validation-study-config.json
+STUDY_VALIDATION_ACCOUNT_MANIFEST_HOST_PATH=$runtime/container-inputs/validation-study-account-manifest.json
+STUDY_PROFILES_INPUT_HOST_PATH=$runtime/container-inputs/study-profiles.json
+STUDY_CURRENT_CONFIG_HOST_PATH=$runtime/container-inputs/study-config.json
+STUDY_VALIDATION_CONFIG_HOST_PATH=$runtime/container-inputs/validation-study-config.json
 ENV
   chmod 0600 "$runtime/compose.env"
 
@@ -698,6 +714,13 @@ networks:
 YAML
 }
 
+stage_node_container_inputs() {
+  stage_runtime=$1
+  shift
+  node "$ROOT/test/support/container-input-staging.js" files \
+    "$stage_runtime" "$stage_runtime" "$HANDOFF_HELPER_IMAGE" "$@"
+}
+
 write_existing_inputs() {
   runtime=$1
   project=$2
@@ -705,12 +728,14 @@ write_existing_inputs() {
   mkdir -m 700 "$runtime/backup"
   printf '%s\n' "labeling-database:5432:labeling_harness:labeling_harness:$password" > "$runtime/legacy-retirement.pgpass"
   chmod 0400 "$runtime/legacy-retirement.pgpass"
+  stage_node_container_inputs "$runtime" legacy-retirement.pgpass
+  mkdir -m 0711 "$runtime/container-inputs/backup"
   cat >> "$runtime/compose.env" <<ENV
 LEGACY_RETIREMENT_CONFIRM=retire-legacy-labeler
-LEGACY_BACKUP_DIRECTORY=$runtime/backup
+LEGACY_BACKUP_DIRECTORY=$runtime/container-inputs/backup
 LEGACY_BACKUP_ARCHIVE_FILE=legacy.dump
 LEGACY_BACKUP_MANIFEST_FILE=legacy.manifest.json
-PGPASSFILE_HOST_PATH=$runtime/legacy-retirement.pgpass
+PGPASSFILE_HOST_PATH=$runtime/container-inputs/legacy-retirement.pgpass
 ENV
   chmod 0600 "$runtime/compose.env" "$runtime/harness.yml"
 }
@@ -1307,8 +1332,15 @@ verify_config "$CLEAN_PROJECT" "$CLEAN_DIR" "$CLEAN_HTTP_PORT" "$CLEAN_HTTPS_POR
   "$CLEAN_DIR/handoff.yml" true
 
 printf 'STAGE_UNTRUSTED_CONTEXT_REJECTIONS_BEGIN\n'
+absent_context=
 if absent_context=$(compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" run --rm --no-deps \
   -e LABELER_RELEASE_CONTEXT= labeling-study-prepare 2>&1); then
+  absent_context_status=0
+else
+  absent_context_status=$?
+fi
+report_prepare_probe_diagnostic absent-context "$absent_context_status" "$absent_context"
+if [ "$absent_context_status" -eq 0 ]; then
   printf 'standalone empty-database preparation unexpectedly passed\n' >&2
   exit 1
 else
@@ -1317,8 +1349,15 @@ else
     *) printf 'standalone preparation failed for an unexpected reason\n' >&2; exit 1 ;;
   esac
 fi
+forged_context=
 if forged_context=$(compose_for "$CLEAN_PROJECT" "$CLEAN_DIR" run --rm --no-deps \
   -e LABELER_RELEASE_CONTEXT=/run/labeler-release/forged.json labeling-study-prepare 2>&1); then
+  forged_context_status=0
+else
+  forged_context_status=$?
+fi
+report_prepare_probe_diagnostic forged-context "$forged_context_status" "$forged_context"
+if [ "$forged_context_status" -eq 0 ]; then
   printf 'forged release context path unexpectedly passed\n' >&2
   exit 1
 else
@@ -1541,6 +1580,7 @@ writeFileSync(manifestPath, `${JSON.stringify({
 NODE
 cp "$EXISTING_DIR/backup/legacy.dump" "$EXISTING_DIR/backup/legacy.valid.dump"
 chmod 0400 "$EXISTING_DIR/backup/legacy.dump" "$EXISTING_DIR/backup/legacy.valid.dump" "$EXISTING_DIR/backup/legacy.manifest.json"
+stage_node_container_inputs "$EXISTING_DIR" backup/legacy.dump backup/legacy.manifest.json
 
 printf 'STAGE_ORDINARY_EXISTING_REJECTION_BEGIN\n'
 if ordinary_prepare_output=$(compose_for "$EXISTING_PROJECT" "$EXISTING_DIR" -f "$ROOT/deployment/docker-compose.existing.yml" \
@@ -1622,6 +1662,7 @@ EXISTING_BEFORE_CORRUPT_BACKUP=$(database_schema_data_fingerprint "$EXISTING_PRO
 chmod 0600 "$EXISTING_DIR/backup/legacy.dump"
 printf 'corrupt' >> "$EXISTING_DIR/backup/legacy.dump"
 chmod 0400 "$EXISTING_DIR/backup/legacy.dump"
+stage_node_container_inputs "$EXISTING_DIR" backup/legacy.dump backup/legacy.manifest.json
 printf 'STAGE_CORRUPT_BACKUP_REJECTION_BEGIN\n'
 if corrupt_backup_output=$(compose_for "$EXISTING_PROJECT" "$EXISTING_DIR" -f "$ROOT/deployment/docker-compose.existing.yml" \
   run --rm --no-deps --entrypoint sh labeling-study-prepare -c 'npm run retire:legacy:apply' 2>&1); then
@@ -1638,6 +1679,7 @@ AFTER_CORRUPT_BACKUP=$(database_schema_data_fingerprint "$EXISTING_PROJECT")
 chmod 0600 "$EXISTING_DIR/backup/legacy.dump"
 cp "$EXISTING_DIR/backup/legacy.valid.dump" "$EXISTING_DIR/backup/legacy.dump"
 chmod 0400 "$EXISTING_DIR/backup/legacy.dump"
+stage_node_container_inputs "$EXISTING_DIR" backup/legacy.dump backup/legacy.manifest.json
 RESTORED_RETIREMENT_OUTPUT=$(compose_for "$EXISTING_PROJECT" "$EXISTING_DIR" -f "$ROOT/deployment/docker-compose.existing.yml" \
   run --rm --no-deps --entrypoint sh labeling-study-prepare -c 'npm run retire:legacy:apply')
 case "$RESTORED_RETIREMENT_OUTPUT" in
