@@ -8,6 +8,7 @@ import pg from "pg";
 import {classifyStudyReadiness} from "../util/study-readiness.js";
 import {createReadinessProfiles} from "./readiness-fixture.js";
 import {startCopilot369Database, closeCopilot369Database} from "./support/copilot-369-fixture.js";
+import "./support/existing-mode-container-input-staging.test-helper.js";
 
 const execute = promisify(execFile);
 const root = path.resolve(new URL("..", import.meta.url).pathname);
