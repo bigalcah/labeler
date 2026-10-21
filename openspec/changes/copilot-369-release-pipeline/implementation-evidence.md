@@ -816,3 +816,95 @@ bloqueos, para el codigo y la evidencia de navegador/unidad. La comprobacion del
 harness posterior la realizo el padre, sin cambios de codigo tras esa revision.
 No es aprobacion humana. La publicacion autorizada y el CI del nuevo SHA son
 los pasos siguientes; 8.5 y HOLD siguen abiertos hasta sus gates efectivos.
+
+### Resultado remoto de ab60217 y nueva autorizacion de harness
+
+La correccion del probe se publico en
+`ab60217a7cd4ace5e61c1de9a95733c5b258d69a`. El run
+<https://github.com/bigalcah/labeler/actions/runs/39528315833> comprobo el merge
+sintetico `d21b279640eb7bae2f80073e93e63e8cf1ba0b83`, con base 1773164 y ese
+head; sus padres y arbol identico al head fueron verificados. Pasaron 592/592
+unitarios, OpenSpec 25/25, build, lint y Hadolint. El navegador corregido paso
+dentro de esa seleccion completa.
+
+El harness remoto fallo despues en la preparacion negativa sin contexto: el
+comando no produjo el rechazo especifico esperado y el shell solo imprimio
+`standalone preparation failed for an unexpected reason`. Integracion/E2E y
+preservacion no llegaron a ejecutarse. El recibo marco `cleanupVerified=false`,
+aunque ambos proyectos figuraron ausentes y el directorio temporal eliminado;
+no se transforma esa ausencia parcial en una confirmacion global. El detalle
+interno capturado no se imprimio y el run no dejo artifacts descargables. El log
+conservado tiene SHA-256
+`0b293f4cb4945d00af9b2e21fa92b1722ae190a68b1a259bc6bf77a109af8064`.
+
+El usuario aprobo expresamente diagnosticar/corregir el nuevo fallo del harness,
+validar y publicar en la misma PR, y solicito consulta a Oracle. La consulta
+localizo prerrequisitos anteriores al rechazo de autoridad, sin identificar la
+causa remota. No hay evidencia del UID del runner ni de su error interno; no se
+atribuye el fallo a Ubuntu, Node o Compose.
+
+### Reproduccion controlada y propuesta acotada de staging
+
+La imagen real con Node UID/GID 1000 rechazo entradas sinteticas `0400` cuyo
+dueno era 2000. Copias destinadas unicamente al contenedor, UID/GID 1000 y aun
+`0400`, superaron las comprobaciones de lectura. Los originales del host
+conservaron su dueno y modo. Para `existing` se ejercitaron el passfile, manifest
+y archivo de backup mediante los lectores reales; solo la llamada externa
+`pg_restore --list` fue sustituida en el ensayo focal sin DB. Esa prueba no
+sustituye el retiro real sobre una base descartable del harness completo.
+
+La copia de backup se renueva tras creacion, corrupcion y restauracion: el
+checksum incorrecto sigue rechazado y la restauracion vuelve a validar. Los
+diagnosticos de los dos probes emiten un esquema fijo con exit status, longitud
+y booleanos de categorias conocidas; nunca el texto capturado ni credenciales.
+Las pruebas de canarios y los rechazos exactos de contexto siguen obligatorios.
+No se cambiaron consumidores de produccion, Compose, workflows, dependencias,
+timeout interno ni el contrato del handoff `0:1000` / `0440`.
+
+El primer handoff del ejecutor no conservo rutas de evidencia suficientes. El
+padre rechazo ese cierre y solicito regresion ejecutable y registros nuevos,
+incluidos passfile/backup. La evidencia retenida final esta en
+`/tmp/opencode/pr10-container-inputs-20261020-01/evidence/final-run-20261020-03/`;
+el ensayo previo de montaje fallido se explica por separado en
+`fixture-mount-followup.md`, no como causa del CI. La validacion integrada y la
+revision de este nuevo delta permanecen pendientes. HOLD y 8.5 siguen abiertos.
+
+### Validacion final del staging de harness
+
+El padre verifico la identidad byte a byte de los siete archivos de codigo en
+un worktree aislado sobre ab60217, sin archivos locales ajenos. Ejecuto el
+ensayo de lectura en la imagen real y los contratos 15/15, ademas de lint y
+sintaxis. Los seis JS tienen diagnosticos LSP limpios; Bash LSP no esta
+instalado y su instalacion habia sido rechazada. `sh -n` paso sin errores.
+
+La seleccion unitaria completa termino exit 0: **594/594**, 78 archivos, cero
+skips/cancelaciones/TODOs. Solo despues se ejecuto el harness completo, exit 0:
+**104/104** integracion en los mismos 14 archivos, incluido el nuevo caso de
+lectores, E2E **1/1** y harness **1/1**. Ambos probes devolvieron status 1 y
+`knownMarkerPresent=true`; las categorias de errores ajenos quedaron en false.
+Se ejercitaron realmente preparacion y retiro sobre fixtures descartables,
+incluidos el rechazo del backup corrupto y la continuacion posterior.
+
+Las siete parejas de huellas antes/despues coinciden. El recibo final acredita
+`cleanupVerified=true`, ambos proyectos ausentes, propietarios del handoff
+limpios y directorio temporal eliminado. El padre cotejo los recibos y hashes
+de logs, las parejas de huellas y la ausencia de operaciones sobre la base
+preexistente, que conserva el mismo ID 06db6b9aa40b.
+
+Evidencia nueva:
+`/tmp/opencode/pr10-harness-parent-udYfZ9Gp/final-gate-evidence.TPfEMq/` y
+recorder `harness-repair-unit` / `harness-repair-deployment` en el directorio
+privado de publicacion. Sus logs tienen respectivamente SHA-256
+`b89f31182004abf0201c0aa1d4095936dc2559bd5a7a0b89498c94bf61fdebe9` y
+`a4b4a9f7e0cbbee2bfcef33a1a87b918c7ea3a22943e58fcd23aa0ac046f6e42`.
+La imagen local utilizada fue
+`sha256:ea93bee0582e56666fc3ad4e96f3f816276c39666a9ef2dac0efe570d1f3b5a1`;
+los archivos de producto no cambiaron. Build, OpenSpec 25/25 y freeze/manifiesto
+17/17 tambien pasaron sobre sus entradas conservadas.
+
+La unica revision tecnica de gate de este delta devolvio APPROVE con confianza
+alta, sin bloqueos para el codigo y la evidencia focal. El padre comprobo los
+gates completos posteriores sin cambios del codigo revisado. Esa revision no
+es aprobacion humana, ni demuestra la causa del error interno del runner.
+La publicacion y el CI del siguiente SHA siguen siendo gates separados; no se
+cierran 8.5, HOLD ni controles administrativos con estos resultados locales.
