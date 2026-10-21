@@ -14,14 +14,15 @@ from contracts import Document, TARGET, encoded, read, require, same_state
 NEXT = {
     "adoption": {"reserved", "unknown"}, "backup_verified": {"reserved"},
     "reserved": {"pending", "abandoned", "unknown"},
-    "pending": {"normalization_verified", "cutover_verified", "abandoned", "unknown"},
+    "pending": {"normalization_verified", "history_schema_verified", "cutover_verified", "abandoned", "unknown"},
     "normalization_verified": {"pending", "abandoned", "unknown"},
+    "history_schema_verified": {"pending", "abandoned", "unknown"},
     "cutover_verified": {"runtime_verified", "abandoned", "unknown"},
     "runtime_verified": {"smoke_verified", "abandoned", "unknown"},
     "smoke_verified": {"publication_intent", "abandoned", "unknown"},
     "publication_intent": {"publication_metadata", "abandoned", "unknown"},
     "publication_metadata": {"completed", "abandoned", "unknown"},
-    "completed": {"reserved", "unknown"}, "abandoned": {"pending", "normalization_verified", "cutover_verified", "runtime_verified", "publication_intent", "unknown"},
+    "completed": {"reserved", "unknown"}, "abandoned": {"pending", "normalization_verified", "history_schema_verified", "cutover_verified", "runtime_verified", "publication_intent", "unknown"},
     "unknown": set(),
 }
 
@@ -66,17 +67,27 @@ class State:
                 require(all(prior[key] == current[key] for key in ("candidate", "databaseIdentity", "origin")), "transition binding changed")
                 retargeted = any(prior["target"][key] != current["target"][key] for key in TARGET)
                 if retargeted:
-                    require(prior["phase"] == "normalization_verified" and current["phase"] == "pending"
-                            and current["authorization"]["action"] == "continue"
-                            and {key: current["target"][key] for key in TARGET} == TARGET,
-                            "target can change only at authorized normalization checkpoint")
+                    history_start = (prior["phase"] == "normalization_verified" and current["phase"] == "pending"
+                        and current["authorization"]["action"] == "maintenance-history"
+                        and {key: current["target"][key] for key in TARGET} == dict(TARGET, dataBundle=prior["origin"]["dataBundle"]))
+                    history_continue = (prior["phase"] == "history_schema_verified" and current["phase"] == "pending"
+                        and current["authorization"]["action"] == "continue"
+                        and {key: current["target"][key] for key in TARGET} == TARGET)
+                    require(history_start or history_continue, "target can change only at an authorized schema checkpoint")
                 if prior["phase"] == "normalization_verified" and current["phase"] == "pending":
-                    require(current["authorization"]["action"] == "continue", "normalization checkpoint requires explicit continuation")
+                    require(current["authorization"]["action"] == "maintenance-history", "normalization checkpoint requires explicit history maintenance")
+                if prior["phase"] == "history_schema_verified" and current["phase"] == "pending":
+                    require(current["authorization"]["action"] == "continue", "history checkpoint requires explicit continuation")
                 if prior["phase"] in ("pending", "abandoned") and self.normalization_intent(prior):
                     require(current["phase"] in ("normalization_verified", "pending", "abandoned", "unknown"),
                             "normalization intent cannot become final release verification")
                     require(current["phase"] != "pending" or current["authorization"]["action"] == "maintenance-normalize",
                             "intact normalization source requires normalization authorization")
+                if prior["phase"] in ("pending", "abandoned") and self.history_intent(prior):
+                    require(current["phase"] in ("history_schema_verified", "pending", "abandoned", "unknown"),
+                            "history intent cannot become final release verification")
+                    require(current["phase"] != "pending" or current["authorization"]["action"] == "maintenance-history",
+                            "intact history source requires history authorization")
             else:
                 require(current["phase"] == "reserved" and prior["phase"] in ("adoption", "completed"), "invalid operation predecessor")
                 require(prior["databaseIdentity"] == current["databaseIdentity"], "operation changed database identity")
@@ -89,7 +100,7 @@ class State:
             require(journal["effectiveSchema"] == observed["schema"]
                     and journal["effectiveDataBundle"] == observed["dataBundle"]
                     and journal["lastVerifiedAt"] == observed["observedAt"], "unsupported verified state")
-            require(receipt["phase"] in ("adoption", "normalization_verified", "cutover_verified", "runtime_verified", "smoke_verified",
+            require(receipt["phase"] in ("adoption", "normalization_verified", "history_schema_verified", "cutover_verified", "runtime_verified", "smoke_verified",
                     "publication_intent", "publication_metadata", "completed", "abandoned"), "receipt phase cannot prove verified state")
         elif journal["status"] == "unknown":
             require(receipt["phase"] == "unknown", "unknown state requires unknown receipt")
@@ -99,7 +110,7 @@ class State:
             import publication
             desired = receipt["publication"]["desired"]
             require(publication.snapshot(self.root) == desired and desired["current"] == "releases/" + candidate["releaseId"], "completion conflicts with publication")
-            matched = re.fullmatch(r"current=([^ ]+) previous=([^ ]*) generation=([0-9]+) schema=study-schema-3", desired["deployment"])
+            matched = re.fullmatch(r"current=([^ ]+) previous=([^ ]*) generation=([0-9]+) schema=" + re.escape(receipt["target"]["schema"]), desired["deployment"])
             require(matched is not None and int(matched[3]) == self.floor()
                     and matched[1] == candidate["releaseId"]
                     and matched[2] == (desired["previous"] or "").removeprefix("releases/"), "completion conflicts with generation floor or previous pointer")
@@ -157,7 +168,8 @@ class State:
             "databaseIdentity": observed["databaseIdentity"], "phase": "reserved",
             "predecessorEvidence": journal["evidenceRef"], "authorization": authorization,
             "backupRef": None, "origin": observed,
-            "target": {**TARGET, "dataBundle": observed["dataBundle"] if authorization["action"] == "maintenance-normalize" else TARGET["dataBundle"],
+            "target": {**TARGET, "schema": "study-schema-3" if authorization["action"] == "maintenance-normalize" else TARGET["schema"],
+                       "dataBundle": observed["dataBundle"] if authorization["action"] in ("maintenance-normalize", "maintenance-history") else TARGET["dataBundle"],
                        "observation": None}, "publication": None})
         self.save(receipt, "pending")
         durable.write(self.root / "state/highest-generation", f"{binding['generation']}\n".encode())
@@ -211,3 +223,14 @@ class State:
 
     def has_normalization_checkpoint(self, receipt: Document) -> bool:
         return any(prior["phase"] == "normalization_verified" for prior in self.predecessors(receipt))
+
+    def history_intent(self, receipt: Document) -> bool:
+        for prior in self.predecessors(receipt):
+            if prior["phase"] == "history_schema_verified":
+                return True
+            if prior["phase"] in ("pending", "reserved") and prior["authorization"]["action"] != "reconcile":
+                return prior["authorization"]["action"] == "maintenance-history"
+        return False
+
+    def has_history_checkpoint(self, receipt: Document) -> bool:
+        return any(prior["phase"] == "history_schema_verified" for prior in self.predecessors(receipt))

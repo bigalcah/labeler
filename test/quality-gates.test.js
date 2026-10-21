@@ -86,7 +86,8 @@ test("every integration file belongs to one explicit stage with full fixture sel
         .map(file => `test/${file}`);
     const planned = Object.values(plan).flat().sort();
 
-    assert.equal(plan.fixture.length, 14);
+    assert.equal(plan.fixture.length, 15);
+    assert.equal(plan.fixture.filter(file => file === "test/copilot-369-history.integration.js").length, 1);
     assert.equal(plan.fixture.filter(file => file === "test/runtime-failure-rehearsal.integration.js").length, 1);
     assert.deepEqual(plan.runtime, ["test/multi-study-hostile-e2e.integration.js"]);
     assert.deepEqual(plan.deployment, ["test/deployment-harness.integration.js"]);

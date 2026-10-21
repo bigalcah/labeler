@@ -67,7 +67,7 @@ const runPost015Prepare = async ({database, fixture, observation}) => {
     const image = process.env.LABELER_READINESS_TEST_IMAGE;
     assert.ok(image, "LABELER_READINESS_TEST_IMAGE must name the current source image");
     const descriptor = path.join(fixture.root, "mounted-profiles.json");
-    const password = path.join(fixture.root, "database-password");
+    const password = path.join(fixture.root, `database-password-${randomUUID()}`);
     await writeFile(password, "isolated-post015-prepare-password\n", {mode: 0o400});
     await writeFile(descriptor, JSON.stringify({profiles: fixture.profiles.map((profile, index) => ({
         config: `/run/config/studies/${index}.json`,

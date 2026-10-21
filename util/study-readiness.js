@@ -6,7 +6,8 @@ import {verifyExistingStudyClient, withReadOnlyTransaction} from "./study-existi
 import {managedMigrations} from "./study-schema.js";
 import {verifyLegacyReadinessClient} from "./study-readiness-legacy.js";
 import {assertReadinessDataIntegrity} from "./study-readiness-data.js";
-import {assertLedgerState, readNormalizationSource, readStudyLedger} from "./study-ledger.js";
+import {assertLedgerState, readHistorySource, readNormalizationSource, readStudyLedger} from "./study-ledger.js";
+import {assertStudySourceHistory} from "./study-source-history.js";
 
 class StudyReadinessError extends Error {
     constructor(message) {
@@ -75,7 +76,14 @@ const inspectCatalog = async (client, requireRestrictedRole, allowRetired) => {
         throw new StudyReadinessError("Unknown server or migration source contract.");
     }
     let schema = "empty";
-    if (managed.length === managedMigrations.length) {
+    if (ledger.applied016) {
+        const {contract} = await readHistorySource();
+        if (!isDeepStrictEqual(schemaContract.migrations, contract.schema.migrations)
+            || digest(schemaContract.signatures) !== contract.schema.fingerprint) {
+            throw new StudyReadinessError("Unknown physical study-schema-4 contract.");
+        }
+        schema = "study-schema-4";
+    } else if (managed.length === managedMigrations.length) {
         if (digest(schemaContract.signatures) !== prefixes[managed.at(-1)]) {
             if (allowRetired && ledger.retired && !ledger.applied015) {
                 const {contract} = await readNormalizationSource();
@@ -131,7 +139,7 @@ const inspectStudyReadinessClient = async (client, {profiles, requireRestrictedR
     let dataBundle;
     if (!hasData && studies.length === 0) {
         dataBundle = "empty";
-    } else if ((schema === "study-schema-3" || (allowRetired && schema === "014_copilot_369_cardinality")) && studies.length === 2
+    } else if ((["study-schema-3", "study-schema-4"].includes(schema) || (allowRetired && schema === "014_copilot_369_cardinality")) && studies.length === 2
         && studies[0].study_key === "pr-card-sorting-local" && studies[0].expected_card_count === 369
         && studies[1].study_key === "pr-card-sorting-validation-30" && studies[1].expected_card_count === 30) {
         if (profiles.length !== 2) throw new StudyReadinessError("Existing pair requires both approved input profiles.");
@@ -149,6 +157,7 @@ const inspectStudyReadinessClient = async (client, {profiles, requireRestrictedR
         throw new StudyReadinessError("Partial, drifted or unknown study database; manual recovery is required.");
     }
     if (catalog.ledger.complete) await assertReadinessDataIntegrity(client, legacyCsvPath);
+    if (catalog.ledger.applied016) await assertStudySourceHistory(client);
     const observation = {schema, dataBundle, fingerprint: catalog.fingerprint, schemaFingerprint: catalog.schemaFingerprint,
         observedAt: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
         databaseIdentity: catalog.identity, readOnly: catalog.readOnly};
@@ -158,12 +167,28 @@ const inspectStudyReadinessClient = async (client, {profiles, requireRestrictedR
 const classifyStudyReadiness = options => withReadOnlyTransaction(options.pool,
     async client => (await inspectStudyReadinessClient(client, {...options, allowRetired: false})).observation);
 
+const probeStudyHistory = options => withReadOnlyTransaction(options.pool, async client => {
+    await readHistorySource();
+    const {observation, catalog} = await inspectStudyReadinessClient(client, options);
+    const applied016 = catalog.ledger.applied016 === true && observation.schema === "study-schema-4";
+    let sourceEligible = ["013_category_definition_color", "study-schema-3"].includes(observation.schema);
+    if (sourceEligible) {
+        const {rows: [state]} = await client.query(`SELECT NOT EXISTS (
+            SELECT 1 FROM public.github_enrichment_run run JOIN public.study ON study.id=run.study_id
+            WHERE run.state='RUNNING' OR run.source_checksum<>study.source_checksum
+        ) AS eligible`);
+        sourceEligible = state.eligible;
+    }
+    return {observation, applied016,
+        eligibility: applied016 ? "already-applied" : sourceEligible ? "eligible" : "ineligible"};
+});
+
 const probeStudyNormalization = options => withReadOnlyTransaction(options.pool, async client => {
     await readNormalizationSource();
     const {observation, catalog} = await inspectStudyReadinessClient(client, {...options, allowRetired: true});
-    const applied015 = catalog.ledger.applied015 === true && observation.schema === "study-schema-3";
+    const applied015 = catalog.ledger.applied015 === true && ["study-schema-3", "study-schema-4"].includes(observation.schema);
     return {observation, applied015,
-        eligibility: applied015 ? "already-applied" : catalog.ledger.complete ? "eligible" : "ineligible"};
+        eligibility: applied015 ? "already-applied" : catalog.ledger.complete && !catalog.ledger.applied016 ? "eligible" : "ineligible"};
 });
 
-export {StudyReadinessError, assertInspectionGrants, classifyStudyReadiness, inspectStudyReadinessClient, probeStudyNormalization};
+export {StudyReadinessError, assertInspectionGrants, classifyStudyReadiness, inspectStudyReadinessClient, probeStudyNormalization, probeStudyHistory};

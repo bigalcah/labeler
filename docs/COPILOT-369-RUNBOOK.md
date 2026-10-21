@@ -12,11 +12,11 @@ identities. Exactly 369 unique PRs are used. The separate historical 300-card
 CSV is retained only as the exact source for a protected transition of an
 existing primary study, not as an ordinary product profile or fallback.
 
-The release gate remains **HOLD**. The frozen shared validation still requires
-300 cards and release still identifies the historical CSV. This runbook does
-not authorize a release, merge to `master`, or deployment. See
-[`COPILOT-369-RELEASE-HOLD.md`](COPILOT-369-RELEASE-HOLD.md). Resolving the gate
-requires a separate, explicitly approved pipeline change.
+The release gate remains **HOLD** until the actual host consumer, adoption,
+backup/restore, schema checkpoint and production approval are verified.
+The approved pipeline exception does not authorize a database mutation by itself.
+This runbook does not authorize a release, merge to `master`, or deployment.
+See [the release hold](COPILOT-369-RELEASE-HOLD.md).
 
 ## Source preparation and omissions
 
@@ -75,8 +75,9 @@ pair, a historical 300-card primary, or any drift fails closed. The historical
 primary requires the dedicated transition below; do not try to make ordinary
 preparation accept it.
 
-The schema must have migration `014_copilot_369_cardinality` applied after
-`013`. It permits stored counts 30, 300 and 369 to support legacy records, but
+The application requires `study-schema-4`: the exact canonical 014 catalog
+plus the independently pinned `016_preserve_study_card_history`.
+Migration 014 permits stored counts 30, 300 and 369 to support legacy records, but
 does not authorize creating a new 300-card primary. Preserve the existing
 validation-30 CSV, manifest, fixture, membership, decisions, accounts and
 snapshots. Do not reset or regenerate those artifacts as part of primary
@@ -89,8 +90,8 @@ deployment command. It preserves the primary study identity and participant
 accounts while replacing its ordered card membership. It is permitted only
 when all expected legacy identity, configuration, source checksum and exact
 300 ordered memberships match; the target source is valid; there are no primary
-classifications, discards or dependent history; and the database matches the
-pinned PostgreSQL 17 schema contract through migration 014. Unknown schema,
+classifications or discards; closed enrichment history is verified and retained.
+The database must match the pinned PostgreSQL 17 schema-4 contract after 016. Unknown schema,
 migration history, dependencies, drift or concurrent writers block the
 operation. Never remove or detach history to make it pass.
 
@@ -109,8 +110,9 @@ operation. Never remove or detach history to make it pass.
    `source_checksum`) from the operator's verified source of truth. Do not
    guess, derive or copy real database identifiers into documentation or an
    unprotected request file.
-4. Confirm migration 014 is already applied and the database schema is exactly
-   the pinned PostgreSQL 17 contract. This command does not run migrations.
+4. Complete the separately authorized history maintenance step described below.
+   Confirm schema 4, its validated FKs, closed runs and exact historical
+   source memberships. This cutover command does not run migrations.
 5. Use the CLI's own help as the authoritative current request contract:
 
    ```bash
@@ -165,7 +167,9 @@ node scripts/cutover-copilot-369.js --request /absolute/protected/operator-reque
 The command performs a read-only preflight, then a transaction with advisory,
 table and study locks and a second precondition check. A valid transition
 updates only the primary study's source/configuration/count and ordered
-`study_card` memberships. Compatible pre-existing `pr_cards` may be reused
+`study_card` memberships, and appends permanent references and ordered source
+memberships for the 369 cards. Existing history metadata is append-only.
+Compatible pre-existing `pr_cards` may be reused
 only without updates. It does not backfill or update `pr_cards`, alter accounts
 or participant memberships, alter snapshots, move/delete history, detach
 references, disable triggers or run migrations. Any failure rolls the
@@ -175,6 +179,49 @@ preconditions have been independently re-established.
 An already matching 369 primary returns `ALREADY_369` after read-only
 verification. It does not rewrite state. A successful transition reports
 `CUTOVER_369`. Neither response indicates release readiness or deployment.
+
+### Host schema checkpoint and continuation
+
+Install the reviewed host consumer and its matching observer assets before
+admitting a schema-4 candidate. Retain existing releases, immutable evidence,
+the twelve-key journal and generation floor. Recompute the aggregate
+`--version` fingerprint and use it in fresh operator authorizations.
+Old schema-3 images are inventory-only after 016; do not rewrite their manifests.
+The package remains exactly Caddyfile, Compose and v2 manifest, with unchanged
+four source hashes and data bundle `copilot369-v1`.
+
+The installed local-root controller accepts these maintenance steps with the
+same validated candidate package on stdin. The examples name a controller
+relative to its approved installation; they require the configured trusted host
+environment and do not create authorization or backup evidence:
+
+```bash
+python3 -B deployment/release-host-control.py maintenance history "$RELEASE_ID" < "$PACKAGE"
+python3 -B deployment/release-host-control.py continue
+```
+
+The first command requires a current `maintenance-history` authorization,
+stopped writers, and full custom backup/isolated restore of the observed origin.
+Canonical 013 receives 014 and 016 atomically. Canonical 014 receives 016 with
+or without an actual 015 entry. A retired 014 catalog requires its independently
+pinned `maintenance normalize` step first; no synthetic 002/015 ledger entries.
+History maintenance retains every original row and checks values plus xmin,
+adds permanent references, validates replacement FKs before withdrawing the
+two old enrichment FKs, and rejects unknown sources or RUNNING runs.
+
+It stops at `history_schema_verified`, leaving the same data bundle and
+publication pointers. Before `continue`, obtain a different fresh authorization
+and a new full backup/isolated restore of the post-016 baseline. A pre-016
+receipt is not interchangeable. Continuation keeps the original study ID,
+accounts, reservation and candidate. A historical cutover stops at
+`cutover_verified`; deploying that exact candidate can then start runtime,
+perform HTTPS smoke and publish. A schema-4 existing pair is verified readonly.
+
+After failure, run local-root readonly `reconcile` first. It cannot fabricate
+history-schema success from table existence or a pending ledger intent, repeat
+SQL, restart services or repair pointers. Continue only from an actual verified
+checkpoint or explicitly reauthorize the proven intact origin. Restricted SSH
+retains only deploy/rollback; history maintenance is never a CI SSH verb.
 
 After a primary is prepared, participants use the existing private card-sorting
 flow: each participant sees the same ordered sample, while categories,
@@ -193,6 +240,13 @@ restore a verified backup only to a separately approved target. Never restore
 over the protected 30-card study or use production-volume deletion as rollback.
 
 ## Verification evidence and limits
+
+The 2026-10-17 results below predate the enriched-primary correction and do not
+prove migration 016 or schema-4 deployment. The correction's executable cases
+are `test/copilot-369-history.integration.js`,
+`test/copilot-369-cutover.integration.js` and
+`test/test_release_host_history.py`; final verification is recorded with the
+correction handoff. No local test establishes a real VPS backup or deployment.
 
 Executed on 2026-10-17 using source fixtures and UUID-owned disposable PostgreSQL
 17.6 containers, without a real database or real credentials:

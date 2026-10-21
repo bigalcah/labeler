@@ -5,12 +5,14 @@ import datetime as dt
 import json
 import re
 from pathlib import Path
-from typing import Final, TypeAlias
+from typing import Final, Literal, NoReturn, TypeAlias
 
 Json: TypeAlias = None | bool | int | float | str | list["Json"] | dict[str, "Json"]
 Document: TypeAlias = dict[str, Json]
+Action: TypeAlias = Literal["adopt", "deploy", "rollback", "maintenance", "maintenance-normalize",
+                            "maintenance-history", "continue", "finalize-publication", "reconcile"]
 LIMIT: Final = 65536
-SCHEMA: Final = "study-schema-3"
+SCHEMA: Final = "study-schema-4"
 BUNDLE: Final = "copilot369-v1"
 TARGET: Final = {"schema": SCHEMA, "dataBundle": BUNDLE}
 RETIRED: Final = "014_copilot_369_cardinality"
@@ -28,6 +30,10 @@ class Rejected(Exception):
 def require(condition: bool, contract: str) -> None:
     if not condition:
         raise Rejected(contract)
+
+
+def assert_never(_value: NoReturn) -> NoReturn:
+    raise Rejected("unreachable operation")
 
 
 def shape(value: Json, keys: str) -> Document:
@@ -98,7 +104,7 @@ def identity(value: Json) -> Document:
 
 def observation(value: Json) -> Document:
     result = shape(value, "schema dataBundle fingerprint schemaFingerprint observedAt databaseIdentity readOnly")
-    require(result["schema"] in ("empty", "study-schema-3", "001_study_foundation", "003_private_pr_discard",
+    require(result["schema"] in ("empty", "study-schema-3", SCHEMA, "001_study_foundation", "003_private_pr_discard",
         "004_github_pr_api_enrichment", "005_github_enrichment_checkpoints", "006_github_api_telemetry",
         "007_local_accounts_sessions", "008_login_rate_limits", "009_csrf_contexts", "010_study_scoped_participant_categories",
         "011_multi_study_cardinality", "012_global_normalized_username", "013_category_definition_color", RETIRED), "unknown observed physical schema")

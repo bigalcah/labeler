@@ -174,6 +174,16 @@ class Runtime:
         from observer import probe
         return probe(self)
 
+    def history_probe(self) -> Document:
+        from observer import probe
+        return probe(self, history=True)
+
+    def preserve_history(self) -> None:
+        self.stage = "history-schema"
+        self.unchanged_mounts()
+        self.command(self.compose + ["run", "--rm", "--no-deps", "--entrypoint", "node",
+            "labeling-study-prepare", "scripts/preserve-study-card-history.js"])
+
     def verify_normalization_source(self) -> None:
         self.stage = "normalization-preflight"
         output = self.command(["docker", "run", "--rm", "--network", "none", "--read-only", "--cap-drop", "ALL",
@@ -236,5 +246,4 @@ class Runtime:
             "--mount", f"type=bind,src={request},dst={request},readonly",
             "--mount", f"type=bind,src={password},dst={password},readonly", "--entrypoint", "node",
             self.release["images"]["server"], "scripts/cutover-copilot-369.js", "--request", str(request)]
-        self.command(self.compose + ["run", "--rm", "--no-deps", "--entrypoint", "node", "labeling-study-prepare", "scripts/migrate-study-schema.js"])
         self.command(arguments)

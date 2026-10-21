@@ -3,6 +3,7 @@ import {rm} from "node:fs/promises";
 import test from "node:test";
 import {assertStudySchemaReady, bootstrapStudy, StudyBootstrapConflictError} from "../util/study-bootstrap.js";
 import {normalizeStudySchema} from "../util/study-normalization.js";
+import {preserveStudyCardHistory} from "../util/study-history.js";
 import {probeStudyNormalization} from "../util/study-readiness.js";
 import {prepareStudyProfiles} from "../util/study-preparation.js";
 import {createReadinessProfiles} from "./readiness-fixture.js";
@@ -83,7 +84,9 @@ test("ordinary prepare initializes a normalized empty origin through the real mi
         const primaryReady = prepare.stdout.indexOf("Study pr-card-sorting-local is READY");
         const validationReady = prepare.stdout.indexOf("Study pr-card-sorting-validation-30 is READY");
         assert.ok(primaryReady >= 0 && validationReady > primaryReady);
-        assert.deepEqual((await database.pool.query("SELECT * FROM labeler_migration ORDER BY applied_at, migration_id")).rows, ledger);
+        const finalLedger = (await database.pool.query("SELECT * FROM labeler_migration ORDER BY applied_at, migration_id")).rows;
+        assert.deepEqual(finalLedger.slice(0, -1), ledger);
+        assert.equal(finalLedger.at(-1).migration_id, "016_preserve_study_card_history");
         assert.equal((await database.pool.query("SELECT count(*)::integer AS count FROM labeler_migration WHERE migration_id = '015_normalize_retired_study_schema'")).rows[0].count, 1);
         assert.deepEqual((await database.pool.query("SELECT study_key, expected_card_count FROM study ORDER BY expected_card_count DESC")).rows,
             [{study_key: "pr-card-sorting-local", expected_card_count: 369},
@@ -106,6 +109,8 @@ test("Copilot 369+30 with decisions continues through ordinary prepare readonly 
         const normalized = await probePost015Normalization(database, fixture.profiles, legacyCsvPath);
         assert.equal(normalized.applied015, true);
         assert.equal(normalized.observation.dataBundle, "copilot369-v1");
+        await assert.rejects(runPost015Prepare({database, fixture}), error => /history schema-4 checkpoint/.test(error.stderr));
+        await preserveStudyCardHistory({...options, baseline: (await probeStudyNormalization(options)).observation});
         const rows = await fingerprintNormalizationRows(database.pool);
         const ledger = (await database.pool.query("SELECT * FROM labeler_migration ORDER BY applied_at, migration_id")).rows;
         const prepare = await runPost015Prepare({database, fixture});

@@ -5,11 +5,11 @@ import {canonicalCardContent, computeCardChecksum} from "./pr-card-checksum.js";
 import {verifyCopilot369ExistingCards} from "./copilot-369-persistence.js";
 import {DEFAULT_STUDY_CONFIG, parseStudyConfig} from "./study-config.js";
 import {CUTOVER_TABLES} from "./copilot-369-schema-contract.js";
+import {assertStudySourceHistory} from "./study-source-history.js";
 
 const LEGACY_300_CHECKSUM = "4051c10c39a1634aa80d9018aa53b59fd6009fdc4d7f2526d5e73708b02f53ef";
 const CUTOVER_CONFIRMATION = "cutover-primary-300-to-copilot-369";
-const HISTORY_TABLES = Object.freeze(["pr_classification", "pr_discard", "github_enrichment_run",
-    "github_run_page", "github_enrichment_run_card", "study_enrichment_promotion", "github_api_telemetry_event"]);
+const DECISION_TABLES = Object.freeze(["pr_classification", "pr_discard"]);
 const requireEqual = (actual, expected, label) => {
     if (!isDeepStrictEqual(actual, expected)) throw new Error(`Cutover ${label} mismatch`);
 };
@@ -54,10 +54,14 @@ const prepareCopilot369Cutover = async options => {
 };
 
 const assertNoCopilot369History = async (client, studyId) => {
-    for (const table of HISTORY_TABLES) {
+    for (const table of DECISION_TABLES) {
         const {rows} = await client.query(`SELECT 1 FROM public.${table} WHERE study_id = $1 LIMIT 1`, [studyId]);
         if (rows.length) throw new Error(`Cutover blocked by primary history in ${table}`);
     }
+    const {rows: running} = await client.query(
+        "SELECT 1 FROM public.github_enrichment_run WHERE study_id=$1 AND state='RUNNING' LIMIT 1", [studyId]);
+    if (running.length) throw new Error("Cutover blocked by RUNNING primary history");
+    await assertStudySourceHistory(client);
 };
 
 const inspectCopilot369Study = async (client, input) => {
@@ -73,6 +77,7 @@ const inspectCopilot369Study = async (client, input) => {
         `SELECT pr_card_id, source_card_id, ordinal, source_checksum FROM public.study_card
          WHERE study_id = $1 ORDER BY ordinal`, [input.studyId]);
     if (target) {
+        await assertStudySourceHistory(client);
         const cards = await verifyCopilot369ExistingCards(client, input.target.cards, input.target.sourceChecksum);
         requireEqual(cards.length, 369, "complete existing target cards");
         requireEqual(members, cards.map((card, ordinal) => ({pr_card_id: card.id,
@@ -115,6 +120,9 @@ const fingerprintCopilot369PreservedState = async (client, scope) => {
         } else if (table === "pr_cards") {
             filter = "WHERE record.id = ANY($1::uuid[])";
             parameters = [scope.existingCardIds];
+        } else if (["study_card_reference", "study_source_membership"].includes(table)) {
+            filter = "WHERE to_jsonb(record) IN (SELECT value FROM jsonb_array_elements($1::jsonb))";
+            parameters = [JSON.stringify(scope.historyRows[table])];
         }
         const {rows: [result]} = await client.query(`SELECT count(*)::integer AS count,
             encode(public.digest(COALESCE(string_agg(encode(public.digest((${row})::text, 'sha256'), 'hex'),

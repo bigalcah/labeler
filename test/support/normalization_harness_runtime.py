@@ -21,6 +21,7 @@ HANDOFF_ROOT = FIXTURE_ROOT / "host-handoff"
 EXTERNAL_ROOT = FIXTURE_ROOT / "external"
 PRE_PROBE_PATH = FIXTURE_ROOT / "normalization-pre-probe.json"
 NORMALIZED_PROBE_PATH = FIXTURE_ROOT / "normalization-post-probe.json"
+HISTORY_PROBE_PATH = FIXTURE_ROOT / "history-post-probe.json"
 PREPARED_PROBE_PATH = FIXTURE_ROOT / "normalization-prepared-probe.json"
 REPORT_PATH = FIXTURE_ROOT / "normalization-report.json"
 CONTROL_EVENT = threading.Event()
@@ -119,6 +120,18 @@ class HarnessRuntime:
 
     def observe(self) -> contracts.Document:
         return self.normalization_probe()["observation"]
+
+    def history_probe(self) -> contracts.Document:
+        if self.probe_path == HISTORY_PROBE_PATH or self.probe_path == PREPARED_PROBE_PATH:
+            return contracts.shape(contracts.read(self.probe_path)["historyProbe"], "observation applied016 eligibility")
+        return {"observation": self.observe(), "applied016": False, "eligibility": "eligible"}
+
+    def preserve_history(self) -> None:
+        self.attach_handoff()
+        self.events.append("actual-history-cli-wait")
+        wait_for_signal(signal.SIGUSR1)
+        self.probe_path = HISTORY_PROBE_PATH
+        self.events.append("actual-history-cli-returned")
 
     def writers_stopped(self) -> None:
         self.events.append("writers-stopped-probe")
@@ -224,6 +237,8 @@ class HarnessRuntime:
                 self.events.append("actual-normalizer-cli-returned")
             case "continue":
                 print("POST_015_HANDOFF_READY " + json.dumps(attestation, separators=(",", ":")), flush=True)
+            case "maintenance-history":
+                print("HISTORY_HANDOFF_READY " + json.dumps(attestation, separators=(",", ":")), flush=True)
             case unreachable:
                 assert_never(unreachable)
         return attestation

@@ -6,7 +6,7 @@ from typing import Final
 from contracts import (Document, FILES, HASH, IMAGE, Json, LIMIT, RELEASE, TARGET, encoded, identity,
                        number, observation, require, shape, text, timestamp)
 
-PHASES: Final = ("adoption", "backup_verified", "reserved", "pending", "normalization_verified", "cutover_verified",
+PHASES: Final = ("adoption", "backup_verified", "reserved", "pending", "normalization_verified", "history_schema_verified", "cutover_verified",
                  "runtime_verified", "smoke_verified", "publication_intent", "publication_metadata",
                  "completed", "abandoned", "unknown")
 RECEIPT_KEYS: Final = "kind version operationId candidate databaseIdentity phase predecessorEvidence authorization backupRef origin target publication"
@@ -37,7 +37,7 @@ def evidence_path(value: Json) -> str:
 
 def authorization(value: Json) -> Document:
     result = shape(value, "action actor issuedAt expiresAt requestSha256 writersStopped drain")
-    text(result["action"], r"adopt|deploy|rollback|maintenance|maintenance-normalize|continue|finalize-publication|reconcile")
+    text(result["action"], r"adopt|deploy|rollback|maintenance|maintenance-normalize|maintenance-history|continue|finalize-publication|reconcile")
     text(result["actor"], r"[A-Za-z0-9._@-]{1,128}")
     timestamp(result["issuedAt"])
     timestamp(result["expiresAt"])
@@ -98,16 +98,32 @@ def receipt(value: Json) -> Document:
         text(backup["sha256"], HASH)
     target = shape(result["target"], "schema dataBundle observation")
     step_target = {key: target[key] for key in TARGET}
-    normalization = result["phase"] == "normalization_verified" or result["authorization"]["action"] == "maintenance-normalize" or step_target != TARGET
-    require(step_target == (dict(TARGET, dataBundle=result["origin"]["dataBundle"]) if normalization else TARGET), "invalid target")
+    legacy = step_target == {"schema": "study-schema-3", "dataBundle": TARGET["dataBundle"]}
+    normalization = (result["phase"] == "normalization_verified" or result["authorization"]["action"] == "maintenance-normalize"
+        or (target["schema"] == "study-schema-3" and not legacy))
+    history = (result["phase"] == "history_schema_verified" or result["authorization"]["action"] == "maintenance-history"
+        or (target["schema"] == TARGET["schema"] and step_target != TARGET))
+    if normalization:
+        expected = {"schema": "study-schema-3", "dataBundle": result["origin"]["dataBundle"]}
+    elif history:
+        expected = dict(TARGET, dataBundle=result["origin"]["dataBundle"])
+    else:
+        expected = step_target if legacy else TARGET
+    require(step_target == expected, "invalid target")
     if normalization:
         require(result["phase"] in ("reserved", "pending", "normalization_verified", "abandoned", "unknown"), "normalization cannot admit runtime")
         require(result["authorization"]["action"] in ("maintenance-normalize", "reconcile"), "normalization target requires normalization scope")
+    if history:
+        require(result["phase"] in ("reserved", "pending", "history_schema_verified", "abandoned", "unknown"), "history checkpoint cannot admit runtime")
+        require(result["authorization"]["action"] in ("maintenance-history", "reconcile"), "history target requires history scope")
+        if result["phase"] in ("pending", "history_schema_verified"):
+            require(result["backupRef"] is not None and result["publication"] is not None,
+                    "history handoff requires backup and publication baseline")
     if target["observation"] is not None:
         observed = observation(target["observation"])
         require(observed["databaseIdentity"] == result["databaseIdentity"]
                 and observed["schema"] == target["schema"] and observed["dataBundle"] == target["dataBundle"], "invalid target observation")
-    if result["phase"] in ("normalization_verified", "cutover_verified", "runtime_verified", "smoke_verified", "publication_intent", "publication_metadata", "completed"):
+    if result["phase"] in ("normalization_verified", "history_schema_verified", "cutover_verified", "runtime_verified", "smoke_verified", "publication_intent", "publication_metadata", "completed"):
         require(target["observation"] is not None, "verified transition requires actual target observation")
     if result["phase"] in ("publication_intent", "publication_metadata", "completed"):
         require(result["publication"] is not None, "publication transition requires recorded tuple")
@@ -122,7 +138,7 @@ def journal(value: Json) -> Document:
     require(result["status"] in ("pending", "verified", "unknown"), "invalid journal status")
     text(result["operationId"], OPERATION)
     target = shape(result["target"], "schema dataBundle")
-    require(target["schema"] == TARGET["schema"] and target["dataBundle"] in
+    require(target["schema"] in (TARGET["schema"], "study-schema-3") and target["dataBundle"] in
             (TARGET["dataBundle"], result["origin"]["dataBundle"]), "invalid journal target")
     identity(result["databaseIdentity"])
     observation(result["origin"])

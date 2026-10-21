@@ -8,7 +8,7 @@ import manifest
 from contracts import Document, IMAGE, decode, observation, read, require, shape
 
 
-def probe(runtime) -> Document:
+def probe(runtime, *, history: bool = False) -> Document:
     from runtime import TARGETS
     runtime.stage = "database-inspection"
     image = runtime.release.get("images", {}).get("server") or runtime.environment.get("LABELER_OBSERVER_IMAGE", "")
@@ -47,15 +47,17 @@ def probe(runtime) -> Document:
     settings["STUDY_PROFILES_INPUT"] = "/run/config/study-profiles.json"
     for key, value in settings.items():
         arguments += ["-e", f"{key}={value}"]
+    lineage = "applied016" if history else "applied015"
     result = shape(decode(runtime.command(arguments + ["--entrypoint", "node", image,
-        "scripts/study-readiness.js", "--normalization-probe"])), "observation applied015 eligibility")
-    require(type(result["applied015"]) is bool and result["eligibility"] in
-            ("eligible", "already-applied", "ineligible"), "invalid normalization probe")
-    require((result["eligibility"] == "already-applied") == result["applied015"], "inconsistent 015 evidence")
+        "scripts/study-readiness.js", "--history-probe" if history else "--normalization-probe"])), f"observation {lineage} eligibility")
+    require(type(result[lineage]) is bool and result["eligibility"] in
+            ("eligible", "already-applied", "ineligible"), "invalid maintenance probe")
+    require((result["eligibility"] == "already-applied") == result[lineage], "inconsistent migration evidence")
     value = result["observation"]
     shape(value["databaseIdentity"], "systemIdentifier databaseOid databaseName serverVersion")
     value["databaseIdentity"].update({"endpoint": f"labeling-database:5432/{settings['DATABASE_NAME']}",
                                        "volume": volumes[0]["Name"] + ":" + volumes[0]["Source"]})
     result["observation"] = observation(value)
-    require(not result["applied015"] or value["schema"] == "study-schema-3", "015 requires canonical physical schema")
+    require(not result[lineage] or value["schema"] in (("study-schema-4",) if history else ("study-schema-3", "study-schema-4")),
+            "migration lineage requires canonical physical schema")
     return result

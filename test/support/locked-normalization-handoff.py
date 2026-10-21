@@ -24,6 +24,7 @@ sys.path.insert(0, "/workspace/deployment/host")
 import contracts
 import durable
 import normalization
+import history
 import publication
 from host_fixture import adopted, candidate
 from lifecycle import continue_operation
@@ -76,7 +77,15 @@ def own_normalization() -> None:
             wait_for_signal(signal.SIGUSR2)
             normalized = runtime.normalization_probe()["observation"]
             runtime.environment["LABELER_AUTHORIZATION_FILE"] = str(
-                write_authorization("continue", binding, normalized["databaseIdentity"]))
+                write_authorization("maintenance-history", binding, normalized["databaseIdentity"]))
+            history.start(state, runtime, source)
+            history_checkpoint = state.load()[1]
+            contracts.require(history_checkpoint["phase"] == "history_schema_verified"
+                and history_checkpoint["target"]["observation"]["schema"] == "study-schema-4",
+                "history schema must be verified before prepare continuation")
+            post_history = runtime.history_probe()["observation"]
+            runtime.environment["LABELER_AUTHORIZATION_FILE"] = str(
+                write_authorization("continue", binding, post_history["databaseIdentity"]))
             continue_operation(state, runtime, "continue")
             final_journal, final_receipt = state.load()
             fresh_authorization = final_receipt["authorization"]["requestSha256"] != initial_request_hash
@@ -97,7 +106,10 @@ def own_normalization() -> None:
                     "backupBaselineSchema": runtime.backup_proofs[-1]["originSchema"],
                     "backupBaselineDataBundle": runtime.backup_proofs[-1]["originDataBundle"],
                     "backupRestoreProofs": [{**proof, "hostBoundaryAccepted": True}
-                        for proof in runtime.backup_proofs]}, "runtimeSpies": runtime.events})
+                        for proof in runtime.backup_proofs]},
+                "historyCheckpoint": {"phase": history_checkpoint["phase"],
+                    "stepBaseline": post_history, "publicationUnchanged": True},
+                "runtimeSpies": runtime.events})
             print("NORMALIZATION_CONTINUATION_COMPLETE verified", flush=True)
             STOP_REQUESTED.wait()
     finally:

@@ -123,10 +123,24 @@ class FakeRuntime:
     def normalize(self):
         self.commands.append("normalize")
         contracts.require(self.failure != "normalization", "normalization failed before commit")
-        self.value = observed(self.value["dataBundle"], contracts.SCHEMA)
+        self.value = observed(self.value["dataBundle"], "study-schema-3")
         self.value["fingerprint"] = hashlib.sha256((self.value["dataBundle"] + "015").encode()).hexdigest()
         self.applied015 = True
         contracts.require(self.failure != "post-commit", "normalization response lost after commit")
+
+    def history_probe(self):
+        self.commands.append("history-probe")
+        applied = getattr(self, "applied016", False)
+        return {"observation": copy.deepcopy(self.value), "applied016": applied,
+                "eligibility": "already-applied" if applied else "eligible"}
+
+    def preserve_history(self):
+        self.commands.append("preserve-history")
+        contracts.require(self.failure != "history-schema", "history failed before commit")
+        self.value = observed(self.value["dataBundle"], contracts.SCHEMA)
+        self.value["fingerprint"] = hashlib.sha256((self.value["dataBundle"] + "016").encode()).hexdigest()
+        self.applied016 = True
+        contracts.require(self.failure != "history-post-commit", "history response lost after commit")
 
     def writers_stopped(self):
         self.commands.append("writers-stopped")

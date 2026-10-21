@@ -1,3 +1,5 @@
+# Clasificación privada de la muestra activa
+
 ## MODIFIED Requirements
 
 ### Requirement: Categorías privadas por participante
@@ -54,6 +56,16 @@ debe clasificar o descartar privadamente cada PR de su estudio; no se añaden ta
 
 - **WHEN** un participante completa el estudio de validación existente
 - **THEN** su flujo sigue cubriendo las mismas 30 tarjetas sin cambio de muestra
+
+#### Scenario: Historial excluido de la cola activa
+
+- **WHEN** la primaria activa de 369 conserva referencias históricas de su muestra de 300
+- **THEN** esas referencias no añaden tarjetas, progreso, decisiones ni elegibilidad de exportación a la muestra activa
+
+#### Scenario: Procedencia de una decisión posterior al cutover
+
+- **WHEN** se guarda una decisión nueva en la primaria de 369 sin promoción de su fuente activa
+- **THEN** no se vincula a un run de la fuente anterior ni a respuestas del estudio de 30
 
 ### Requirement: Guardado y progreso
 

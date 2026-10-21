@@ -20,7 +20,7 @@ const candidate = {releaseId:"1-1-"+"c".repeat(40),generation:1,commit:"c".repea
 const receipt = {kind:"labeler-host-operation",version:1,operationId:"release-00000000-0000-0000-0000-000000000001",candidate,databaseIdentity:identity,
     phase:"pending",predecessorEvidence:"evidence/fixture/reserved.json",authorization:{action:"deploy",actor:"fixture-operator",issuedAt:"2026-10-17T00:00:00Z",
         expiresAt:"2099-01-01T00:00:00Z",requestSha256:"d".repeat(64),writersStopped:true,drain:null},backupRef:null,origin:observation,
-    target:{schema:"study-schema-3",dataBundle:"copilot369-v1",observation:null},publication:null};
+    target:{schema:"study-schema-4",dataBundle:"copilot369-v1",observation:null},publication:null};
 const context = {version:1,operationId:receipt.operationId,candidate,databaseIdentity:identity,phase:"pending",receipt,
     receiptSha256:createHash("sha256").update(JSON.stringify(receipt)).digest("hex"),observation};
 if(mode==="wrong-operation") context.operationId="client-operation";
@@ -28,6 +28,7 @@ if(mode==="wrong-database") context.databaseIdentity={...identity,databaseOid:"9
 if(mode==="extra-receipt") context.receipt.extra=true;
 if(mode==="normalization-prepare" || mode==="normalization-valid" || mode==="cutover-normalizer" || mode==="wrong-normalization-target") {
     receipt.authorization.action=mode==="cutover-normalizer"?"maintenance":"maintenance-normalize";
+        receipt.target.schema="study-schema-3";
     receipt.target.dataBundle=mode==="wrong-normalization-target"?"copilot369-v1":"empty";
     receipt.backupRef={path:"/external/verified-backup",sha256:"f".repeat(64)};
     context.receiptSha256=createHash("sha256").update(JSON.stringify(receipt)).digest("hex");

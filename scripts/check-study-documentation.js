@@ -29,7 +29,7 @@ const RETIRED_COMMANDS = Object.freeze(["export:study"]);
 const EXPECTED_PROFILES = Object.freeze([
     Object.freeze({
         studyKey: "pr-card-sorting-local",
-        expectedCardCount: 300,
+        expectedCardCount: 369,
         participants: Object.freeze([ "javier", "diego", "pablo" ]),
         loginUsernames: Object.freeze({javier: "javier", diego: "diego", pablo: "pablo"}),
     }),
@@ -94,7 +94,7 @@ const validateContract = contract => {
         "participantSelector", "studySelector", "enrichment", "export", "adminUi", "evidence", "commands",
     ];
     if (!exactKeys(contract, expectedKeys)) diagnostics.push(diagnostic("CONTRACT_SHAPE_INVALID"));
-    if (!sameList(contract?.supportedCardCounts, [ 30, 300 ])) {
+    if (!sameList(contract?.supportedCardCounts, [ 30, 369 ])) {
         diagnostics.push(diagnostic("CONTRACT_SUPPORTED_COUNTS_INVALID"));
     }
     if (!Array.isArray(contract?.profiles) || contract.profiles.length !== EXPECTED_PROFILES.length
@@ -154,7 +154,7 @@ const validateProfileSource = async root => {
     const counts = [...source.matchAll(/expectedCardCount\s*:\s*(\d+)/gu)]
         .map(match => Number(match[1]))
         .sort((left, right) => left - right);
-    return sameList(counts, [ 30, 300 ]) ? [] : [diagnostic("PROFILE_SOURCE_COUNTS_INVALID", {path: "util/study-profiles-input.js"})];
+    return sameList(counts, [ 30, 369 ]) ? [] : [diagnostic("PROFILE_SOURCE_COUNTS_INVALID", {path: "util/study-profiles-input.js"})];
 };
 
 const validateCommands = async root => {

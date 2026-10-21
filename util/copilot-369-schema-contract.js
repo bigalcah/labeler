@@ -2,13 +2,13 @@ import {createHash} from "node:crypto";
 import {readFile} from "node:fs/promises";
 import {isDeepStrictEqual} from "node:util";
 import {managedMigrations} from "./study-schema.js";
-import {readStudyLedger} from "./study-ledger.js";
+import {readHistorySource, readStudyLedger} from "./study-ledger.js";
 
 const CUTOVER_TABLES = Object.freeze([
     "github_api_telemetry_event", "github_card_snapshot", "github_enrichment_run",
     "github_enrichment_run_card", "github_run_page", "labeler_migration", "participant_account",
     "participant_category", "pr_cards", "pr_classification", "pr_discard", "reviewer", "study",
-    "study_card", "study_enrichment_promotion", "study_participant",
+    "study_card", "study_enrichment_promotion", "study_participant", "study_card_reference", "study_source_membership",
 ]);
 const digest = value => createHash("sha256").update(value).digest("hex");
 const userNamespace = "n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'";
@@ -91,7 +91,8 @@ const readCopilot369SchemaContract = async (client, {normalizeDependencies = fal
 };
 
 const assertCopilot369SchemaContract = async client => {
-    const pinned = JSON.parse(await readFile(new URL("./copilot-369-schema-contract.json", import.meta.url), "utf8"));
+    const {contract} = await readHistorySource();
+    const pinned = contract.schema;
     const {rows: [version]} = await client.query("SELECT current_setting('server_version_num')::integer AS version");
     if (Math.floor(version.version / 10000) !== pinned.postgresMajor) {
         throw new Error("Cutover requires the pinned PostgreSQL 17 schema contract");
@@ -102,13 +103,14 @@ const assertCopilot369SchemaContract = async client => {
         throw new Error("Unknown cutover schema execution context: temporary objects or bypassed triggers");
     }
     const actual = await readCopilot369SchemaContract(client, {normalizeDependencies: true});
-    const prefixes = JSON.parse(await readFile(new URL("./study-readiness-prefixes.json", import.meta.url), "utf8"));
     if (!isDeepStrictEqual(actual.migrations, pinned.migrations)
-        || digest(JSON.stringify(actual.signatures)) !== prefixes[managedMigrations.at(-1).id]) {
+        || digest(JSON.stringify(actual.signatures)) !== pinned.fingerprint) {
         const changed = Object.keys(actual.signatures).filter(key => !isDeepStrictEqual(actual.signatures[key], pinned.signatures[key]));
         throw new Error(`Unknown cutover schema contract: ${changed.join(", ") || "migration source drift"}`);
     }
-    await readStudyLedger(client, {requireComplete: true});
+    if (!(await readStudyLedger(client, {requireComplete: true})).applied016) {
+        throw new Error("Cutover requires the verified schema-4 history migration");
+    }
 };
 
 export {CUTOVER_TABLES, assertCopilot369SchemaContract, readCopilot369SchemaContract};

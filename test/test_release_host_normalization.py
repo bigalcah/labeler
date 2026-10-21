@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from host_fixture import archive
-from host_normalization_fixture import loaded, normalization_fixture, normalize
+from host_normalization_fixture import loaded, normalization_fixture, normalize, preserve_history
 import contracts
 import publication
 
@@ -20,7 +20,7 @@ class NormalizationCommands(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 journal, receipt = loaded(fixture)
                 self.assertEqual((journal["status"], receipt["phase"]), ("verified", "normalization_verified"))
-                self.assertEqual(journal["target"], {"schema": contracts.SCHEMA, "dataBundle": bundle})
+                self.assertEqual(journal["target"], {"schema": "study-schema-3", "dataBundle": bundle})
                 self.assertEqual(receipt["origin"], fixture.origin)
                 self.assertEqual((len(journal), len(receipt)), (12, 12))
                 self.assertEqual(publication.snapshot(fixture.deploy_root), before)
@@ -41,6 +41,8 @@ class NormalizationCommands(unittest.TestCase):
             with tempfile.TemporaryDirectory() as temporary, self.subTest(bundle=bundle):
                 fixture = normalization_fixture(Path(temporary), bundle)
                 self.assertEqual(normalize(fixture).returncode, 0)
+                history_result = preserve_history(fixture)
+                self.assertEqual(history_result.returncode, 0, history_result.stderr)
                 _, checkpoint = loaded(fixture)
                 floor = fixture.deploy_root / "state/highest-generation"
                 floor_identity = floor.stat().st_ino
@@ -126,6 +128,8 @@ class NormalizationCommands(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = normalization_fixture(Path(temporary), "legacy300-v1")
             self.assertEqual(normalize(fixture).returncode, 0)
+            history_result = preserve_history(fixture)
+            self.assertEqual(history_result.returncode, 0, history_result.stderr)
             _, checkpoint = loaded(fixture)
             fixture.origin = contracts.read(fixture.root / "observation.json")
             fixture.write_backup()
@@ -141,8 +145,8 @@ class NormalizationCommands(unittest.TestCase):
             self.assertEqual(loaded(fixture)[1]["phase"], "cutover_verified")
             self.assertEqual(loaded(fixture)[1]["origin"], checkpoint["origin"])
             commands = fixture.commands()
-            self.assertLess(commands.index("backup\n"), commands.index("scripts/migrate-study-schema.js"))
-            self.assertLess(commands.index("scripts/migrate-study-schema.js"), commands.index("scripts/cutover-copilot-369.js"))
+            self.assertLess(commands.index("backup\n"), commands.index("scripts/cutover-copilot-369.js"))
+            self.assertNotIn("scripts/migrate-study-schema.js", commands)
             self.assertNotIn("normalize-retired", commands)
             self.assertNotIn(" up ", commands)
             fixture.write_authorization("deploy", fixture.binding)

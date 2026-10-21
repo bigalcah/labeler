@@ -32,7 +32,7 @@ def release_identity(manifest: Document) -> None:
     timestamp(manifest["createdAt"])
 
 
-def validate(value: Json) -> Document:
+def validate(value: Json, *, historical_schema: str | None = None) -> Document:
     manifest = shape(value, ROOT)
     require(type(manifest["schemaVersion"]) is int and manifest["schemaVersion"] == 2, "v2 required at ingress")
     release_identity(manifest)
@@ -45,7 +45,8 @@ def validate(value: Json) -> Document:
         for offset, kind in enumerate(("csv", "manifest")):
             artifact = shape(profile[kind], "path sha256")
             require((artifact["path"], artifact["sha256"]) == ARTIFACTS[index * 2 + offset], "noncanonical artifact")
-    for field, token in (("schemaCompatibility", TARGET["schema"]), ("dataCompatibility", TARGET["dataBundle"])):
+    require(historical_schema in (None, "study-schema-3"), "unknown historical compatibility")
+    for field, token in (("schemaCompatibility", historical_schema or TARGET["schema"]), ("dataCompatibility", TARGET["dataBundle"])):
         compatibility = shape(manifest[field], "produces applicationSupports")
         require(compatibility == {"produces": token, "applicationSupports": [token]}, "invalid compatibility axes")
     return manifest
@@ -54,7 +55,9 @@ def validate(value: Json) -> Document:
 def historical(value: Json) -> Document:
     require(type(value) is dict, "invalid historical manifest")
     if value.get("schemaVersion") == 2:
-        return validate(value)
+        support = value.get("schemaCompatibility")
+        legacy = type(support) is dict and support == {"produces": "study-schema-3", "applicationSupports": ["study-schema-3"]}
+        return validate(value, historical_schema="study-schema-3" if legacy else None)
     manifest = shape(value, "schemaVersion releaseId generation commit images csv schemaCompatibility workflow createdAt")
     require(type(manifest["schemaVersion"]) is int and manifest["schemaVersion"] == 1, "unknown historical version")
     release_identity(manifest)

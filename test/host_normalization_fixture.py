@@ -36,3 +36,11 @@ def normalize(fixture, failure=""):
     from host_fixture import archive
     fixture.write_authorization("maintenance-normalize", fixture.binding)
     return fixture.run("maintenance normalize " + fixture.release["releaseId"], archive(fixture.release).getvalue(), failure)
+
+
+def preserve_history(fixture, failure=""):
+    from host_fixture import archive
+    fixture.origin = contracts.read(fixture.root / "observation.json")
+    fixture.write_backup()
+    fixture.write_authorization("maintenance-history", fixture.binding)
+    return fixture.run("maintenance history " + fixture.release["releaseId"], archive(fixture.release).getvalue(), failure)

@@ -12,12 +12,12 @@ import durable
 import lifecycle
 import package
 import recovery
-from contracts import RELEASE, Rejected, now, require
+from contracts import Action, RELEASE, Rejected, assert_never, now, require
 from runtime import Runtime
 from state import State
 
 
-def request(arguments: list[str], local: bool) -> tuple[str, str | None]:
+def request(arguments: list[str], local: bool) -> tuple[Action, str | None]:
     original = os.environ.get("SSH_ORIGINAL_COMMAND")
     if original is not None:
         require(not local and not arguments, "forced SSH does not accept direct arguments")
@@ -29,14 +29,16 @@ def request(arguments: list[str], local: bool) -> tuple[str, str | None]:
     allowed = {"adopt", "reconcile", "maintenance", "continue", "finalize-publication"} if local else {"deploy", "rollback"}
     require(bool(arguments) and arguments[0] in allowed, "usage: deploy-vps.sh deploy <release-id> | rollback; local root helper: adopt | reconcile | maintenance [normalize] <release-id> | continue | finalize-publication")
     action = arguments[0]
-    if local and action == "maintenance" and len(arguments) == 3 and arguments[1] == "normalize":
+    if local and action == "maintenance" and len(arguments) == 3 and arguments[1] in ("normalize", "history"):
         require(re.fullmatch(RELEASE, arguments[2]) is not None, "invalid release ID")
-        return "maintenance-normalize", arguments[2]
+        return ("maintenance-normalize" if arguments[1] == "normalize" else "maintenance-history"), arguments[2]
     if action in ("deploy", "maintenance"):
         require(len(arguments) == 2 and re.fullmatch(RELEASE, arguments[1]) is not None, "invalid release ID")
-        return action, arguments[1]
+        return ("deploy" if action == "deploy" else "maintenance"), arguments[1]
     require(len(arguments) == 1, "unexpected arguments")
-    return action, None
+    actions: dict[str, Action] = {"adopt": "adopt", "reconcile": "reconcile", "continue": "continue",
+                                 "finalize-publication": "finalize-publication", "rollback": "rollback"}
+    return actions[action], None
 
 
 def main(local: bool = False) -> int:
@@ -57,7 +59,7 @@ def main(local: bool = False) -> int:
             durable.directory(attempt)
             runtime = Runtime(root)
             match action:
-                case "deploy" | "maintenance" | "maintenance-normalize":
+                case "deploy" | "maintenance" | "maintenance-normalize" | "maintenance-history":
                     stage = root / "incoming" / str(uuid.uuid4())
                     try:
                         release, _binding = package.receive(sys.stdin.buffer, stage)
@@ -75,8 +77,8 @@ def main(local: bool = False) -> int:
                     recovery.rollback(state, runtime)
                 case "continue" | "finalize-publication":
                     lifecycle.continue_operation(state, runtime, action)
-                case _:
-                    require(False, "unknown operation")
+                case unreachable:
+                    assert_never(unreachable)
             if runtime.summary is not None:
                 durable.document(attempt / "compose-config.json", runtime.summary)
                 durable.write(attempt / "compose-config.log", runtime.compose_diagnostic)
