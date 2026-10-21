@@ -96,12 +96,10 @@ const result = {
         submit: rect(submit),
     },
 };
-requestAnimationFrame(() => requestAnimationFrame(() => {
-    const output = document.createElement("output");
-    output.id = "login-layout-probe";
-    output.textContent = JSON.stringify(result);
-    document.body.append(output);
-}));
+const output = document.createElement("output");
+output.id = "login-layout-probe";
+output.textContent = JSON.stringify(result);
+document.body.append(output);
 `;
 
 const browserLoginProbeMiddleware = (req, res, next) => {

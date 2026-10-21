@@ -678,3 +678,141 @@ El checkout actual del workflow PR puede usar un merge sintetico. La evidencia
 remota debera distinguir head, base y SHA realmente comprobado, sin presentarlo
 como validacion directa de otro commit. Hasta observar los resultados reales,
 8.5 permanece abierta y el progreso es 92/104. **HOLD sigue vigente**.
+
+### Commits, push y PR ejecutados
+
+Se crearon los 45 commits nuevos del manifiesto revisado, con mensajes y cuerpos
+exactos, padres lineales y sin trailers automaticos. Se conservaron los 28
+commits anteriores. La verificacion independiente contrasto los 134 blobs y sus
+bits ejecutables con el inventario autorizado; indice y archivos tracked
+quedaron limpios. Los archivos ajenos excluidos permanecen sin stage.
+
+Head resultante: `d10d7300ec64baf68f993d98ed7716c81618679e`.
+Arbol Git: `dce6d07d5c2b7b8b2cad525a3fd13b3ff36088a8`.
+El manifiesto, mensajes, staged diffs y hashes por grupo estan en la evidencia
+privada de publicacion. No se reescribieron commits ni se omitieron hooks.
+
+Antes del push se materializo ese commit mediante git archive, sin tocar el
+worktree original. Se instalaron dependencias del lockfile y se ejecutaron
+build, lint, 592/592 unitarios, 25/25 artifacts OpenSpec publicados, Hadolint de
+ambos Dockerfiles, freeze/manifiesto 17/17 y harness completo: 103/103 integracion,
+E2E interno 1/1, seis sesiones, preservacion y cleanup. Todos terminaron con
+exit 0. Los 536 blobs rastreados siguieron identicos a Git tras las pruebas.
+El conteo OpenSpec no incluye el draft local no relacionado de Home, excluido
+de publicacion; no falta ningun requisito de este cambio.
+
+Se hizo push exclusivamente de la feature y se abrio
+<https://github.com/bigalcah/labeler/pull/10>, base develop. La rama remota coincide
+con el head d10d730. Develop sigue en 1773164 y no se integro ningun cambio.
+
+### CI remoto observado: bloqueo nuevo
+
+Run: <https://github.com/bigalcah/labeler/actions/runs/39516284589>.
+El run atribuye head d10d730 y base 1773164 a la PR 10. El log confirma checkout
+del merge sintetico `559c02fdb24f97ab7584448659f825194b145fdb`; sus dos padres son
+esa base y ese head. Su arbol es dce6d07, identico al arbol del head publicado.
+No se confunde ese checkout con una ejecucion directa del SHA d10d730 ni con
+un merge efectivo de la PR.
+
+La validacion compartida termino en failure. Checkout, setup Node, dependencias,
+build de imagen y lint completo pasaron. La seleccion unitaria ejecuto 592 tests:
+591 satisfactorios, uno fallido, cero skips/cancelaciones/TODOs. Fallo el caso
+de credenciales invalidas de `test/security-headers.browser.test.js:269`, con
+`The browser layout probe did not report a rendered login error state` en
+readLayoutProbe, linea 188. Se observaron Ubuntu 26.04.1 y Node 22.23.3; aun no
+hay evidencia para atribuirles la causa ni para declarar defectuoso el login.
+
+Los pasos posteriores del workflow compartido fueron skipped por ese fallo,
+incluidos OpenSpec y el harness de integracion/E2E. Los checks individuales
+ESLint, Markdown y Hadolint si terminaron en success. No se hizo rerun de CI,
+no se debilitaron aserciones y no se modificaron workflows/pins/hashes para
+ocultar el fallo. El log por job se recupero mediante API; el intento inicial
+de descarga global tuvo un timeout de red, separado del fallo de tests.
+
+Los metadatos, logs, identidades y checks se conservan en la evidencia privada
+de publicacion. Este registro posterior al CI queda local, sin nuevo commit
+ni push documental que relance la misma validacion fallida sin una correccion.
+El head publicado y comprobado sigue siendo d10d730.
+
+8.5 permanece abierta, progreso 92/104. No hay revision aprobatoria en GitHub ni
+se cambia el requisito actual del plan. Siguiente accion tecnica: diagnosticar
+el probe de navegador en el runner limpio antes de corregirlo y renovar CI.
+No hubo merge, cambio administrativo, publicacion de release ni operacion en
+VPS. **HOLD permanece vigente**.
+
+### Correccion autorizada del probe de navegador de PR 10
+
+Tras el fallo remoto, el usuario autorizo diagnosticar y corregir exclusivamente
+el test, validar, hacer commit/push en la misma feature y comprobar CI. No
+autoriza cambios de UI, aserciones debilitadas, merges, administracion ni VPS.
+
+La baseline local ordinaria paso; no se reprodujo sin instrumentacion el fallo
+del runner Ubuntu 26.04 / Node 22.23.3. El ensayo controlado retraso cada callback
+requestAnimationFrame del probe 1200 ms, manteniendo el presupuesto original de
+Chrome en 1000 ms. El POST llego a /login y devolvio 401; el script del probe
+respondio 200, pero el DOM capturado no contenia el output y la misma asercion
+fallo. Con ese mismo retraso, publicar el resultado sincronamente paso las
+aserciones de los tres anchos. Esto demuestra la dependencia temporal del
+harness; no identifica el evento concreto de planificacion del runner remoto.
+
+La correccion elimina solo el wrapper de dos frames: las medidas ya se calculaban
+antes de esos callbacks y no cambian. Se conservan todas las aserciones, anchos,
+presupuesto, opciones de Chrome y archivos de producto. No se anaden reintentos,
+dependencias ni cambios del pipeline. La instrumentacion temporal fue retirada.
+
+DOM, stderr, secuencia HTTP y TAP rojo/verde quedan en
+`/tmp/opencode/pr10-browser-marker.bRFBr02a/`. El padre comprobo ademas con
+Playwright el GET y POST real contra una fixture sintetica sin DB: error 401,
+alert accesible y card centrada sin overflow a 375, 768 y 1280 px. Capturas y
+registro estan en `/tmp/opencode/copilot-369-browser-qa-XiQERQDq/`; los logs de
+consola/red estan excluidos de Git en `.playwright-mcp/`. Servidor y pagina de
+esa comprobacion fueron cerrados; el driver temporal fue eliminado.
+
+El worktree de revision aislado parte de d10d730 e incluye solamente la
+correccion del test, con SHA-256
+`159a21ac62484309dece089e1d4b14aefb9a1d46621e28f2d41ce72b08377d21`.
+El padre ejecuto alli la suite focal 3/3, lint completo y OpenSpec estricto
+25/25, todos exit 0. Los diagnosticos LSP de esa copia exacta fueron limpios;
+en el worktree principal agotaron su tiempo. Freeze/manifiesto pasan 17/17.
+El build local termino correctamente. La seleccion completa nueva paso 592/592,
+cero skips/cancelaciones/TODOs, en 78 archivos, con la imagen configurada. El
+primer intento omitio esa variable y termino con exit 2 antes de ejecutar tests;
+su log se conserva separado, sin sobrescribirlo ni presentarlo como aprobado.
+
+El intento posterior de harness fue interrumpido por el limite externo de la
+herramienta a los 20 minutos, menor que los 30 minutos internos ya fijados en el
+test. El gate anterior de d10d730 habia durado 27 minutos y 32 segundos; no se
+atribuyo la interrupcion a un fallo del producto. El E2E hostil parcial paso 1/1,
+pero faltan el resultado integrado, preservacion y recibo final: ese intento es
+incompleto. Se verifico la identidad y se eliminaron solo sus cuatro contenedores
+descartables, tres volumenes, red e imagen de fixture. La base labeling-database
+06db6b9aa40b permanecio intacta. Se conserva la evidencia parcial y se ejecuto un
+intento nuevo con directorio distinto y paciencia externa suficiente, sin
+cambiar ningun timeout interno, asercion ni contrato. No se presenta aun como
+aprobado ni como evidencia remota.
+
+HOLD y 8.5 siguen abiertos. La revision tecnica por agente no sustituye la
+revision humana independiente requerida ni habilita un merge.
+
+### Gate final de la correccion antes de publicar
+
+El intento completo nuevo termino con exit 0 en 26 minutos y 42 segundos:
+103/103 integracion en los 14 archivos, E2E 1/1 y harness 1/1, sin fallos,
+skips ni cancelaciones. Coinciden las siete parejas de fingerprints, incluidas
+primaria 369, validacion 30 y persistencia posterior al retiro. El recibo acredita
+dos proyectos ausentes, ocho contenedores, dos redes, seis volumenes y una imagen
+de fixture eliminados, ambos propietarios de handoff limpios y directorio
+temporal eliminado. El padre verifico recibos, hash del log, ausencia de los
+proyectos y mismo hash del test. Solo sigue la base local preexistente.
+
+La evidencia esta en
+`/tmp/opencode/copilot-369-browser-qa-XiQERQDq/deployment-full-evidence.M2qVXl/`.
+El recorder `browser-repair-clean-deployment-full.json` conserva comando, imagen,
+tiempos y exit code; el SHA-256 de su log es
+`88189fa337231636f9ad93383b735f3cd42d1890884ae773ccedee9be4bd4809`.
+
+La unica revision tecnica de este delta devolvio APPROVE, confianza alta y cero
+bloqueos, para el codigo y la evidencia de navegador/unidad. La comprobacion del
+harness posterior la realizo el padre, sin cambios de codigo tras esa revision.
+No es aprobacion humana. La publicacion autorizada y el CI del nuevo SHA son
+los pasos siguientes; 8.5 y HOLD siguen abiertos hasta sus gates efectivos.
