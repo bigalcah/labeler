@@ -9,6 +9,8 @@ import {classifyStudyReadiness} from "../util/study-readiness.js";
 import {createReadinessProfiles} from "./readiness-fixture.js";
 import {startCopilot369Database, closeCopilot369Database} from "./support/copilot-369-fixture.js";
 import "./support/existing-mode-container-input-staging.test-helper.js";
+import {stageReadinessContainerInputs} from "./support/readiness-container-inputs.js";
+import "./support/readiness-reader-boundaries.test-helper.js";
 
 const execute = promisify(execFile);
 const root = path.resolve(new URL("..", import.meta.url).pathname);
@@ -64,10 +66,12 @@ test("actual preparation entrypoint creates 369 then 30 and the next invocation 
         const password = path.join(fixture.root, "database-password");
         await writeFile(password, "isolated-fixture-password\n");
         await chmod(password, 0o400);
+        const staged = await stageReadinessContainerInputs({fixtureRoot: fixture.root, descriptor, password});
         const mounts = [
             [path.join(root, "util"), "/labeling/util"], [path.join(root, "scripts"), "/labeling/scripts"],
-            [path.join(fixture.root, "config"), "/run/config/studies"], [path.join(fixture.root, "accountManifest"), "/run/secrets/studies"],
-            [descriptor, "/run/config/study-profiles.json"], [password, "/run/secrets/database-password"],
+            [staged.config, "/run/config/studies"], [staged.accountManifest, "/run/secrets/studies"],
+            [staged.csv, "/labeling/data"],
+            [staged.descriptor, "/run/config/study-profiles.json"], [staged.password, "/run/secrets/database-password"],
         ];
         const argumentsList = ["run", "--rm", "--read-only", "--network", `container:${database.containerName}`,
             "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=64m", ...mounts.flatMap(([source, target]) => ["--mount", `type=bind,src=${source},dst=${target},readonly`]),

@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import {execFile, spawnSync} from "node:child_process";
-import {mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {promisify} from "node:util";
 import path from "node:path";
 import {randomUUID} from "node:crypto";
 import {CUTOVER_CONFIRMATION, LEGACY_300_CHECKSUM} from "../../util/copilot-369-cutover-preflight.js";
 import {COPILOT_369_SOURCE_CHECKSUM} from "../../util/copilot-369-source.js";
+import {stageNodeContainerInputs} from "./container-input-staging.js";
 
 const execute = promisify(execFile);
 const root = path.resolve(new URL("../..", import.meta.url).pathname);
@@ -48,6 +49,24 @@ networks:
     name: \${LABELER_TEST_NETWORK}
 `;
 
+const stageMaintenanceReaderInputs = async ({directory, metadata}) => {
+    assert.deepEqual(Object.keys(metadata), ["LABELER_READINESS_TEST_IMAGE", "REPOSITORY_ROOT", "LABELER_TEST_NETWORK"]);
+    const envFile = path.join(directory, "runtime.env");
+    assert.equal(await readFile(envFile, "utf8") === Object.entries(metadata).map(([key, value]) => `${key}=${value}\n`).join(""),
+        true, "Maintenance fixture runtime metadata mismatch");
+    const staged = await stageNodeContainerInputs({sourceDirectory: directory, destinationDirectory: directory,
+        inputMappings: ["runtime.env", "cutover-request.json", "database-password"].map(name => ({source: name, destination: name})),
+        helperImage: "python:3.12-alpine"});
+    const result = spawnSync("docker", ["run", "--rm", "--network", "none", "--read-only", "--user", "0",
+        "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "DAC_OVERRIDE", "--cap-add", "FOWNER",
+        "--mount", `type=bind,src=${staged},dst=/stage`, "python:3.12-alpine", "python3", "-B", "-c",
+        "import os,sys;os.chmod('/stage/runtime.env',0o444);os.chown('/stage/cutover-request.json',1000,int(sys.argv[1]));os.chmod('/stage/cutover-request.json',0o440)",
+        String(process.getgid())], {encoding: "utf8", maxBuffer: 1048576});
+    assert.equal(result.status, 0, "fixture maintenance reader metadata setup failed");
+    return {envFile: path.join(staged, "runtime.env"), requestPath: path.join(staged, "cutover-request.json"),
+        passwordPath: path.join(staged, "database-password")};
+};
+
 const runRealMaintenanceEntrypoint = async ({database, primaryStudyId}) => {
     const image = process.env.LABELER_READINESS_TEST_IMAGE;
     assert.ok(image, "LABELER_READINESS_TEST_IMAGE must name the current source image");
@@ -56,6 +75,7 @@ const runRealMaintenanceEntrypoint = async ({database, primaryStudyId}) => {
     const network = `${project}-network`;
     const composeFile = path.join(directory, "compose.yml");
     const envFile = path.join(directory, "runtime.env");
+    let readerEnvFile = envFile;
     let composeCreated = false;
     let networkCreated = false;
     let networkConnected = false;
@@ -85,8 +105,11 @@ const runRealMaintenanceEntrypoint = async ({database, primaryStudyId}) => {
             legacyCsvPath: "/labeling/data/pr-cards.csv", targetCsvPath: "/labeling/data/copilot-369-cards.csv",
             targetManifestPath: "/labeling/data/copilot-369-cards.manifest.json",
             database: {host: "labeling-database", port: 5432, database: database.pool.options.database,
-                user: "labeler_test", passwordFile: passwordPath}}), {mode: 0o400});
-        await writeFile(envFile, `LABELER_READINESS_TEST_IMAGE=${image}\nREPOSITORY_ROOT=${root}\nLABELER_TEST_NETWORK=${network}\n`, {mode: 0o400});
+                user: "labeler_test", passwordFile: path.join(directory, "container-inputs/database-password")}}), {mode: 0o400});
+        const metadata = {LABELER_READINESS_TEST_IMAGE: image, REPOSITORY_ROOT: root, LABELER_TEST_NETWORK: network};
+        await writeFile(envFile, Object.entries(metadata).map(([key, value]) => `${key}=${value}\n`).join(""), {mode: 0o400});
+        const staged = await stageMaintenanceReaderInputs({directory, metadata});
+        readerEnvFile = staged.envFile;
         await writeFile(composeFile, compose(database), {mode: 0o600});
         composeCreated = true;
         const result = spawnSync("python3", ["-B", path.join(root, "test/fixtures/host/real-maintenance.py")], {
@@ -96,15 +119,15 @@ const runRealMaintenanceEntrypoint = async ({database, primaryStudyId}) => {
                 LABELER_TEST_DATABASE_CONTAINER: database.containerName, LABELER_TEST_NETWORK: network,
                 LABELER_TEST_COMPOSE_PROJECT: project,
                 LABELER_TEST_COMPOSE_FILE: composeFile, LABELER_READINESS_TEST_IMAGE: image,
-                LABELER_DEPLOY_ROOT: path.join(directory, "host-state"), LABELER_ENV_FILE: envFile,
+                LABELER_DEPLOY_ROOT: path.join(directory, "host-state"), LABELER_ENV_FILE: staged.envFile,
                 LABELER_PUBLIC_BASE_URL: "https://localhost", LABELER_DATABASE_NAME: database.pool.options.database,
-                LABELER_CUTOVER_REQUEST_FILE: requestPath},
+                LABELER_CUTOVER_REQUEST_FILE: staged.requestPath},
         });
         assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
         report = JSON.parse(result.stdout);
     } finally {
         if (composeCreated) {
-            await execute("docker", ["compose", "--project-name", project, "--env-file", envFile,
+            await execute("docker", ["compose", "--project-name", project, "--env-file", readerEnvFile,
                 "--file", composeFile, "down", "--remove-orphans"], {timeout: 30000});
             const containers = await execute("docker", ["ps", "-a", "--filter", `label=com.docker.compose.project=${project}`, "--format", "{{.ID}}"]);
             const networks = await execute("docker", ["network", "ls", "--filter", `label=com.docker.compose.project=${project}`, "--format", "{{.ID}}"]);
@@ -122,4 +145,4 @@ const runRealMaintenanceEntrypoint = async ({database, primaryStudyId}) => {
     return report;
 };
 
-export {runRealMaintenanceEntrypoint};
+export {runRealMaintenanceEntrypoint, stageMaintenanceReaderInputs};
