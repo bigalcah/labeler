@@ -36,7 +36,12 @@ def evidence_path(value: Json) -> str:
 
 
 def authorization(value: Json) -> Document:
-    result = shape(value, "action actor issuedAt expiresAt requestSha256 writersStopped drain")
+    automatic = type(value) is dict and "automation" in value
+    result = shape(value, "action actor issuedAt expiresAt requestSha256 writersStopped drain" + (" automation" if automatic else ""))
+    if automatic:
+        delegation = shape(result["automation"], "policySha256 backupRequired")
+        text(delegation["policySha256"], HASH)
+        require(delegation["backupRequired"] is False, "invalid automatic backup policy")
     text(result["action"], r"adopt|deploy|rollback|maintenance|maintenance-normalize|maintenance-history|continue|finalize-publication|reconcile")
     text(result["actor"], r"[A-Za-z0-9._@-]{1,128}")
     timestamp(result["issuedAt"])
@@ -117,7 +122,8 @@ def receipt(value: Json) -> Document:
         require(result["phase"] in ("reserved", "pending", "history_schema_verified", "abandoned", "unknown"), "history checkpoint cannot admit runtime")
         require(result["authorization"]["action"] in ("maintenance-history", "reconcile"), "history target requires history scope")
         if result["phase"] in ("pending", "history_schema_verified"):
-            require(result["backupRef"] is not None and result["publication"] is not None,
+            delegated = result["authorization"].get("automation", {}).get("backupRequired") is False
+            require((delegated or result["backupRef"] is not None) and result["publication"] is not None,
                     "history handoff requires backup and publication baseline")
     if target["observation"] is not None:
         observed = observation(target["observation"])

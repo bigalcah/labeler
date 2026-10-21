@@ -32,6 +32,7 @@ class Runtime:
         self.stage = "configuration"
         self.summary: Document | None = None
         self.compose_diagnostic = b""
+        self.automation: Document | None = None
 
     def external(self, value: str) -> Path:
         path = Path(value)

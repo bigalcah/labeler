@@ -1,5 +1,20 @@
 # Diseño de release Copilot 369
 
+## Revisión vigente: despliegue delegado
+
+La aprobación/apply del 21 de octubre de 2026 sustituye las exigencias históricas de backup/restore y
+mantenimiento manual por candidato en el modo automático. El token físico actual es study-schema-4.
+Una política root-owned junto al entorno externo fija consumidor, repositorio, base y cierre del ingreso
+legacy. El deploy SSH existente valida paquete, imágenes y mounts antes de detener servicios; bajo flock
+adopta solo historial v1 conocido si falta journal y ejecuta normalización si procede, 016 y continuación
+al cutover/preparación existentes. Cada autorización fresca enlaza candidato, DB y hash de política y
+declara automation.backupRequired=false; backupRef es null, sin ejecutar ni simular backup/restore.
+La solicitud de cutover captura configuración cruda y membresías mediante una transacción readonly y
+se revalida bajo los locks existentes. No admite decisiones primarias ni historial desconocido.
+Pending/unknown bloquean, sin reparación o reanudación automática. Se conservan volumen, estado de 30,
+cuentas, pins, journal, health y smoke. El modo manual y los archivos congelados permanecen intactos.
+La instalación inicial del consumidor/política requiere root; CI no obtiene sudo general.
+
 ## Context
 
 Ver `proposal.md - Why` para la motivación y `specs/release-study-bundle/spec.md` y

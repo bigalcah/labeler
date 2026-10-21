@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
-import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
+import {chmod, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import {spawn} from "node:child_process";
+import {execFile, spawn} from "node:child_process";
+import {promisify} from "node:util";
 import {test} from "node:test";
 import pg from "pg";
 import {parse} from "csv-parse/sync";
@@ -17,6 +18,7 @@ import {loadStudyCard} from "../util/study-read-repository.js";
 import {loadStudyExportRows} from "../util/study-export-repository.js";
 import {closeCopilot369Database, fingerprintProtectedCopilot369State,
     seedHistoricalCopilot369Studies, startCopilot369Database} from "./support/copilot-369-fixture.js";
+import {stageNodeContainerInputs} from "./support/container-input-staging.js";
 
 const fixture = async (context, {enriched = false, implicitLoginUsernames = false, ...settings} = {}) => {
     const db = await startCopilot369Database(settings);
@@ -61,6 +63,41 @@ const runCli = argumentsList => new Promise((resolve, reject) => {
     child.stderr.on("data", chunk => { stderr += chunk; });
     child.on("error", reject);
     child.on("exit", code => resolve({code, stdout, stderr}));
+});
+
+test("automatic request reads exact historical membership and cutover preserves protected30", async context => {
+    const db = await fixture(context, {enriched: true, implicitLoginUsernames: true});
+    const before = await state(db.pool);
+    const protected30 = await fingerprintProtectedCopilot369State(db.pool, db.validationStudyId);
+    const directory = await mkdtemp(path.join(os.tmpdir(), "automatic-cutover-request-"));
+    context.after(() => rm(directory, {recursive: true, force: true}));
+    await chmod(directory, 0o755);
+    const password = path.join(directory, "password");
+    await writeFile(password, "isolated-test-only\n", {mode: 0o400});
+    const staged = await stageNodeContainerInputs({sourceDirectory: directory, destinationDirectory: directory,
+        inputMappings: [{source: "password", destination: "password"}], helperImage: "python:3.12-alpine"});
+    const root = path.resolve(".");
+    const {stdout} = await promisify(execFile)("docker", ["run", "--rm", "--network", "host", "--read-only",
+        "--cap-drop", "ALL", "--mount", `type=bind,src=${root}/util,dst=/labeling/util,readonly`,
+        "--mount", `type=bind,src=${root}/scripts,dst=/labeling/scripts,readonly`,
+        ...["copilot-369-cards.csv", "copilot-369-cards.manifest.json"].flatMap(file =>
+            ["--mount", `type=bind,src=${root}/plans/${file},dst=/labeling/data/${file},readonly`]),
+        "--mount", `type=bind,src=${root}/plans/merged_after_rework_cards_seed_20260510.csv,dst=/labeling/data/pr-cards.csv,readonly`,
+        "--mount", `type=bind,src=${staged}/password,dst=/fixture-password,readonly`,
+        "-e", "DATABASE_HOST=127.0.0.1", "-e", `DATABASE_PORT=${db.pool.options.port}`,
+        "-e", "DATABASE_NAME=labeler_test", "-e", "DATABASE_USER=labeler_test", "-e", "DATABASE_PASS_FILE=/fixture-password",
+        "--entrypoint", "node", process.env.LABELER_READINESS_TEST_IMAGE,
+        "scripts/create-copilot-cutover-request.js", password], {timeout: 30000});
+    const request = JSON.parse(stdout);
+    assert.deepEqual(request.expectedLegacyConfig, db.options.expectedLegacyConfig);
+    assert.deepEqual(request.expectedLegacyMemberships, db.options.expectedLegacyMemberships);
+    assert.deepEqual(await state(db.pool), before);
+    const {database: _database, ...options} = request;
+    const result = await cutoverCopilot369({...options, pool: db.pool,
+        legacyCsvPath: db.options.legacyCsvPath, targetCsvPath: db.options.targetCsvPath,
+        targetManifestPath: db.options.targetManifestPath});
+    assert.equal(result.status, "CUTOVER_369");
+    assert.deepEqual(await fingerprintProtectedCopilot369State(db.pool, db.validationStudyId), protected30);
 });
 
 test("cutover preserves every original card, snapshot, identity and protected30 when eligible", async context => {

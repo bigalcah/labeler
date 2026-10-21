@@ -8,6 +8,24 @@ excepción de congelación habilite un release.
 
 ## ADDED Requirements
 
+### Requirement: Push master SHALL usar el despliegue delegado
+
+La revisión aprobada del 21 de octubre de 2026 SHALL sustituir backup/restore y cutover manual previo
+como gates del modo automático. El workflow master existente SHALL seguir invocando deploy SSH tras
+calidad, publicación y aprobación production, sin script manual por candidato ni cambios congelados.
+Las pruebas SHALL verificar política, ausencia de backup/restore, origen histórico, pareja readonly
+y conservación de 30. La instalación inicial privilegiada no SHALL presentarse como deploy completado.
+
+#### Scenario: Candidato validado en master
+
+- **WHEN** el deploy recibe el candidato validado y una política root vigente
+- **THEN** completa los pasos conocidos y health/smoke sin exigir backup/restore externo
+
+#### Scenario: Gate fallido o identidad divergente
+
+- **WHEN** falla calidad, fingerprint, identidad, estado o preservación
+- **THEN** no publica éxito ni omite controles para continuar
+
 ### Requirement: CI SHALL validar los perfiles canónicos 369 y 30 en orden
 
 El gate SHALL validar `pr-card-sorting-local` con las 369 tarjetas de la fuente Copilot canónica, sidecar y checksums, y

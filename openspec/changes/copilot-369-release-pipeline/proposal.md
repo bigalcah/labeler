@@ -1,5 +1,15 @@
 # Pipeline de release Copilot 369
 
+## Revisión aprobada el 21 de octubre de 2026
+
+El usuario aprobó y solicitó apply del despliegue automático desde master sin backup/restore obligatorio.
+Esta revisión sustituye los prerrequisitos históricos de backup, restore y operación manual por candidato
+solo para el modo delegado por una política externa root-owned. Se conserva el modo manual anterior.
+El mismo deploy SSH podrá adoptar el historial v1 conocido y ejecutar los pasos transaccionales existentes
+de normalización, historial y cutover. No se fabrica evidencia de backup: backupRef queda null y la
+autorización declara automation.backupRequired=false. Se conservan volumen labeling-data, cuentas,
+historial, decisiones y estudio de 30. Workflows, pins, checksums, locks y journal no se relajan.
+
 ## Why
 
 El pipeline de release todavía identifica el CSV histórico de 300 tarjetas, mientras el estudio aprobado requiere un

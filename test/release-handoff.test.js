@@ -49,6 +49,10 @@ if(mode.startsWith("history-checkpoint-")) {
     if(mode==="history-checkpoint-wrong-source") observation.schema="013_category_definition_color";
     if(mode==="history-checkpoint-wrong-bundle") observation.dataBundle="legacy300-v1";
     if(mode==="history-checkpoint-no-backup") receipt.backupRef=null;
+    if(mode==="history-checkpoint-delegated" || mode==="history-checkpoint-invalid-delegation") {
+        receipt.backupRef=null;
+        receipt.authorization.automation={policySha256:"b".repeat(64),backupRequired:mode==="history-checkpoint-invalid-delegation"};
+    }
     context.receiptSha256=createHash("sha256").update(JSON.stringify(receipt)).digest("hex");
 }
 const file="/run/labeler-release/context.json";
@@ -62,7 +66,7 @@ if(mode==="normalization-valid") actual.readOnly={role:"writer",transaction:"rea
 if(mode==="history-checkpoint-drift") actual.fingerprint="0".repeat(64);
 const purpose=mode.startsWith("history-checkpoint-")?"maintenance-history":
     ["normalization-valid","cutover-normalizer","wrong-normalization-target"].includes(mode)?"maintenance-normalize":"prepare";
-const valid=["valid","normalization-valid","history-checkpoint-valid"].includes(mode);
+const valid=["valid","normalization-valid","history-checkpoint-valid","history-checkpoint-delegated"].includes(mode);
 try {await verifyReleaseHandoff(actual,purpose); if(!valid) process.exit(2); process.stdout.write("VERIFIED");}
 catch(error) {if(valid || error.name!=="StudyReadinessError") throw error; process.stdout.write("REJECTED");}
 `;
@@ -71,11 +75,12 @@ test("prepare accepts only its root-owned pending handoff and rejects client-own
     for (const mode of ["valid", "client-owned", "wrong-group", "wrong-operation", "wrong-database", "wrong-server-version", "extra-receipt",
         "normalization-prepare", "normalization-valid", "cutover-normalizer", "wrong-normalization-target", "expired",
         "history-checkpoint-valid", "history-checkpoint-drift", "history-checkpoint-wrong-source",
-        "history-checkpoint-wrong-bundle", "history-checkpoint-no-backup"]) {
+        "history-checkpoint-wrong-bundle", "history-checkpoint-no-backup",
+        "history-checkpoint-delegated", "history-checkpoint-invalid-delegation"]) {
         const {stdout} = await execute("docker", ["run", "--rm", "--read-only", "--network", "none", "--user", "0",
             "--cap-drop", "ALL", "--cap-add", "CHOWN", "--tmpfs", "/run/labeler-release:rw,noexec,nosuid,nodev,mode=0700",
             "--mount", `type=bind,src=${path.join(root, "util")},dst=/labeling/util,readonly`, "-e", `FIXTURE_MODE=${mode}`,
             "--entrypoint", "node", process.env.LABELER_READINESS_TEST_IMAGE || "labeler-copilot369-local:b5cddf3", "--input-type=module", "-e", driver], {timeout: 30000});
-        assert.equal(stdout, ["valid", "normalization-valid", "history-checkpoint-valid"].includes(mode) ? "VERIFIED" : "REJECTED");
+        assert.equal(stdout, ["valid", "normalization-valid", "history-checkpoint-valid", "history-checkpoint-delegated"].includes(mode) ? "VERIFIED" : "REJECTED");
     }
 });

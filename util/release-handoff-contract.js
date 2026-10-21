@@ -60,7 +60,13 @@ const assertHandoffReceipt = receipt => {
     assert(isDeepStrictEqual(receipt.databaseIdentity, receipt.origin.databaseIdentity));
     string(receipt.predecessorEvidence);
     assert(/^evidence\//.test(receipt.predecessorEvidence) && !receipt.predecessorEvidence.split("/").includes(".."));
-    shape(receipt.authorization, "action actor issuedAt expiresAt requestSha256 writersStopped drain");
+    const automatic = Object.hasOwn(receipt.authorization, "automation");
+    shape(receipt.authorization, "action actor issuedAt expiresAt requestSha256 writersStopped drain" + (automatic ? " automation" : ""));
+    if (automatic) {
+        shape(receipt.authorization.automation, "policySha256 backupRequired");
+        hash(receipt.authorization.automation.policySha256);
+        assert(receipt.authorization.automation.backupRequired === false);
+    }
     assert(["deploy", "maintenance", "maintenance-normalize", "maintenance-history", "continue"].includes(receipt.authorization.action));
     string(receipt.authorization.actor);
     timestamp(receipt.authorization.issuedAt);

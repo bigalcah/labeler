@@ -1,5 +1,9 @@
 # Operaciones
 
+El [modo automático delegado](AUTOMATIC-DEPLOYMENT.md), aprobado el 21 de octubre de 2026, elimina backup/restore
+como prerrequisito de deploy y conserva los controles de datos. Sus requisitos sustituyen las exigencias manuales
+de este documento solo cuando la política root está instalada; el resto describe el modo manual histórico.
+
 La operación del estudio está documentada como `IMPLEMENTED-UNVERIFIED`. Hay código y contratos estáticos, pero no hay
 evidencia aprobada de ejecución de infraestructura, HTTP o VPS. `AGENTS.md` mantiene el baseline ejecutable como
 `LEGACY`; no presentes una tarea pendiente o un archivo existente como runtime verificado.

@@ -8,6 +8,26 @@ estado persistente y aplicación pueden combinarse; no autoriza publicación ni 
 
 ## ADDED Requirements
 
+### Requirement: Despliegue delegado sin backup obligatorio
+
+La revisión aprobada del 21 de octubre de 2026 SHALL sustituir los prerrequisitos históricos de backup,
+restore aislado y mantenimiento manual por candidato en el modo automático. Una política externa
+root-owned, fijada al consumidor, repositorio y base, SHALL delegar las operaciones conocidas al deploy
+existente. SHALL registrar automation.backupRequired=false y backupRef=null sin fabricar recibos.
+SHALL conservar volumen, pins, locks, journal, cuentas y estudio de 30. El modo manual conserva sus
+requisitos y los estados interrumpidos, parciales o desconocidos SHALL seguir bloqueando.
+
+#### Scenario: Primera release y release sucesiva
+
+- **WHEN** deploy recibe política válida y candidato verificado sobre un origen histórico elegible o pareja exacta
+- **THEN** completa los pasos transaccionales existentes o verifica readonly la pareja, sin backup/restore obligatorio
+- **THEN** conserva las filas de validación y el volumen persistente
+
+#### Scenario: Política inválida o estado interrumpido
+
+- **WHEN** divergen permisos, fingerprint, repositorio o base, o el journal está pending/unknown
+- **THEN** bloquea antes de nuevas mutaciones y no publica éxito ni repite SQL
+
 ### Requirement: El manifiesto entrante SHALL cumplir el contrato estricto v2
 
 Un paquete entrante SHALL declarar `schemaVersion` igual a `2` y SHALL conservar los campos de identidad `releaseId`,

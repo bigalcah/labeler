@@ -12,6 +12,7 @@ import durable
 import lifecycle
 import package
 import recovery
+import automatic
 from contracts import Action, RELEASE, Rejected, assert_never, now, require
 from runtime import Runtime
 from state import State
@@ -58,6 +59,12 @@ def main(local: bool = False) -> int:
             attempt = evidence / ("attempt-" + now().replace(":", "") + "-" + str(uuid.uuid4()))
             durable.directory(attempt)
             runtime = Runtime(root)
+            if action in ("reconcile", "continue", "finalize-publication"):
+                loaded = state.load()
+                if loaded is not None and loaded[1]["candidate"] is not None:
+                    directory = root / "releases" / loaded[1]["candidate"]["releaseId"]
+                    release, _binding = package.inspect(directory)
+                    runtime.automation = automatic.policy(runtime, release)
             match action:
                 case "deploy" | "maintenance" | "maintenance-normalize" | "maintenance-history":
                     stage = root / "incoming" / str(uuid.uuid4())
@@ -65,7 +72,11 @@ def main(local: bool = False) -> int:
                         release, _binding = package.receive(sys.stdin.buffer, stage)
                         require(release["releaseId"] == release_id, "release ID does not match manifest")
                         durable.write(attempt / "release-manifest.json", (stage / "release-manifest.json").read_bytes())
-                        lifecycle.deploy(state, runtime, stage, action)
+                        delegation = automatic.policy(runtime, release) if action == "deploy" else None
+                        if delegation is not None:
+                            automatic.deploy(state, runtime, stage, delegation)
+                        else:
+                            lifecycle.deploy(state, runtime, stage, action)
                     finally:
                         if stage.exists():
                             shutil.rmtree(stage)

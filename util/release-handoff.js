@@ -18,6 +18,7 @@ const verifyReleaseHandoff = async (observation, purpose = "prepare") => {
     const history = purpose === "maintenance-history";
     const maintenance = normalization || history;
     const authorization = context.receipt.authorization;
+    const delegated = authorization.automation?.backupRequired === false;
     const normalizedHistory = history && context.receipt.origin.schema === "014_copilot_369_cardinality"
         && context.observation.schema === "study-schema-3";
     const originKeys = normalizedHistory ? ["dataBundle", "databaseIdentity"]
@@ -26,7 +27,7 @@ const verifyReleaseHandoff = async (observation, purpose = "prepare") => {
         || (maintenance ? authorization.action !== purpose
             : !["deploy", "continue"].includes(authorization.action))
         || !(Date.parse(authorization.issuedAt) <= Date.now() && Date.now() < Date.parse(authorization.expiresAt))
-        || (maintenance && (authorization.writersStopped !== true || context.receipt.backupRef === null
+        || (maintenance && (authorization.writersStopped !== true || (!delegated && context.receipt.backupRef === null)
             || context.observation.readOnly.writersStopped !== true
             || originKeys
                 .some(key => !isDeepStrictEqual(context.observation[key], context.receipt.origin[key]))))) {
