@@ -908,3 +908,120 @@ gates completos posteriores sin cambios del codigo revisado. Esa revision no
 es aprobacion humana, ni demuestra la causa del error interno del runner.
 La publicacion y el CI del siguiente SHA siguen siendo gates separados; no se
 cierran 8.5, HOLD ni controles administrativos con estos resultados locales.
+
+### CI de d74d69b y portabilidad de fixtures
+
+Los tres commits autorizados se publicaron con head
+`d74d69b9ac986789ec4284df7fd601fafeda8ecd`. El run
+<https://github.com/bigalcah/labeler/actions/runs/39547725259> comprobo el merge
+`3052c89e68cc67cc952a4475a10f6ef193e94e04`, base 1773164 y arbol igual al head.
+Pasaron 594/594 unitarios, OpenSpec 25/25, lint, build y ambos probes con sus
+rechazos exactos. Tambien pasaron prepare con lock, HTTP privado y E2E hostil.
+La integracion alcanzo los 14 archivos: 88/104, con 16 fallos, cero omisiones.
+El E2E interno y la ventana final de preservacion no llegaron a completarse.
+La limpieza si quedo confirmada (`cleanupVerified=true`), sin convertir el
+resultado de workload fallido en un gate satisfactorio. HOLD siguio vigente.
+
+El log nuevo expuso siete fallos por el prefijo temporal fijo `/tmp/opencode`,
+dos rechazos de ownership de entradas del controlador y seis fallos anteriores
+a la admision esperada de perfiles/normalizacion. El caso restante era una
+fixture de lectura cuyo modo de directorio dependia de umask. Oracle reviso los
+contratos y mantuvo el arreglo dentro de las fixtures, sin cambios de Runtime,
+validadores, Compose de producto, pipeline, dependencias ni politicas de UID.
+El UID real del runner no se registro y no se infiere como un numero concreto.
+
+Se conservaron originales privados del host y copias `1000:1000/0400` para Node.
+El controlador Python de mantenimiento sigue ejecutandose realmente en el host:
+solo su copia de entorno con tres claves verificadas de metadata no secreta
+es `0444`; la copia de request es `1000:<GID primario del host>/0440` bajo un
+ancestro privado, y la password permanece en otra copia `0400`. Un lector
+controlado UID 21001 pudo leer entorno/request y validar metadata de password,
+pero no sus bytes; Node UID 1000 si pudo leer su password. No se amplio ninguna
+allowlist ni se ejecuto Node como root.
+
+Los ensayos usan ahora el temporal del sistema, con sufijos unicos y recibos
+privados conservados. Se separaron copias privadas para Node y PostgreSQL usando
+la identidad verificada de cada imagen, sin chown de originales por el driver.
+La readiness de la fixture PostgreSQL exige TCP, no su servidor Unix temporal;
+no se cambiaron contadores de retries ni timeouts. Los siete ensayos focales
+pasaron con umask `077`, originales de dueno controlado ajeno y ventanas SQL
+readonly no vacias, conservando fallos de backup/runtime/smoke/rollback,
+interrupciones, floor y publicaciones originales.
+
+El caso de lectura se reprodujo con padre `2000:2000/0700`: el manifiesto
+`1000/0400` era inaccesible por travesia. Cambiar solo el padre a
+`0711` hizo legible el manifest, manteniendo ilegible el archivo `2000/0400`.
+La fixture fija explicitamente los seis padres de travesia y restaura ownership
+al limpiar; las aserciones de permisos, corrupcion y restauracion no se reducen.
+
+Se retienen pruebas rojo/verde en `/tmp/opencode/normalization-readers-61b48b20/`,
+`/tmp/opencode/runtime-rehearsal-repair-20261021-a72c90b6/` y
+`/tmp/opencode/pr10-existing-mode-a91f/`. La revision del padre detecto dos
+aserciones que podian mostrar contenido de entorno o snapshots de integridad
+al fallar. Sus regresiones demostraron el problema antes de sustituir solamente
+la salida por comparaciones booleanas con mensajes fijos, sin reducir campos
+comparados. El padre repitio lectores, ambos umasks y backup real sobre una copia
+byte-identica de los trece archivos finales; evidencia propia en
+`/tmp/opencode/pr10-fixture-portability-64iefAZj/`. El nuevo gate completo y su
+revision estan pendientes; las pruebas focales no sustituyen su resultado.
+
+### Comprobacion del entorno local y unidad final
+
+El primer intento de unidad con este delta se interrumpio al agotar el limite
+externo de herramienta de 900000 ms. No devolvio estado del hijo ni conservo
+salida final; se clasifica incompleto, no como un fallo de aserciones demostrado
+ni como un pase. El ejecutor elimino solo su temporal inspeccionado y no dejo
+procesos o contenedores propios. La reconciliacion de esa ejecucion esta en
+`qa-unit-incomplete.md` dentro de la evidencia privada nueva.
+
+El padre comparo la misma orden de Chrome sobre `about:blank` con un TMPDIR
+anidado largo y otro corto. El primero aborto con `Socket path too long` en
+`process_singleton_posix`, mientras el segundo devolvio HTML y exit 0. Esto
+demuestra que el entorno largo elegido no era valido para los sockets Unix de
+Chrome; no recupera el resto de la salida perdida del intento anterior. Se
+retuvieron ambos logs y se eliminaron exclusivamente sus perfiles descartables.
+No se modificaron flags de navegador, tests o timeouts internos para ocultarlo.
+
+Con una raiz corta nueva y recorder de salida directa a disco desde el inicio,
+la misma seleccion completa de unidad termino exit 0: **594/594**, 78 archivos,
+cero fallos, skips, cancelaciones o TODOs, en 8 minutos y 5 segundos. La metadata
+y el log son `unit-short-temp.json` y `unit-short-temp.log`, SHA-256 del log
+`73f9443692db31919f24019b3ee75a48c69135d78b9412b3ca8241c95ce14b9b`.
+La imagen es
+`sha256:ed9e413fe980092fa5676ca911721edf3da2bd0407f1b12d785c8881004d4566`,
+con entradas de producto sin cambios. El harness completo usa otra raiz corta
+y evidencia nueva; todavia no se presenta como completado ni como CI remoto.
+
+### Gate integrado final de las fixtures portables
+
+El harness completo termino exit 0 en 28 minutos y 12 segundos con esa misma
+imagen y los trece archivos de codigo sin cambios: **106/106** integracion en
+los 14 archivos, E2E **1/1** y harness **1/1**, cero fallos, skips, cancelaciones
+o TODOs. Se ejecutaron los 104 casos existentes, incluidos los 16 fallidos en
+CI, y los dos nuevos casos de lectores. El padre verifico metadata, hashes de
+logs, recibos y comparacion byte a byte con los archivos principales.
+
+Las siete parejas de huellas coinciden. Los siete recibos de ensayos reales
+acreditan originales preservados, SQL readonly no vacio y ausencia de sus
+recursos asignados. Se conservan las fases, floors y publicaciones esperadas
+en fallos, rollback e interrupciones. El recibo del harness confirma ambos
+proyectos ausentes, ambos propietarios del handoff limpios y
+`cleanupVerified=true`, con directorio temporal eliminado. El padre verifico
+ademas la ausencia de contenedores, redes y volumenes de esos proyectos; la
+base preexistente 06db6b9aa40b sigue intacta.
+
+Recibos finales en
+`/tmp/opencode/pr10-fixture-portability-64iefAZj/final-gate-evidence/` y siete
+recibos hermanos conservados bajo la raiz corta `/tmp/opencode/d.EGHRriKK/`.
+Metadata y salida completa son `deployment-short-temp.json` y
+`deployment-short-temp.log`, SHA-256 del log
+`83508bf82775c343cbe2a28b45ef580742e48f1b729f265048626f29b3dfd5a1`.
+Los logs/recibos son privados; no representan un backup, una restauracion ni
+un despliegue de produccion. La revision unica final y el CI del nuevo SHA son
+los siguientes gates. HOLD, 8.5 y los controles humanos siguen abiertos.
+
+La unica revision final de este delta devolvio APPROVE con confianza alta y
+cero bloqueos despues de inspeccionar los trece archivos, los recibos completos
+y la evidencia focal. No requirio cambios de codigo. Se procede solo a la
+publicacion autorizada de la feature y la comprobacion de CI del nuevo head;
+la aprobacion tecnica por agente no sustituye revision humana ni autoriza merge.
