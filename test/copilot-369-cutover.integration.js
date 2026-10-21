@@ -18,10 +18,13 @@ import {loadStudyExportRows} from "../util/study-export-repository.js";
 import {closeCopilot369Database, fingerprintProtectedCopilot369State,
     seedHistoricalCopilot369Studies, startCopilot369Database} from "./support/copilot-369-fixture.js";
 
-const fixture = async (context, {enriched = false, ...settings} = {}) => {
+const fixture = async (context, {enriched = false, implicitLoginUsernames = false, ...settings} = {}) => {
     const db = await startCopilot369Database(settings);
     context.after(() => closeCopilot369Database(db));
     const ids = await seedHistoricalCopilot369Studies(db, {enriched});
+    if (implicitLoginUsernames) {
+        await db.pool.query("UPDATE study SET config=config-'loginUsernames' WHERE id=$1", [ids.primaryStudyId]);
+    }
     await db.pool.query(await readFile(new URL("../schema/migrations/016_preserve_study_card_history.sql", import.meta.url), "utf8"));
     await db.pool.query(`INSERT INTO participant_account(study_id,reviewer_id,normalized_username,password_hash,credential_version)
         SELECT member.study_id,member.reviewer_id,member.participant_key || CASE WHEN study.expected_card_count=30 THEN '-30' ELSE '' END,
@@ -120,6 +123,25 @@ test("enriched primary cutover preserves terminal history and validation decisio
     assert.equal(exported.length, 369 * 3);
     assert.ok(exported.every(row => row.promoted_html_url === null));
     assert.deepEqual(await fingerprintProtectedCopilot369State(db.pool, db.validationStudyId), protected30);
+});
+
+test("historical implicit login names remain raw-bound while enriched cutover preserves protected data", async context => {
+    const db = await fixture(context, {enriched: true, implicitLoginUsernames: true});
+    assert.equal(Object.hasOwn(db.options.expectedLegacyConfig, "loginUsernames"), false);
+    const before = await state(db.pool);
+    const protected30 = await fingerprintProtectedCopilot369State(db.pool, db.validationStudyId);
+    const explicit = {...db.options.expectedLegacyConfig, loginUsernames: {javier: "javier", diego: "diego", pablo: "pablo"}};
+    await assert.rejects(cutoverCopilot369({...db.options, expectedLegacyConfig: explicit}), /persisted configuration/);
+    assert.deepEqual(await state(db.pool), before);
+    assert.equal((await cutoverCopilot369(db.options)).status, "CUTOVER_369");
+    const after = await state(db.pool);
+    for (const table of CUTOVER_TABLES.filter(table => !["pr_cards", "study", "study_card",
+        "study_card_reference", "study_source_membership"].includes(table))) assert.equal(after[table], before[table], table);
+    assert.deepEqual(await fingerprintProtectedCopilot369State(db.pool, db.validationStudyId), protected30);
+    const {rows: [primary]} = await db.pool.query("SELECT config FROM study WHERE id=$1", [db.primaryStudyId]);
+    assert.deepEqual(primary.config, {...explicit, expectedCardCount: 369});
+    assert.equal((await cutoverCopilot369(db.options)).status, "ALREADY_369");
+    assert.deepEqual(await state(db.pool), after);
 });
 
 test("replay is genuinely readonly when primary decisions and enrichment history exist", async context => {

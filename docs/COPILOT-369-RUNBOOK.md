@@ -95,6 +95,13 @@ The database must match the pinned PostgreSQL 17 schema-4 contract after 016. Un
 migration history, dependencies, drift or concurrent writers block the
 operation. Never remove or detach history to make it pass.
 
+The historical v1 primary may omit the optional `loginUsernames` field: the
+existing config parser assigns the participant keys as login names. Readiness
+recognizes that representation without rewriting it. The operator request's
+`expectedLegacyConfig` must still match the stored raw object exactly; do not
+add the missing field to the request or update SQL just to pass the preflight.
+The target 369 config includes the explicit canonical login mapping.
+
 ### Before scheduling
 
 1. Obtain an explicitly approved maintenance window and a separately approved

@@ -103,6 +103,29 @@ test("readiness inventories the historical 300 pair without converting it or mod
     }
 });
 
+test("readiness accepts historical implicit login names without rewriting the stored configuration", async () => {
+    const database = await startCopilot369Database();
+    const fixture = await createReadinessProfiles();
+    try {
+        const {primaryStudyId} = await seedHistoricalCopilot369Studies(database);
+        await database.pool.query("UPDATE participant_account SET password_hash=$1", [fixture.profiles[0].bootstrapInput.credentialManifest.accounts[0].passwordHash]);
+        await database.pool.query("UPDATE study SET config=config-'loginUsernames' WHERE id=$1", [primaryStudyId]);
+        const snapshot = () => database.pool.query("SELECT to_jsonb(study) AS value,xmin::text AS xmin FROM study ORDER BY study_key");
+        const before = (await snapshot()).rows;
+        const result = await classifyStudyReadiness({pool: database.pool, profiles: fixture.profiles,
+            legacyCsvPath: new URL("../plans/merged_after_rework_cards_seed_20260510.csv", import.meta.url)});
+        assert.equal(result.dataBundle, "legacy300-v1");
+        assert.deepEqual((await snapshot()).rows, before);
+        await database.pool.query("UPDATE study SET config=jsonb_set(config,'{loginUsernames}', $2::jsonb) WHERE id=$1",
+            [primaryStudyId, JSON.stringify({javier: "other", diego: "diego", pablo: "pablo"})]);
+        await assert.rejects(classifyStudyReadiness({pool: database.pool, profiles: fixture.profiles,
+            legacyCsvPath: new URL("../plans/merged_after_rework_cards_seed_20260510.csv", import.meta.url)}), /Historical primary drift/);
+    } finally {
+        await closeCopilot369Database(database);
+        await rm(fixture.root, {recursive: true, force: true});
+    }
+});
+
 test("readiness admits an actually empty provisioned database but rejects unknown functions without tables", async () => {
     const database = await startCopilot369Database({throughMigration: "001_study_foundation"});
     let empty;

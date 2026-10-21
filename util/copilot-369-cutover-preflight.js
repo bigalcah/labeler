@@ -25,9 +25,9 @@ const prepareCopilot369Cutover = async options => {
     requireEqual(options.expectedStudyKey, DEFAULT_STUDY_CONFIG.studyKey, "study key");
     requireEqual(options.expectedLegacyChecksum, LEGACY_300_CHECKSUM, "legacy checksum");
     requireEqual(options.expectedTargetChecksum, COPILOT_369_SOURCE_CHECKSUM, "target checksum");
-    const legacyConfig = parseStudyConfig(options.expectedLegacyConfig);
-    requireEqual(legacyConfig, {...DEFAULT_STUDY_CONFIG, expectedCardCount: 300}, "legacy configuration");
-    requireEqual(options.expectedLegacyConfig, legacyConfig, "exact legacy configuration");
+    const legacyConfig = structuredClone(options.expectedLegacyConfig);
+    const canonicalLegacyConfig = parseStudyConfig(legacyConfig);
+    requireEqual(canonicalLegacyConfig, {...DEFAULT_STUDY_CONFIG, expectedCardCount: 300}, "legacy configuration");
     const [legacy, target] = await Promise.all([
         readPullRequestCards(options.legacyCsvPath, {expectedCardCount: 300}),
         readCopilot369Cards(options.targetCsvPath, {manifestPath: options.targetManifestPath}),
@@ -50,7 +50,7 @@ const prepareCopilot369Cutover = async options => {
         }
     }
     return {studyId: options.expectedStudyId, studyKey: options.expectedStudyKey,
-        legacyConfig, targetConfig: {...legacyConfig, expectedCardCount: 369}, memberships, legacy, target};
+        legacyConfig, targetConfig: {...canonicalLegacyConfig, expectedCardCount: 369}, memberships, legacy, target};
 };
 
 const assertNoCopilot369History = async (client, studyId) => {
