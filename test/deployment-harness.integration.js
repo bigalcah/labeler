@@ -117,7 +117,7 @@ test("isolated 369/30 runtime holds a trusted prepare handoff and confirms all t
         const postRetirementHandoff = JSON.parse(await readFile(
             path.join(evidenceDirectory, "post-retirement-handoff-binding.json"), "utf8"));
         assert.equal(postRetirementHandoff.lockHeld, true);
-        assert.equal(postRetirementHandoff.observation.schema, "study-schema-3");
+        assert.equal(postRetirementHandoff.observation.schema, "study-schema-4");
         assert.equal(postRetirementHandoff.observation.dataBundle, "empty");
         assert.equal(postRetirementHandoff.observation.readOnly.transaction, "read-only");
         assert.equal(postRetirementHandoff.observation.readOnly.grantsVerified, true);
@@ -157,7 +157,9 @@ test("isolated 369/30 runtime holds a trusted prepare handoff and confirms all t
         assert.equal(normalizationReport.continuation.phase, "completed");
         assert.equal(normalizationReport.continuation.freshAuthorization, true);
         assert.equal(normalizationReport.continuation.action, "continue");
-        assert.equal(normalizationReport.continuation.backupBaselineSchema, "study-schema-3");
+        assert.equal(normalizationReport.continuation.backupBaselineSchema, "study-schema-4");
+        assert.equal(normalizationReport.historyCheckpoint.phase, "history_schema_verified");
+        assert.equal(normalizationReport.historyCheckpoint.stepBaseline.schema, "study-schema-4");
         assert.equal(normalizationReport.continuation.backupBaselineDataBundle, "empty");
         assert.ok(normalizationReport.continuation.backupRestoreProofs.every(proof =>
             proof.archiveScope === "full-database" && proof.restoreResult === "verified"
@@ -174,8 +176,9 @@ test("isolated 369/30 runtime holds a trusted prepare handoff and confirms all t
         const cleanAfterRerun = JSON.parse(await readFile(path.join(evidenceDirectory, "clean-014-after-rerun.json"), "utf8"));
         for (const cleanState of [cleanInitial, cleanBeforeRerun, cleanAfterRerun]) {
             assert.equal(cleanState.probe.applied015, false);
-            assert.equal(cleanState.probe.eligibility, "eligible");
-            assert.equal(cleanState.probe.observation.schema, "study-schema-3");
+            assert.equal(cleanState.probe.eligibility, "ineligible");
+            assert.equal(cleanState.probe.observation.schema, "study-schema-4");
+            assert.equal(cleanState.historyProbe.applied016, true);
             assert.equal(cleanState.probe.observation.dataBundle, "copilot369-v1");
         }
         assert.equal(cleanBeforeRerun.applicationRowsSha256, cleanAfterRerun.applicationRowsSha256);

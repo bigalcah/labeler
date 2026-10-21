@@ -3,7 +3,7 @@ import {canonicalCardContent, computeCardChecksum} from "./pr-card-checksum.js";
 import {isDeepStrictEqual} from "node:util";
 import {isValidPasswordHash} from "./credential-policy.js";
 import {verifyExistingStudyClient, withReadOnlyTransaction} from "./study-existing-validation.js";
-import {DEFAULT_STUDY_CONFIG} from "./study-config.js";
+import {DEFAULT_STUDY_CONFIG, parseStudyConfig} from "./study-config.js";
 
 const readHistoricalReadinessSource = async (legacyCsvPath = new URL("../data/pr-cards.csv", import.meta.url)) => {
     const legacy = await readPullRequestCards(legacyCsvPath, {expectedCardCount: 300});
@@ -19,7 +19,7 @@ const verifyLegacyReadinessClient = async (client, profiles, legacyCsvPath) => {
     await verifyExistingStudyClient(client, profiles[1].bootstrapInput);
     const {rows: [study]} = await client.query("SELECT * FROM public.study WHERE study_key = 'pr-card-sorting-local'");
     if (study.source_checksum !== legacy.sourceChecksum || study.bootstrap_state !== "READY"
-        || !isDeepStrictEqual(study.config, {...DEFAULT_STUDY_CONFIG, expectedCardCount: 300})) throw new Error("Historical primary drift.");
+        || !isDeepStrictEqual(parseStudyConfig(study.config), {...DEFAULT_STUDY_CONFIG, expectedCardCount: 300})) throw new Error("Historical primary drift.");
     const {rows: members} = await client.query(`SELECT card.*, membership.ordinal,
             membership.source_checksum AS membership_checksum FROM public.study_card membership
             JOIN public.pr_cards card ON card.id = membership.pr_card_id WHERE membership.study_id = $1

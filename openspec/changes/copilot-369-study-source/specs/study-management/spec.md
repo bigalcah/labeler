@@ -1,3 +1,5 @@
+# Gestión del estudio Copilot 369
+
 ## MODIFIED Requirements
 
 ### Requirement: Estudio local configurable
@@ -58,11 +60,12 @@ de elegibilidad.
 El CSV selecciona la muestra primaria y conserva su procedencia. El navegador y la clasificación no
 requieren ni consultan GitHub. La transición primaria podrá ocurrir únicamente cuando el estudio
 persistido coincida exactamente con la identidad, configuración y fuente histórica de 300 esperadas,
-su orden de membresía sea el esperado y no tenga clasificaciones, descartes ni dependencias
-históricas: runs o páginas de enriquecimiento, mappings, promociones activas u otras referencias
-dependientes. Cualquier historial, dependencia o estado de esquema desconocido bloquea la transición
-sin mutación y requiere una decisión separada; no autoriza a borrar, separar o alterar objetos
-históricos. La transición válida SHALL conservar study ID/key, usuarios, roles, hashes y versiones de
+su orden de membresía sea el esperado y no tenga clasificaciones ni descartes. El historial GitHub
+cerrado e íntegro de la fuente histórica SHALL conservarse mediante referencias independientes de la
+muestra activa, sin actualizar, borrar ni reasignar runs, páginas, mappings, promociones, snapshots
+o telemetría existentes. Runs en curso, dependencias desconocidas, historia huérfana o drift de fuente
+o esquema MUST bloquear sin escrituras. La transición válida SHALL conservar study ID/key, usuarios, roles,
+hashes y versiones de
 credenciales y membresía de participantes, y SHALL ser atómica e idempotente. Un estudio ya en 369 se
 reconoce idempotentemente sin escrituras. El estudio existente de 30 se trata solo en lectura.
 
@@ -79,10 +82,16 @@ reconoce idempotentemente sin escrituras. El estudio existente de 30 se trata so
 - **THEN** la transición se completa atómicamente a 369 preservando identidad y cuentas, y repetirla
   no escribe ni altera el resultado
 
-#### Scenario: Bloqueo por decisiones, discrepancia o historial
+#### Scenario: Transición con historial conocido
 
-- **WHEN** existe una clasificación, descarte, diferencia de identidad, fuente, orden, dependencia
-  histórica o esquema desconocido
+- **WHEN** la primaria exacta de 300 no tiene decisiones y conserva historial GitHub cerrado, íntegro y verificable
+- **THEN** una operación de mantenimiento autorizada puede activar únicamente las 369 tarjetas sin borrar ni
+  reescribir el historial, sus identidades, timestamps ni procedencia y conservando los datos de validación
+
+#### Scenario: Bloqueo por decisiones, discrepancia o historial desconocido
+
+- **WHEN** existe una clasificación, descarte, diferencia de identidad, fuente u orden, un run en curso,
+  una referencia huérfana, dependencia no reconocida o esquema desconocido
 - **THEN** la transición falla sin cambiar, borrar, separar ni desvincular datos u objetos persistidos
 
 #### Scenario: Decisión concurrente durante la transición
@@ -103,6 +112,30 @@ reconoce idempotentemente sin escrituras. El estudio existente de 30 se trata so
   resiembra ni reinicio
 
 ## ADDED Requirements
+
+### Requirement: Compatibilidad verificable del historial conservado
+
+El sistema MUST distinguir el contrato físico nuevo study-schema-4 de study-schema-3; MUST NOT declarar
+compatibilidad por el mero conteo, un ledger o un manifiesto. La release corregida conserva el manifiesto
+v2 y el bundle copilot369-v1, pero exige consumidor e imagen compatibles con el esquema observado.
+Los checkpoints de migración, la activación de la muestra y la publicación SHALL tener evidencias
+independientes. La preparación ordinaria de una pareja existente exacta SHALL continuar siendo readonly.
+
+#### Scenario: Referencias listas pero muestra todavía histórica
+
+- **WHEN** se verifica el nuevo contrato físico y se conserva la primaria de 300 tras la migración de referencias
+- **THEN** se registra solo ese checkpoint; no se declara muestra 369 activa ni despliegue completo
+
+#### Scenario: Imagen o consumidor incompatibles
+
+- **WHEN** una imagen o consumidor solo declara soporte de study-schema-3 frente a una base study-schema-4
+- **THEN** no se activa ni se presenta como fallback; la recuperación requiere la ruta verificada correspondiente
+
+#### Scenario: Interrupción y continuación
+
+- **WHEN** se interrumpe una operación antes o después de la migración de referencias o del cutover
+- **THEN** se observa la base real en readonly y se exige autorización y backup aplicables antes de continuar,
+  sin repetir escrituras confirmadas ni inferir éxito de punteros o timestamps
 
 ### Requirement: Validación previa a escrituras
 

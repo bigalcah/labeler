@@ -243,7 +243,13 @@ sustituto del proceso de adopción.
 - [ ] Registrar la identidad y observación readonly actual de la base, sin cambiar datos ni exigir
       estado 369/30 como requisito para inventariar la adopción.
 - [ ] Tratar releases v1/300 exclusivamente como historial readonly o cutover dedicado. No permitir
-      nuevo ingreso, fallback ni rollback compatible sin `study-schema-3` y `copilot369-v1` verificados.
+      nuevo ingreso, fallback ni rollback compatible sin `study-schema-4` y `copilot369-v1` verificados.
+- [ ] Instalar el consumidor y observador de schema-4, conservando journal, recibos, releases y floor;
+      verificar su fingerprint aprobado antes de recibir el candidato.
+- [ ] Obtener evidencia real de `history_schema_verified` tras mantenimiento 016 autorizado y backup/restore
+      del origen. Conservar valores y xmin del historial cerrado y todos los datos de validación 30.
+- [ ] Exigir autorización fresca y otro backup/restore del baseline post-016 antes de continuar al cutover.
+      Una entrada de ledger, tablas presentes o pruebas locales no sustituyen esa observación real.
 - [ ] Ejecutar un `docker compose config --quiet` con el `.env` externo y la composición del
       paquete, sin reconstruir ni reemplazar servicios.
 - [ ] Conservar la salida de `docker compose ps`, la identidad de las imágenes y la evidencia de
@@ -270,7 +276,7 @@ bundle de release, no la versión que deba existir durante el inventario de adop
       `schemaVersion releaseId generation commit images dataBundle schemaCompatibility dataCompatibility workflow createdAt`.
 - [ ] Confirmar que `dataBundle.profiles` tiene exactamente 369 y luego 30; cada perfil fija `csv` y
       `manifest`, cada uno con `path` y `sha256`, según las cuatro entradas canónicas del manifiesto v2.
-- [ ] Confirmar compatibilidad separada `study-schema-3` y `copilot369-v1`; la muestra v1/300 queda
+- [ ] Confirmar compatibilidad separada `study-schema-4` y `copilot369-v1`; la muestra v1/300 queda
       readonly para inventario/cutover y no es ingreso, fallback o rollback compatible.
 - [ ] Confirmar que el paquete transferido contiene la composición y el `Caddyfile`, pero no
       `.env`, secretos, claves ni temporales del runner.
@@ -296,7 +302,7 @@ bundle de release, no la versión que deba existir durante el inventario de adop
 
 No uses la sección legacy de rollback read-only que detiene servicios como fallback del host v2. Una migración no se
 revierte para hacer funcionar una imagen antigua. Si la release anterior no
-declara compatibilidad con ambos ejes (`study-schema-3` y `copilot369-v1`) o el journal no está
+declara compatibilidad con ambos ejes (`study-schema-4` y `copilot369-v1`) o el journal no está
 `verified` contra la base observada, detén el flujo. Los punteros no prueban el estado SQL. Sigue
 la restauración aislada de
 [`deployment/ROLLBACK.md`](../deployment/ROLLBACK.md).

@@ -52,7 +52,7 @@ esac
 case "${STUDY_DATABASE_MODE}" in
   clean)
     npm run retire:legacy:clean-check
-    npm run migrate:study
+    node scripts/initialize-study-schema.js
     ;;
   existing)
     if [ "${LEGACY_RETIREMENT_CONFIRM:-}" != "retire-legacy-labeler" ]; then

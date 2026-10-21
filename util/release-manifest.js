@@ -150,7 +150,7 @@ export const validateReleaseManifest = manifest => {
     assertExactKeys(manifest.dataBundle, ["profiles"]);
     assertDenseArray(manifest.dataBundle.profiles, CANONICAL_PROFILES.length);
     manifest.dataBundle.profiles.forEach((profile, index) => assertCanonicalProfile(profile, CANONICAL_PROFILES[index]));
-    assertCompatibility(manifest.schemaCompatibility, "study-schema-3");
+    assertCompatibility(manifest.schemaCompatibility, "study-schema-4");
     assertCompatibility(manifest.dataCompatibility, "copilot369-v1");
     assertWorkflow(manifest.workflow);
     assertCreatedAt(manifest.createdAt);
@@ -304,8 +304,8 @@ export const createReleaseManifest = input => {
             })),
         },
         schemaCompatibility: {
-            produces: "study-schema-3",
-            applicationSupports: ["study-schema-3"],
+            produces: "study-schema-4",
+            applicationSupports: ["study-schema-4"],
         },
         dataCompatibility: {
             produces: "copilot369-v1",

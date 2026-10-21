@@ -7,7 +7,8 @@ const managedMigrationIds = Object.freeze(JSON.parse(readFileSync(
 )).migrations.map(migration => migration.id));
 const retirementMigrationId = "002_retire_legacy_labeler";
 const normalizationMigrationId = "015_normalize_retired_study_schema";
-const knownExternalMigrationIds = new Set([retirementMigrationId, normalizationMigrationId]);
+const historyMigrationId = "016_preserve_study_card_history";
+const knownExternalMigrationIds = new Set([retirementMigrationId, normalizationMigrationId, historyMigrationId]);
 const schemaAdvisoryLockKey = "labeler:study-schema";
 
 const assertLedgerState = (ids, {requireComplete = false} = {}) => {
@@ -22,6 +23,10 @@ const assertLedgerState = (ids, {requireComplete = false} = {}) => {
         if (id === retirementMigrationId) {
             if (position !== 1) throw new Error(`Migration ledger is out of order at ${id}`);
         } else if (id === normalizationMigrationId) {
+            if (position !== managedMigrationIds.length || seen.has(historyMigrationId)) {
+                throw new Error(`Migration ledger is out of order at ${id}`);
+            }
+        } else if (id === historyMigrationId) {
             if (position !== managedMigrationIds.length || ids.at(-1) !== id) {
                 throw new Error(`Migration ledger is out of order at ${id}`);
             }
@@ -34,7 +39,8 @@ const assertLedgerState = (ids, {requireComplete = false} = {}) => {
         throw new Error("Migration ledger requires the complete managed prefix through 014");
     }
     return {managedIds: managedMigrationIds.slice(0, position), retired: seen.has(retirementMigrationId),
-        applied015: seen.has(normalizationMigrationId), complete: position === managedMigrationIds.length};
+        applied015: seen.has(normalizationMigrationId), applied016: seen.has(historyMigrationId),
+        complete: position === managedMigrationIds.length};
 };
 
 const readNormalizationSource = async () => {
@@ -55,8 +61,19 @@ const readStudyLedger = async (client, options) => {
     const ids = rows.map(row => row.migration_id);
     const state = assertLedgerState(ids, options);
     if (state.applied015) await readNormalizationSource();
+    if (state.applied016) await readHistorySource();
     return {ids, ...state};
 };
 
-export {assertLedgerState, knownExternalMigrationIds, managedMigrationIds, normalizationMigrationId,
-    readNormalizationSource, readStudyLedger, retirementMigrationId, schemaAdvisoryLockKey};
+const readHistorySource = async () => {
+    const contract = JSON.parse(await readFile(new URL("./study-history-contract.json", import.meta.url), "utf8"));
+    const sql = await readFile(new URL("../schema/migrations/016_preserve_study_card_history.sql", import.meta.url), "utf8");
+    if (contract.migration.id !== historyMigrationId
+        || createHash("sha256").update(sql).digest("hex") !== contract.migration.sha256) {
+        throw new Error("History 016 migration source pin mismatch");
+    }
+    return {contract, sql, body: sql.replace(/^BEGIN;\n/, "").replace(/COMMIT;\n$/, "")};
+};
+
+export {assertLedgerState, knownExternalMigrationIds, managedMigrationIds, normalizationMigrationId, historyMigrationId,
+    readNormalizationSource, readHistorySource, readStudyLedger, retirementMigrationId, schemaAdvisoryLockKey};

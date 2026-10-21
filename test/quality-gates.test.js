@@ -86,7 +86,8 @@ test("every integration file belongs to one explicit stage with full fixture sel
         .map(file => `test/${file}`);
     const planned = Object.values(plan).flat().sort();
 
-    assert.equal(plan.fixture.length, 14);
+    assert.equal(plan.fixture.length, 15);
+    assert.equal(plan.fixture.filter(file => file === "test/copilot-369-history.integration.js").length, 1);
     assert.equal(plan.fixture.filter(file => file === "test/runtime-failure-rehearsal.integration.js").length, 1);
     assert.deepEqual(plan.runtime, ["test/multi-study-hostile-e2e.integration.js"]);
     assert.deepEqual(plan.deployment, ["test/deployment-harness.integration.js"]);
@@ -102,15 +103,15 @@ test("integration inventory rejects a duplicate suite mapping in an isolated fix
     await assertIsolatedIntegrationInventoryRejected({duplicateFile: "test/runtime-failure-rehearsal.integration.js"});
 });
 
-test("full Node test gates use sequential bounded concurrency", async () => {
+test("unit and e2e gates stay sequential while isolated integration uses two bounded workers", async () => {
     const runner = await readFile(new URL("../scripts/run-quality-gates.js", import.meta.url), "utf8");
 
     assert.match(runner, /runTestCommand\("unit", unitTestFiles\(\)\)/);
     assert.match(runner, /runTestCommand\("integration", integrationPlan\.fixture\)/);
     assert.match(runner, /runTestCommand\("e2e", \["test\/current-runtime-e2e\.test\.js"\]\)/);
-    assert.ok(buildTestArgs(unitTestFiles(), "summary.json").includes("--test-concurrency=1"));
-    assert.ok(buildTestArgs(integrationTestPlan().fixture, "summary.json").includes("--test-concurrency=1"));
-    assert.ok(buildTestArgs(["test/current-runtime-e2e.test.js"], "summary.json").includes("--test-concurrency=1"));
+    assert.ok(buildTestArgs(unitTestFiles(), "summary.json", "unit").includes("--test-concurrency=1"));
+    assert.ok(buildTestArgs(integrationTestPlan().fixture, "summary.json", "integration").includes("--test-concurrency=2"));
+    assert.ok(buildTestArgs(["test/current-runtime-e2e.test.js"], "summary.json", "e2e").includes("--test-concurrency=1"));
 });
 
 test("Node test gate accepts a non-empty passing summary", () => {
@@ -140,14 +141,15 @@ test("Node test gate fails when Node reports a skipped test despite a successful
     assert.equal(result.summary.counts.skipped, 1);
 });
 
-test("Node test gate evaluates the cumulative summary across selected files", () => {
-    const result = runTestCommand("fixture", [gateFixture("passing"), gateFixture("skipped")], {stdio: "ignore"});
-
-    assert.equal(result.selectedFiles, 2);
-    assert.equal(result.summary.counts.tests, 2);
-    assert.equal(result.summary.counts.passed, 1);
-    assert.equal(result.summary.counts.skipped, 1);
-    assert.notEqual(result.exitCode, 0);
+test("Node test gate rejects skipped files in both sequential and parallel cumulative summaries", () => {
+    for (const gate of ["fixture", "integration"]) {
+        const result = runTestCommand(gate, [gateFixture("passing"), gateFixture("skipped")], {stdio: "ignore"});
+        assert.equal(result.selectedFiles, 2);
+        assert.equal(result.summary.counts.tests, 2);
+        assert.equal(result.summary.counts.passed, 1);
+        assert.equal(result.summary.counts.skipped, 1);
+        assert.notEqual(result.exitCode, 0);
+    }
 });
 
 test("Node test gate fails when Node reports a cancelled test", () => {

@@ -62,7 +62,7 @@ raíz: `schemaVersion`, `releaseId`, `generation`, `commit`, `images`, `dataBund
 (`1607cfe84cb687a2cc7b4c56d3e0abf106b1a1044810d7390663ef1d691b63ab`) y
 `/labeling/data/validation-30-cards.manifest.json`
 (`5049b9357468ce98bd4f83057ea3e59178a5d03793f97800252d7e3e87e7dc1a`). Los ejes de
-compatibilidad son `study-schema-3` y `copilot369-v1`; deben verificarse ambos contra la base real.
+compatibilidad son `study-schema-4` y `copilot369-v1`; deben verificarse ambos contra la base real.
 
 La entrada del paquete contiene exactamente `Caddyfile`, `docker-compose.yml` y
 `release-manifest.json`. El workflow transmite el archivo por la entrada estándar de un canal
@@ -131,7 +131,7 @@ contrato v2 monta los perfiles 369 y 30 y sus configuraciones/manifests externos
 histórico, nunca como fallback. Las rutas canónicas y sus hashes están fijados en el manifiesto v2.
 
 La recuperación de imagen solo puede considerar `previous` con journal verificado contra la base
-real y compatibilidad de ambos ejes, `study-schema-3` y `copilot369-v1`. Punteros o manifiestos
+real y compatibilidad de ambos ejes, `study-schema-4` y `copilot369-v1`. Punteros o manifiestos
 publicados no prueban el estado SQL; un v1 no es fallback seguro. No se revierten migraciones ni se
 elimina `labeling-data`. La restauración escribible requiere backup verificado y destino separado.
 Consulta [`deployment/ROLLBACK.md`](deployment/ROLLBACK.md) y el

@@ -9,7 +9,8 @@ standard library, Bash, Docker Compose and curl; Node is used inside the server 
 - Restricted SSH: `deployment/deploy-vps.sh`, with exactly `deploy <release-id>` or `rollback` in
   `SSH_ORIGINAL_COMMAND`. Direct arguments are not accepted on a forced SSH invocation.
 - Local root only: `python3 -B deployment/release-host-control.py adopt`, `reconcile`,
-  `maintenance <release-id>`, `maintenance normalize <release-id>`, `continue`, or `finalize-publication`.
+  `maintenance <release-id>`, `maintenance normalize <release-id>`, `maintenance history <release-id>`,
+  `continue`, or `finalize-publication`.
 - Innocuous local fingerprint: `python3 -B deployment/release-host-control.py --version`.
 - `deploy` and `maintenance` consume the three-file tar/tar.gz package on stdin. Continuation reads the already
   installed, hash-bound candidate, not a replacement package. All stateful modes hold `locks/deploy.lock`.
@@ -39,14 +40,45 @@ All three eligible data origins (`empty`, `legacy300-v1`, `copilot369-v1`, inclu
 It never bootstraps, cuts over, starts/restarts runtime, changes pointers, publishes, or consumes the reservation,
 even when the original data already matches the final release tokens.
 
-A separately authorized local `continue` uses the same installed candidate, reservation and floor. The target may
-change to the final schema/data pair only at this checkpoint. `origin` remains immutable and pre-015; the next
-baseline comes from the verified checkpoint. Empty initialization and historical cutover require a new full backup
-and isolated restore matching the normalized baseline; a pre-015 receipt fails before SQL. Empty uses ordinary
-prepare once. Historical uses the existing `Runtime.maintenance()` migration/cutover entrypoints and still requires
-both inventoried v1 pointers and zero primary history; valid decisions permit normalization, not cutover. That
-cutover stops at its existing checkpoint and a fresh deploy of the same candidate can finish runtime/publication.
-Copilot continues by readonly verification directly to runtime/smoke/publication, without prepare or migrations.
+A normalization checkpoint proves schema 3 only. It cannot continue to the new runtime. A separately authorized
+local `maintenance history <release-id>` must use the same candidate and reservation, a fresh full backup and
+isolated restore of the normalized baseline. It produces the history checkpoint below. The original pre-015
+`origin` stays immutable; a pre-015 backup cannot authorize the post-015 step.
+
+## History Schema Checkpoint
+
+New manifests support exactly `study-schema-4` and `copilot369-v1`. Old v2 schema-3 manifests and receipts remain
+readable for inventory, but cannot be incoming packages, compatible fallback images or rollback targets.
+The v2 manifest still has ten root fields and the same four data hashes. Receipts and journal retain twelve keys.
+
+The local-only command `maintenance history <release-id>` requires an external authorization with
+`action=maintenance-history`. Restricted SSH still accepts only deploy/rollback. The observer's
+`--history-probe` returns exactly `observation`, `applied016`, and `eligibility`; the physical schema-4 pin
+and exact 016 ledger entry are required, not merely the presence of new tables.
+
+From canonical 013, 014 and 016 run in one transaction. Canonical 014 may have a genuine 015 lineage or no 015.
+A retired 014 catalog requires the separate pinned 015 normalization first; neither 002 nor 015 is fabricated.
+Migration 016 appends permanent study/card references and ordered source memberships, then replaces only the
+two enrichment membership FKs after their validated replacements exist. Existing row values and xmin are checked
+before commit. Terminal runs, partial FAILED pages, snapshots, promotions, decisions and accounts are retained.
+RUNNING runs, unknown sources, objects or dependencies block maintenance.
+
+History maintenance stops at `history_schema_verified`: schema 4 with the unchanged observed data bundle.
+It does not cut over, start runtime, publish or consume another generation. A new explicit `continue`
+authorization and a new full backup/isolated restore of the post-016 baseline precede initialization or cutover.
+The same installed candidate, reservation, database and publication baseline must still match.
+Empty data uses ordinary preparation; an existing 369/30 pair is verified readonly.
+Historical 300 requires both inventoried v1 pointers and zero primary classifications/discards, but verified
+closed enrichment history is allowed. Cutover appends the new source membership and changes only active
+primary membership/configuration. It stops at `cutover_verified`; a fresh deploy of that same candidate finishes
+runtime/smoke/publication. Old 300 promotions remain stored but never supply a 369 snapshot or decision provenance.
+The validation-30 promotion and data remain unchanged.
+
+After interruption, readonly reconcile preserves history intent through predecessor receipts. A genuine post-016
+observation may recover only the history checkpoint. An intact pre-016 baseline needs fresh maintenance-history
+authorization; missing ledger, catalog drift, unknown state or a different candidate cannot authorize continuation.
+An empty initializer may apply 016 only after validating its root-owned pending handoff. Ordinary preparation
+of an existing pair never performs this upgrade.
 
 After a crash, `reconcile` is readonly: actual canonical catalog plus validated 015 can prove only the normalization
 checkpoint, never generic cutover success. It preserves normalization intent through immutable predecessor receipts
@@ -93,8 +125,8 @@ External provisioning must also arrange read grants for tables subsequently crea
 The controller does not provision roles or change grants. Inspection always runs in REPEATABLE READ READ ONLY and
 checks the actual grants and absence of writer sessions before initialization/backup handoff.
 Readiness fingerprints use UTC, a fixed transaction-local search path, and normalize PostgreSQL-generated internal TOAST
-identifiers, not application objects or declared schema structure. Pins cover each approved migration prefix. The dedicated
-historical cutover reader is unchanged.
+identifiers, not application objects or declared schema structure. Pins cover each approved migration prefix.
+The historical cutover reader requires the distinct schema-4 physical contract.
 
 External inputs must be regular files, not symlinks, outside deployment state, owned by root or the prepare UID 1000,
 and not group/world writable. Authorizations and the executable backup boundary require root ownership. Secret-file
@@ -176,7 +208,8 @@ host handoff. Local initialization fixtures must supply the same trusted boundar
 
 The existing dedicated cutover request and command remain unchanged. Maintenance validates and reserves the candidate,
 checks both historical baseline pointers, requires stopped writers and backup/restore evidence, records pending, then
-runs the existing migration and cutover entrypoints. A verified DB-ahead bridge belongs only to that same candidate.
+runs only the existing cutover entrypoint after the separate schema-4 checkpoint. A verified DB-ahead bridge belongs
+only to that same candidate.
 Normal releases reject historical 300. A first v2 failure cannot activate a v1 image. Compatible v2 image recovery still
 returns failure for the failed release, and does not assert successful publication.
 

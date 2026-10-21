@@ -24,7 +24,7 @@ reemplazar la aplicación, conserva logs y metadatos antes de decidir la recuper
 `current` a una release antigua a mano ni borres la release fallida.
 
 El rollback de imagen solo puede activar `previous` con journal `verified` basado en una lectura de
-la base real y si la aplicación anterior declara compatibilidad con ambos ejes: `study-schema-3` y
+la base real y si la aplicación anterior declara compatibilidad con ambos ejes: `study-schema-4` y
 `copilot369-v1`. La mera publicación de manifiestos o el estado de los punteros no prueban SQL. Una
 aplicación v1 que carece del token `copilot369-v1` no es fallback compatible, aunque declare soporte
 de esquema. Activar una imagen anterior no deshace una migración. Si no hay compatibilidad verificada,
@@ -318,7 +318,7 @@ LABELER_PUBLIC_BASE_URL=https://labeler.example
 No reconstruyas desde un checkout ni sustituyas el digest por `latest`. Esta muestra no es la
 configuración completa: consulta [`deployment/host/README.md`](host/README.md). Solo se activa una
 release v2 si el journal está `verified` mediante lectura de la base real y su aplicación soporta
-simultáneamente `study-schema-3` y `copilot369-v1`. Los punteros y manifiestos publicados no prueban
+simultáneamente `study-schema-4` y `copilot369-v1`. Los punteros y manifiestos publicados no prueban
 el estado de SQL. Un manifiesto histórico v1 no es fallback compatible. Se conserva la evidencia y
 se verifica el volumen `labeling-data`.
 

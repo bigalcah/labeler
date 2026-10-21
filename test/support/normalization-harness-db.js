@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import {readFileSync, writeFileSync} from "node:fs";
 import path from "node:path";
 import pg from "pg";
-import {probeStudyNormalization} from "../../util/study-readiness.js";
+import {probeStudyHistory, probeStudyNormalization} from "../../util/study-readiness.js";
 import {readStudyProfilesInput} from "../../util/study-profiles-input.js";
 import {fingerprintNormalizationRows} from "./study-normalization-fixture.js";
 
 const [mode, host, runtime, project, outputPath] = process.argv.slice(2);
-assert.ok(["eligible", "post-normalization", "prepared", "clean", "fingerprint", "clean-ledger"].includes(mode));
+assert.ok(["eligible", "post-normalization", "history", "prepared", "clean", "fingerprint", "clean-ledger"].includes(mode));
 const pool = new pg.Pool({host, port: 5432, user: "labeler_inspection", database: "labeling_harness",
     password: readFileSync(path.join(runtime, "inspection-password"), "utf8").trim(), max: 1,
     connectionTimeoutMillis: 5000, idleTimeoutMillis: 3000, statement_timeout: 30000});
@@ -49,13 +49,13 @@ try {
             assert.equal(result.observation.dataBundle, "empty");
         } else if (mode === "clean") {
             assert.equal(result.applied015, false);
-            assert.equal(result.eligibility, "eligible");
-            assert.equal(result.observation.schema, "study-schema-3");
+            assert.equal(result.eligibility, "ineligible");
+            assert.equal(result.observation.schema, "study-schema-4");
             assert.equal(result.observation.dataBundle, "copilot369-v1");
         } else {
             assert.equal(result.applied015, true);
             assert.equal(result.eligibility, "already-applied");
-            assert.equal(result.observation.schema, "study-schema-3");
+            assert.equal(result.observation.schema, ["history", "prepared"].includes(mode) ? "study-schema-4" : "study-schema-3");
             assert.equal(result.observation.dataBundle, mode === "prepared" ? "copilot369-v1" : "empty");
             const {rows: [physical]} = await pool.query(`SELECT
                 (SELECT count(*) = 1 FROM public.labeler_migration
@@ -80,7 +80,13 @@ try {
                         'study_card_pr_card_id_idx', 'study_participant_reviewer_id_idx')) AS redundant_indexes_absent`);
             assert.deepEqual(physical, {ledger_015: true, canonical_fk: true, redundant_indexes_absent: true});
         }
-        writeFileSync(outputPath, `${JSON.stringify({probe: result, applicationRowsSha256:
+        const historyProbe = ["history", "prepared", "clean"].includes(mode)
+            ? await probeStudyHistory({pool, profiles, requireRestrictedRole: true}) : null;
+        if (historyProbe) {
+            historyProbe.observation.databaseIdentity = result.observation.databaseIdentity;
+            assert.equal(historyProbe.applied016, true);
+        }
+        writeFileSync(outputPath, `${JSON.stringify({probe: result, ...(historyProbe ? {historyProbe} : {}), applicationRowsSha256:
             mode === "prepared" ? null : await fingerprintNormalizationRows(pool),
         ...(mode === "post-normalization" ? {physical: {ledger015: true, canonicalFk: true, redundantIndexesAbsent: true}} : {})})}\n`,
         {mode: 0o600});

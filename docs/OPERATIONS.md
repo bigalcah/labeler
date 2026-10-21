@@ -1,5 +1,9 @@
 # Operaciones
 
+El [modo automático delegado](AUTOMATIC-DEPLOYMENT.md), aprobado el 21 de octubre de 2026, elimina backup/restore
+como prerrequisito de deploy y conserva los controles de datos. Sus requisitos sustituyen las exigencias manuales
+de este documento solo cuando la política root está instalada; el resto describe el modo manual histórico.
+
 La operación del estudio está documentada como `IMPLEMENTED-UNVERIFIED`. Hay código y contratos estáticos, pero no hay
 evidencia aprobada de ejecución de infraestructura, HTTP o VPS. `AGENTS.md` mantiene el baseline ejecutable como
 `LEGACY`; no presentes una tarea pendiente o un archivo existente como runtime verificado.
@@ -43,7 +47,7 @@ El manifiesto inmutable v2 `release-manifest.json` que acepta el consumidor cont
 - `schemaVersion=2`, sin clave singular `csv`;
 - `dataBundle.profiles` con 369 y después 30, cada uno con `csv` y `manifest` (`path` y `sha256`) fijados para los
   archivos canónicos definidos en `manifest.ARTIFACTS` del validador host v2;
-- compatibilidad separada para ambos ejes, `study-schema-3` y `copilot369-v1`.
+- compatibilidad separada para ambos ejes, `study-schema-4` y `copilot369-v1`.
 
 El tag derivado del SHA sirve para localizar la construcción, pero la referencia efectiva es el digest registrado en el
 manifiesto. No uses `latest`, tags reutilizables ni una imagen sin digest. Los manifiestos v1 con muestra histórica 300
@@ -70,8 +74,18 @@ interfaz SSH ni un bypass de la orden forzada. La configuración completa y la a
 prueban por sí solos el estado de la base.
 
 La orden `rollback` no recibe identificador en SSH; opera bajo lock y exige journal `verified` frente a la base real, compatibilidad
-de ambos ejes (`study-schema-3` y `copilot369-v1`) y verificación runtime/smoke. Los punteros publicados no prueban SQL;
+de ambos ejes (`study-schema-4` y `copilot369-v1`) y verificación runtime/smoke. Los punteros publicados no prueban SQL;
 v1 no es fallback seguro.
+
+La actualización de esquema va separada del cutover: el consumidor y observador revisados deben estar instalados
+antes de admitir el candidato. Un origen canónico 013/014 usa mantenimiento local `maintenance history <release-id>`
+con autorización `maintenance-history`, escritores detenidos y backup/restore completo del origen.
+Un catálogo retirado requiere primero la normalización 015 fijada, sin inventar entradas 002/015.
+El checkpoint `history_schema_verified` conserva la muestra observada. Para `continue` se necesita autorización
+nueva y backup/restore del baseline posterior a 016. El historial cerrado de enriquecimiento se conserva;
+solo decisiones/descartes primarios impiden el cutover. Los recibos antiguos siguen legibles, pero schema-3
+no es ingreso ni rollback compatible con schema-4. Véase el
+[procedimiento de historia y continuación](COPILOT-369-RUNBOOK.md#host-schema-checkpoint-and-continuation).
 
 1. Adquirir el lock del host y rechazar una generación anterior a la release activa.
 2. Validar el paquete allowlisted sin secretos, el manifiesto, las variables externas y
@@ -92,7 +106,7 @@ v1 no es fallback seguro.
 Un fallo de preflight, descarga, lock o backup conserva la release activa y no ejecuta migraciones
 nuevas. Un fallo del preparador impide continuar hacia el tráfico público, no borra
 `labeling-data` y deja su evidencia diagnóstica. Un fallo posterior solo permite activar `previous`
-con journal `verified` contra la base real y soporte de ambos ejes, `study-schema-3` y
+con journal `verified` contra la base real y soporte de ambos ejes, `study-schema-4` y
 `copilot369-v1`. Punteros y manifiestos publicados no prueban SQL; releases v1 no son fallback seguro.
 El launcher no revierte migraciones y nunca usa `down -v`.
 

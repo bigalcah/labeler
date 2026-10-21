@@ -11,11 +11,11 @@ const participantKeys = Object.freeze([ "javier", "diego", "pablo" ]);
 
 const validContract = Object.freeze({
     schemaVersion: 1,
-    supportedCardCounts: [ 30, 300 ],
+    supportedCardCounts: [ 30, 369 ],
     profiles: [
         {
             studyKey: "pr-card-sorting-local",
-            expectedCardCount: 300,
+            expectedCardCount: 369,
             participants: participantKeys,
             loginUsernames: {javier: "javier", diego: "diego", pablo: "pablo"},
         },
@@ -64,7 +64,7 @@ const files = contract => ({
     "deployment/ROLLBACK.md": "# Rollback\n",
     "util/study-profiles-input.js": [
         "const profiles = [",
-        "    {expectedCardCount: 300},",
+        "    {expectedCardCount: 369},",
         "    {expectedCardCount: 30},",
         "];",
         "",

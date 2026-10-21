@@ -10,6 +10,7 @@ import test from "node:test";
 import pg from "pg";
 import {probeStudyNormalization} from "../util/study-readiness.js";
 import {normalizeStudySchema} from "../util/study-normalization.js";
+import {preserveStudyCardHistory} from "../util/study-history.js";
 import {prepareStudyProfiles} from "../util/study-preparation.js";
 import {createReadinessProfiles} from "./readiness-fixture.js";
 import {fingerprintProtectedCopilot369State, seedHistoricalCopilot369Studies} from "./support/copilot-369-fixture.js";
@@ -158,14 +159,13 @@ for (const withPrimaryHistory of [false, true]) {
                 operationOrigin: baseline.observation});
             assert.equal(normalization.observation.schema, "study-schema-3");
             assert.equal(normalization.observation.dataBundle, "legacy300-v1");
+            await preserveStudyCardHistory({...options, baseline: normalization.observation});
             const ledger = (await database.pool.query("SELECT * FROM labeler_migration ORDER BY applied_at, migration_id")).rows;
             const rowsBeforeMaintenance = await fingerprintNormalizationRows(database.pool);
             const maintenance = await runRealMaintenanceEntrypoint({database, primaryStudyId});
             assert.deepEqual(maintenance.commands.map(command => ({entrypoint: command.entrypoint, stage: command.stage})), [
-                {entrypoint: "scripts/migrate-study-schema.js", stage: "migration"},
                 {entrypoint: "scripts/cutover-copilot-369.js", stage: "cutover"},
             ]);
-            assert.match(maintenance.commands[0].output, /Study schema migration complete/);
             assert.deepEqual((await database.pool.query("SELECT * FROM labeler_migration ORDER BY applied_at, migration_id")).rows, ledger);
             assert.equal((await database.pool.query("SELECT count(*)::integer AS count FROM labeler_migration WHERE migration_id = '015_normalize_retired_study_schema'")).rows[0].count, 1);
             assert.deepEqual(await fingerprintProtectedCopilot369State(database.pool, validationStudyId), protected30);
@@ -175,7 +175,7 @@ for (const withPrimaryHistory of [false, true]) {
                 assert.equal(await fingerprintNormalizationRows(database.pool), rowsBeforeMaintenance);
             } else {
                 assert.equal(maintenance.error, null);
-                assert.match(maintenance.commands[1].output, /"status":"CUTOVER_369"/);
+                assert.match(maintenance.commands[0].output, /"status":"CUTOVER_369"/);
                 assert.equal((await database.pool.query("SELECT expected_card_count FROM study WHERE id = $1", [primaryStudyId])).rows[0].expected_card_count, 369);
             }
         } finally {

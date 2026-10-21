@@ -17,7 +17,19 @@ const packageJson = JSON.parse(await readFile(new URL("../package.json", import.
 
 const readinessSpy = async binDirectory => {
     const file = path.join(binDirectory, "node");
-    await writeFile(file, "#!/bin/sh\nprintf 'readiness\\n' >> \"$PREPARE_LOG.node\"\n[ \"${PREPARE_READINESS:-EMPTY}\" != BLOCKED ] || exit 1\nprintf '%s\\n' \"${PREPARE_READINESS:-EMPTY}\"\n");
+    await writeFile(file, [
+        "#!/bin/sh",
+        "case \"$1\" in",
+        "scripts/study-readiness.js)",
+        "  printf 'readiness\\n' >> \"$PREPARE_LOG.node\"",
+        "  [ \"${PREPARE_READINESS:-EMPTY}\" != BLOCKED ] || exit 1",
+        "  printf '%s\\n' \"${PREPARE_READINESS:-EMPTY}\" ;;",
+        "scripts/initialize-study-schema.js)",
+        "  printf 'node %s\\n' \"$*\" >> \"$PREPARE_LOG\" ;;",
+        "*) exit 2 ;;",
+        "esac",
+        "",
+    ].join("\n"));
     await chmod(file, 0o755);
 };
 
@@ -278,7 +290,7 @@ test("clean preparation validates first, then migrates and bootstraps without a 
         assert.deepEqual((await readFile(logPath, "utf8")).trim().split("\n"), [
             "run validate:study-bootstrap -- /input/cards.csv",
             "run retire:legacy:clean-check",
-            "run migrate:study",
+            "node scripts/initialize-study-schema.js",
             "run bootstrap:study -- /input/cards.csv",
         ]);
     } finally {
@@ -372,7 +384,7 @@ test("multi-study preparation failure propagates a nonzero exit before server re
         assert.deepEqual((await readFile(logPath, "utf8")).trim().split("\n"), [
             "run validate:study-profiles",
             "run retire:legacy:clean-check",
-            "run migrate:study",
+            "node scripts/initialize-study-schema.js",
             "run prepare:study-profiles",
         ]);
     } finally {

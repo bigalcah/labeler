@@ -39,11 +39,11 @@ const runCommands = (gate, commands) => {
     return firstFailure;
 };
 
-const buildTestArgs = (files, summaryPath) => {
+const buildTestArgs = (files, summaryPath, gate = "unit") => {
     if (files.length === 0) return null;
     return [
         "--test",
-        "--test-concurrency=1",
+        `--test-concurrency=${gate === "integration" ? 2 : 1}`,
         "--test-reporter=spec",
         `--test-reporter=${testReporter}`,
         "--test-reporter-destination=stdout",
@@ -69,7 +69,7 @@ const runTestCommand = (gate, files, {env = process.env, stdio = "inherit"} = {}
 
     const directory = mkdtempSync(join(tmpdir(), "labeler-quality-gate-"));
     const summaryPath = join(directory, "summary.json");
-    const args = buildTestArgs(files, summaryPath);
+    const args = buildTestArgs(files, summaryPath, gate);
     const childEnvironment = {...env};
     delete childEnvironment.NODE_TEST_CONTEXT;
 

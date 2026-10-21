@@ -37,8 +37,8 @@ export const createCanonicalManifestFixture = () => ({
         ],
     },
     schemaCompatibility: {
-        produces: "study-schema-3",
-        applicationSupports: ["study-schema-3"],
+        produces: "study-schema-4",
+        applicationSupports: ["study-schema-4"],
     },
     dataCompatibility: {
         produces: "copilot369-v1",
@@ -100,7 +100,7 @@ const invalidManifestMutators = [
     ["missing 30 sidecar hash", manifest => { delete manifest.dataBundle.profiles[1].manifest.sha256; }],
     ["wrong schema token", manifest => { manifest.schemaCompatibility.produces = "study-schema-2"; }],
     ["extra schema support", manifest => { manifest.schemaCompatibility.applicationSupports.push("study-schema-2"); }],
-    ["duplicate schema support", manifest => { manifest.schemaCompatibility.applicationSupports.push("study-schema-3"); }],
+    ["duplicate schema support", manifest => { manifest.schemaCompatibility.applicationSupports.push("study-schema-4"); }],
     ["wrong data token", manifest => { manifest.dataCompatibility.produces = "legacy300-v1"; }],
     ["extra data support", manifest => { manifest.dataCompatibility.applicationSupports.push("legacy300-v1"); }],
     ["missing compatibility field", manifest => { delete manifest.dataCompatibility; }],

@@ -22,7 +22,7 @@ const identity = value => {
 };
 const observation = value => {
     shape(value, "schema dataBundle fingerprint schemaFingerprint observedAt databaseIdentity readOnly");
-    assert(["empty", "study-schema-3", "001_study_foundation", "003_private_pr_discard", "004_github_pr_api_enrichment",
+    assert(["empty", "study-schema-3", "study-schema-4", "001_study_foundation", "003_private_pr_discard", "004_github_pr_api_enrichment",
         "005_github_enrichment_checkpoints", "006_github_api_telemetry", "007_local_accounts_sessions", "008_login_rate_limits",
         "009_csrf_contexts", "010_study_scoped_participant_categories", "011_multi_study_cardinality",
         "012_global_normalized_username", "013_category_definition_color", "014_copilot_369_cardinality"].includes(value.schema));
@@ -60,16 +60,23 @@ const assertHandoffReceipt = receipt => {
     assert(isDeepStrictEqual(receipt.databaseIdentity, receipt.origin.databaseIdentity));
     string(receipt.predecessorEvidence);
     assert(/^evidence\//.test(receipt.predecessorEvidence) && !receipt.predecessorEvidence.split("/").includes(".."));
-    shape(receipt.authorization, "action actor issuedAt expiresAt requestSha256 writersStopped drain");
-    assert(["deploy", "maintenance", "maintenance-normalize", "continue"].includes(receipt.authorization.action));
+    const automatic = Object.hasOwn(receipt.authorization, "automation");
+    shape(receipt.authorization, "action actor issuedAt expiresAt requestSha256 writersStopped drain" + (automatic ? " automation" : ""));
+    if (automatic) {
+        shape(receipt.authorization.automation, "policySha256 backupRequired");
+        hash(receipt.authorization.automation.policySha256);
+        assert(receipt.authorization.automation.backupRequired === false);
+    }
+    assert(["deploy", "maintenance", "maintenance-normalize", "maintenance-history", "continue"].includes(receipt.authorization.action));
     string(receipt.authorization.actor);
     timestamp(receipt.authorization.issuedAt);
     timestamp(receipt.authorization.expiresAt);
     hash(receipt.authorization.requestSha256);
     assert(typeof receipt.authorization.writersStopped === "boolean" && receipt.authorization.drain === null);
     shape(receipt.target, "schema dataBundle observation");
-    assert(receipt.target.schema === "study-schema-3" && receipt.target.dataBundle ===
-        (receipt.authorization.action === "maintenance-normalize" ? receipt.origin.dataBundle : "copilot369-v1"));
+    assert(receipt.target.schema === (receipt.authorization.action === "maintenance-normalize" ? "study-schema-3" : "study-schema-4")
+        && receipt.target.dataBundle ===
+        (["maintenance-normalize", "maintenance-history"].includes(receipt.authorization.action) ? receipt.origin.dataBundle : "copilot369-v1"));
     if (receipt.target.observation !== null) {
         observation(receipt.target.observation);
         assert(isDeepStrictEqual(receipt.databaseIdentity, receipt.target.observation.databaseIdentity)

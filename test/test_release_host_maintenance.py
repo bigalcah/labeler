@@ -25,7 +25,7 @@ class MaintenanceBridge(unittest.TestCase):
         (directory / "release-manifest.json").write_text(json.dumps(baseline))
         for name in ("current", "previous"):
             os.symlink("releases/" + baseline["releaseId"], self.root / name)
-        self.origin = observed("legacy300-v1", "013_category_definition_color")
+        self.origin = observed("legacy300-v1", contracts.SCHEMA)
         receipt = adopted(self.state, self.origin)
         before = publication.snapshot(self.root)
         self.state.save({**receipt, "publication": {"before": before, "desired": before}}, "verified")

@@ -49,8 +49,13 @@ elif "scripts/study-readiness.js" in arguments:
     value["databaseIdentity"].pop("volume")
     value["databaseIdentity"].pop("endpoint")
     applied = (root / "applied015").exists()
-    print(json.dumps({"observation": value, "applied015": applied,
-        "eligibility": "already-applied" if applied else "eligible"} if "--normalization-probe" in arguments else value))
+    if "--history-probe" in arguments:
+        applied = (root / "applied016").exists()
+        print(json.dumps({"observation": value, "applied016": applied,
+            "eligibility": "already-applied" if applied else "eligible"}))
+    else:
+        print(json.dumps({"observation": value, "applied015": applied,
+            "eligibility": "already-applied" if applied else "eligible"} if "--normalization-probe" in arguments else value))
 elif "--input-type=module" in arguments and "readNormalizationSource" in arguments[-1]:
     print("0" * 64 if failure == "normalization-source" else "53f8188e453101b9a06f16e1b2891c7538aecaed8e83b954d00cf3e6a4dbf951", end="")
 elif "scripts/normalize-retired-study-schema.js" in arguments:
@@ -67,6 +72,24 @@ elif "scripts/normalize-retired-study-schema.js" in arguments:
     (root / "applied015").touch()
     if failure == "post-commit":
         sys.exit(1)
+elif "scripts/preserve-study-card-history.js" in arguments:
+    if failure == "history-schema":
+        sys.exit(1)
+    context = Path(os.environ["LABELER_RELEASE_CONTEXT_HOST_PATH"])
+    value = json.loads(context.read_text())
+    if value["receipt"]["authorization"]["action"] != "maintenance-history" or value["receipt"]["phase"] != "pending":
+        sys.exit(3)
+    origin = json.loads((root / "observation.json").read_text())
+    origin.update(schema="study-schema-4", schemaFingerprint="b" * 64,
+        fingerprint=__import__("hashlib").sha256((origin["dataBundle"] + "016").encode()).hexdigest())
+    (root / "observation.json").write_text(json.dumps(origin))
+    (root / "applied016").touch()
+    if failure == "history-post-commit":
+        sys.exit(1)
+elif "scripts/cutover-copilot-369.js" in arguments:
+    if failure == "cutover":
+        sys.exit(1)
+    (root / "observation.json").write_bytes((root / "target.json").read_bytes())
 elif "labeling-study-prepare" in arguments and "run" in arguments:
     if failure == "prepare":
         sys.exit(1)

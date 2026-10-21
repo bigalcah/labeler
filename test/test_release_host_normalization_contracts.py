@@ -20,7 +20,7 @@ class NormalizationContracts(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.state = State(self.root)
-        self.origin = observed("empty", contracts.SCHEMA)
+        self.origin = observed("empty", "study-schema-3")
         adopted(self.state, self.origin)
         directory, _, self.binding = candidate(self.root)
         lifecycle.install(self.state, directory, self.binding)
@@ -54,8 +54,8 @@ class NormalizationContracts(unittest.TestCase):
             adopted(state, self.origin)
             receipt = state.reserve(self.binding, self.origin, auth("maintenance-normalize"))
             receipt = state.advance(receipt, "pending")
-            lifecycle.verified(state, {**receipt, "authorization": auth("reconcile")}, self.origin)
             with self.assertRaises(contracts.Rejected):
+                lifecycle.verified(state, {**receipt, "authorization": auth("reconcile")}, self.origin)
                 state.load()
 
     def test_origin_is_immutable_across_checkpoint_even_if_database_identity_stays_equal(self):

@@ -178,6 +178,9 @@ const loadStudyCard = async (executor, studyId, participantId, cardId) => {
             AND category.study_id = study_card.study_id
             AND category.participant_id = $2
          LEFT JOIN study_enrichment_promotion promotion ON promotion.study_id = study_card.study_id
+            AND promotion.source_checksum = (SELECT source_checksum FROM study WHERE id = study_card.study_id)
+            AND EXISTS (SELECT 1 FROM github_enrichment_run source_run WHERE source_run.id = promotion.run_id
+                AND source_run.study_id = promotion.study_id AND source_run.source_checksum = promotion.source_checksum)
          LEFT JOIN github_enrichment_run_card run_card
              ON run_card.run_id = promotion.run_id
             AND run_card.study_id = study_card.study_id
@@ -185,6 +188,7 @@ const loadStudyCard = async (executor, studyId, participantId, cardId) => {
          LEFT JOIN github_enrichment_run run
              ON run.id = promotion.run_id
             AND run.study_id = study_card.study_id
+            AND run.source_checksum = promotion.source_checksum
             AND run.state = 'COMPLETED'
          LEFT JOIN LATERAL (
              SELECT jsonb_agg(jsonb_build_object('endpoint', page.endpoint, 'status', page.state,

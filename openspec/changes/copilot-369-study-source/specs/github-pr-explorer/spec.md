@@ -1,3 +1,5 @@
+# Explorador de PR de Copilot 369
+
 ## MODIFIED Requirements
 
 ### Requirement: Tarjeta de Pull Request
@@ -66,6 +68,12 @@ ni añadir paneles de commits, timeline o JSON completo. La representación de t
 
 - **WHEN** se presenta evidencia de una tarjeta del estudio de 30
 - **THEN** su contenido, disponibilidad y representación existentes permanecen sin cambios
+
+#### Scenario: Promoción de una fuente histórica
+
+- **WHEN** la primaria activa de 369 conserva una promoción GitHub cuyo checksum corresponde al CSV anterior de 300
+- **THEN** la tarjeta usa la evidencia de su fuente activa y no atribuye a esa muestra el run o snapshot histórico;
+  la promoción se conserva y el estudio de 30 sigue mostrando su evidencia existente
 
 ### Requirement: Referencia externa opcional
 

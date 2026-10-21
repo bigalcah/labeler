@@ -10,6 +10,9 @@ from contracts import (Document, HASH, TARGET, now, observation, read, require, 
 
 
 def authorize(runtime, action: str, binding: Document | None, observed: Document) -> Document:
+    if getattr(runtime, "automation", None) is not None:
+        from automatic import authorization
+        return authorization(runtime, action, binding, observed)
     path = runtime.external(runtime.environment.get("LABELER_AUTHORIZATION_FILE", ""))
     require(path.stat().st_uid == 0, "authorization must be root-owned")
     request = shape(read(path), "version action actor issuedAt expiresAt candidate databaseIdentity writersStopped drain consumerSha256")
@@ -30,7 +33,11 @@ def authorize(runtime, action: str, binding: Document | None, observed: Document
     return authorization
 
 
-def backup(runtime, observed: Document) -> Document:
+def backup(runtime, observed: Document) -> Document | None:
+    if getattr(runtime, "automation", None) is not None:
+        require(runtime.automation["backupRequired"] is False, "automatic backup policy mismatch")
+        runtime.writers_stopped()
+        return None
     runtime.stage = "backup"
     command = runtime.external(runtime.environment.get("LABELER_BACKUP_COMMAND", ""))
     require(command.stat().st_uid == 0 and command.stat().st_mode & 0o111 != 0, "backup boundary must be a root-owned executable")

@@ -9,6 +9,7 @@ import pg from "pg";
 import {readPullRequestCards} from "../../util/csv-pr-provider.js";
 import {canonicalCardContent, computeCardChecksum} from "../../util/pr-card-checksum.js";
 import {runStudyMigrations} from "../../util/study-schema.js";
+import {seedClosedStudyEnrichment} from "./enriched-primary-fixture.js";
 
 const {Pool} = pg;
 const REPOSITORY_ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -174,7 +175,7 @@ const seedProtectedValidationState = async (client, studyId) => {
     );
 };
 
-const seedHistoricalCopilot369Studies = async ({pool}) => {
+const seedHistoricalCopilot369Studies = async ({pool}, {enriched = false} = {}) => {
     const [primaryResult, validationResult, validationManifestBytes] = await Promise.all([
         readPullRequestCards(PRIMARY_CSV_PATH, {expectedCardCount: 300}),
         readPullRequestCards(VALIDATION_CSV_PATH, {expectedCardCount: 30}),
@@ -207,6 +208,10 @@ const seedHistoricalCopilot369Studies = async ({pool}) => {
             sourceChecksum: validationResult.sourceChecksum, accounts: validationAccounts});
         await seedStudyCards(client, {studyId: primaryStudyId, cards: primaryResult.cards});
         await seedStudyCards(client, {studyId: validationStudyId, cards: validationResult.cards});
+        if (enriched) {
+            await seedClosedStudyEnrichment(client, primaryStudyId);
+            await seedClosedStudyEnrichment(client, validationStudyId);
+        }
         await seedProtectedValidationState(client, validationStudyId);
         await client.query("COMMIT");
         return {primaryStudyId, validationStudyId};

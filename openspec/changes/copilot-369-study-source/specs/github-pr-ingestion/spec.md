@@ -1,3 +1,5 @@
+# Ingesta y conservación de fuentes de PR
+
 ## MODIFIED Requirements
 
 ### Requirement: Importación robusta del CSV
@@ -123,6 +125,32 @@ cambiar la muestra.
 - **THEN** sus únicos miembros son los 369 PR ordenados del CSV, sin cargar ni reemplazar con PR de reserva
 
 ## ADDED Requirements
+
+### Requirement: Conservación del enriquecimiento histórico durante el cutover
+
+El sistema MUST conservar los registros GitHub históricos de la primaria, sus vínculos de estudio,
+tarjeta, run y snapshot, y la membresía histórica que explica su procedencia. La sustitución de la
+muestra activa MUST NOT borrar, mover, reasignar ni reescribir esos registros o sus timestamps.
+Las referencias nuevas SHALL mantener integridad referencial validada; el historial no se conserva
+solo en un dump externo ni mediante constraints desactivadas. La fuente de validación y sus filas
+persistidas SHALL conservarse idénticas; los metadatos de referencia añadidos por una migración global
+no autorizan mutaciones de esas filas.
+
+#### Scenario: Historial cerrado conservado
+
+- **WHEN** una primaria de 300 con runs cerrados válidos pasa por la transición autorizada
+- **THEN** conserva runs, páginas, mappings, promociones, snapshots, telemetría y su membresía de procedencia,
+  mientras solo las 369 tarjetas canónicas pertenecen a la muestra activa
+
+#### Scenario: Página parcial de run fallido
+
+- **WHEN** un run FAILED conserva páginas parciales íntegras y no tiene un mapping final
+- **THEN** se conserva sin inventar su finalización o snapshot y se valida contra su muestra histórica
+
+#### Scenario: Dependencia no demostrable
+
+- **WHEN** una referencia histórica no pertenece a la muestra/checksum declarado o un run sigue RUNNING
+- **THEN** se rechaza el mantenimiento sin mutaciones ni eliminación del registro que provocó el rechazo
 
 ### Requirement: Informe de disponibilidad de fuente
 

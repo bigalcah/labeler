@@ -1,5 +1,17 @@
 # Tareas de implementación del pipeline Copilot 369
 
+## 12. Revisión aprobada: despliegue automático sin backup obligatorio
+
+Estas tareas sustituyen los prerrequisitos de backup/restore y operación manual por candidato de las
+secciones históricas solo en el modo delegado; los demás contratos permanecen vigentes.
+
+- [x] 12.1 Validar política root-owned fijada a consumidor, repositorio, base y cierre de ingreso legacy.
+- [x] 12.2 Delegar autorizaciones frescas auditables y registrar backupRef null sin fabricar respaldo.
+- [x] 12.3 Orquestar desde deploy adopción inicial, pasos conocidos, cutover y preparación existentes bajo lock.
+- [x] 12.4 Capturar solicitud de cutover readonly y conservar validación transaccional, cuentas e historial de 30.
+- [x] 12.5 Probar políticas inválidas, ausencia de backup, estados interrumpidos y releases sucesivas readonly.
+- [x] 12.6 Documentar instalación inicial root y verificar suites, congelación y OpenSpec sin afirmar despliegue real.
+
 ## 1. Aprobaciones y preservación de la línea base
 
 - [x] 1.1 Cambio dedicado: obtener aprobación explícita del usuario para la excepción de pipeline y registrar su alcance

@@ -41,6 +41,8 @@ def finish(state, runtime, receipt: Document) -> Document:
     observed = runtime.observe()
     if state.has_normalization_checkpoint(receipt):
         require(runtime.normalization_probe()["applied015"] is True, "normalized operation lost its 015 lineage")
+    if state.has_history_checkpoint(receipt):
+        require(runtime.history_probe()["applied016"] is True, "history operation lost its 016 lineage")
     require(observed["databaseIdentity"] == receipt["databaseIdentity"] and observed["schema"] == TARGET["schema"]
             and observed["dataBundle"] == TARGET["dataBundle"], "runtime cannot use an unverified target")
     try:
@@ -71,6 +73,10 @@ def finish(state, runtime, receipt: Document) -> Document:
 
 
 def deploy(state, runtime, source: Path, action: str) -> None:
+    if action == "maintenance-history":
+        from history import start
+        start(state, runtime, source)
+        return
     if action == "maintenance-normalize":
         from normalization import start
         start(state, runtime, source)
@@ -80,7 +86,7 @@ def deploy(state, runtime, source: Path, action: str) -> None:
     require(loaded is not None, "host adoption required")
     bridge = (loaded[0]["status"] == "verified" and loaded[1]["phase"] == "cutover_verified"
         and (loaded[1]["authorization"]["action"] == "maintenance" or
-             (loaded[1]["authorization"]["action"] == "continue" and state.has_normalization_checkpoint(loaded[1])))
+             (loaded[1]["authorization"]["action"] == "continue" and state.has_history_checkpoint(loaded[1])))
         and loaded[1]["origin"]["dataBundle"] == "legacy300-v1" and loaded[1]["candidate"] == binding)
     require(bridge or (loaded[0]["status"] == "verified" and loaded[1]["phase"] in ("adoption", "completed")),
             "interrupted operation requires readonly reconcile and explicit continuation")
@@ -90,6 +96,8 @@ def deploy(state, runtime, source: Path, action: str) -> None:
     runtime.verify_images(release)
     origin = runtime.observe()
     require(origin["schema"] != "014_copilot_369_cardinality", "retired schema requires explicit maintenance normalize")
+    require(origin["dataBundle"] == "empty" or origin["schema"] == TARGET["schema"],
+            "existing studies require explicit history maintenance before deploying schema-4")
     require(origin["databaseIdentity"] == loaded[0]["databaseIdentity"], "candidate database identity differs from adopted identity")
     if bridge and origin["dataBundle"] == TARGET["dataBundle"]:
         require(action == "deploy" and state.floor() == binding["generation"]
@@ -102,8 +110,7 @@ def deploy(state, runtime, source: Path, action: str) -> None:
     require(origin["dataBundle"] != "legacy300-v1" or action == "maintenance", "historical 300 requires manual maintenance; see docs/COPILOT-369-RUNBOOK.md")
     if action == "maintenance":
         require(origin["dataBundle"] == "legacy300-v1", "maintenance requires a verified historical origin")
-        require(origin["schema"] in ("013_category_definition_color", "study-schema-3"),
-                "historical maintenance requires verified schema through 013; earlier upgrades need separate approval")
+        require(origin["schema"] == TARGET["schema"], "historical cutover requires the history schema-4 checkpoint")
         from baseline import historical_baseline
         baseline = historical_baseline(state, loaded[1])
         runtime.writers_stopped()
@@ -135,6 +142,7 @@ def pending(state, receipt: Document) -> Document:
 
 def execute_pending(state, runtime, receipt: Document, action: str) -> None:
     fresh = runtime.observe()
+    require(fresh["schema"] == TARGET["schema"] or fresh["dataBundle"] == "empty", "schema-3 cannot run the new application")
     if state.has_normalization_checkpoint(receipt):
         require(runtime.normalization_probe()["applied015"] is True, "normalized operation lost its 015 lineage")
     require(same_state(fresh, state.baseline(receipt)), "origin drift before mutating handoff")
@@ -158,20 +166,26 @@ def execute_pending(state, runtime, receipt: Document, action: str) -> None:
 def continue_operation(state, runtime, action: str) -> None:
     journal, receipt = state.load() or (None, None)
     require(receipt is not None and receipt["candidate"] is not None and receipt["phase"] in
-            ("normalization_verified", "abandoned", "cutover_verified", "publication_intent", "publication_metadata"), "reconcile interrupted operation first")
-    require(receipt["phase"] == "normalization_verified" or receipt["authorization"]["action"] == "reconcile", "fresh readonly reconciliation is required before continuation")
+            ("normalization_verified", "history_schema_verified", "abandoned", "cutover_verified", "publication_intent", "publication_metadata"), "reconcile interrupted operation first")
+    require(receipt["phase"] in ("normalization_verified", "history_schema_verified") or receipt["authorization"]["action"] == "reconcile", "fresh readonly reconciliation is required before continuation")
     directory = state.root / "releases" / receipt["candidate"]["releaseId"]
     release, binding = package.inspect(directory)
     require(binding == receipt["candidate"] and (state.floor() == binding["generation"]
             or (str(receipt["operationId"]).startswith("rollback-") and state.floor() > binding["generation"])), "continuation candidate or floor mismatch")
     runtime.configure(directory, release)
     runtime.verify_images(release)
+    if receipt["phase"] == "history_schema_verified":
+        from history import continue_checkpoint
+        require(action == "continue", "explicit continuation required after history schema")
+        continue_checkpoint(state, runtime, receipt)
+        return
     if receipt["phase"] == "normalization_verified":
         from normalization import continue_checkpoint
         require(action == "continue", "explicit continuation required after normalization")
         continue_checkpoint(state, runtime, receipt)
         return
     require(not state.normalization_intent(receipt), "intact normalization origin needs fresh maintenance-normalize authorization")
+    require(not state.history_intent(receipt), "intact history origin needs fresh maintenance-history authorization")
     fresh = runtime.observe()
     if state.has_normalization_checkpoint(receipt):
         require(runtime.normalization_probe()["applied015"] is True, "normalized operation lost its 015 lineage")

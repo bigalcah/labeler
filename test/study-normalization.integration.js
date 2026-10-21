@@ -66,7 +66,7 @@ for (const origin of ["empty", "legacy300-v1", "copilot369-v1"]) {
             const after = await probeStudyNormalization(options);
             assert.equal(after.applied015, true);
             assert.equal(after.eligibility, "already-applied");
-            await assertCutoverContract(database.pool);
+            await assert.rejects(assertCutoverContract(database.pool), /schema|history/i);
             if (origin === "legacy300-v1") {
                 const {rows: [primary]} = await database.pool.query("SELECT id FROM study WHERE study_key = 'pr-card-sorting-local'");
                 await assert.rejects(assertNoCopilot369History(database.pool, primary.id), /histor|classification|decision|categor/i);

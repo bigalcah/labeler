@@ -105,6 +105,7 @@ const createRuntimeRehearsal = async kind => {
                     await seedHistoricalCopilot369Studies(options);
                     await pool.query("UPDATE participant_account SET password_hash = $1", [fixture.profiles[0].bootstrapInput.credentialManifest.accounts[0].passwordHash]);
                 } else {
+                    await pool.query(await readFile(path.join(root, "schema/migrations/016_preserve_study_card_history.sql"), "utf8"));
                     await prepareStudyProfiles(options);
                     await seedNormalizationDecisions(pool);
                 }

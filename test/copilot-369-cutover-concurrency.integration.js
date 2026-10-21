@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
+import {readFile} from "node:fs/promises";
 import {cutoverCopilot369} from "../util/copilot-369-cutover.js";
 import {CUTOVER_CONFIRMATION, LEGACY_300_CHECKSUM} from "../util/copilot-369-cutover-preflight.js";
 import {CUTOVER_TABLES} from "../util/copilot-369-schema-contract.js";
@@ -13,6 +14,9 @@ const fixture = async (context, settings) => {
     const db = await startCopilot369Database(settings);
     context.after(() => closeCopilot369Database(db));
     const ids = await seedHistoricalCopilot369Studies(db);
+    if (settings?.throughMigration !== "013_category_definition_color") {
+        await db.pool.query(await readFile(new URL("../schema/migrations/016_preserve_study_card_history.sql", import.meta.url), "utf8"));
+    }
     await db.pool.query(`INSERT INTO participant_account(study_id,reviewer_id,normalized_username,password_hash,credential_version)
         SELECT member.study_id,member.reviewer_id,member.participant_key || CASE WHEN study.expected_card_count=30 THEN '-30' ELSE '' END,
             'synthetic-only-' || member.study_id || '-' || member.participant_key,member.ordinal+1
@@ -29,6 +33,7 @@ const fixture = async (context, settings) => {
         targetCsvPath: "plans/copilot-369-cards.csv", targetManifestPath: "plans/copilot-369-cards.manifest.json"}};
 };
 const state = async pool => Object.fromEntries(await Promise.all(CUTOVER_TABLES.map(async table => {
+    if (!(await pool.query("SELECT to_regclass($1) AS relation", [`public.${table}`])).rows[0].relation) return [table, {absent: true}];
     const {rows} = await pool.query(`SELECT count(*)::integer AS count, md5(COALESCE(string_agg(to_jsonb(record)::text || record.xmin::text, '' ORDER BY to_jsonb(record)::text), '')) AS hash FROM public.${table} record`);
     return [table, rows[0]];
 })));
@@ -214,7 +219,7 @@ test("temporary shadow tables and replica-trigger execution contexts fail closed
 });
 
 for (const kind of ["run", "page", "mapping", "promotion", "telemetry"]) {
-    test(`primary ${kind} history blocks cutover and preserves all immutable evidence`, async context => {
+    test(`primary ${kind} history ${kind === "promotion" ? "is retained during" : "while RUNNING blocks"} cutover`, async context => {
         const db = await fixture(context);
         const {rows: [run]} = await db.pool.query("INSERT INTO github_enrichment_run(study_id,source_checksum,config_fingerprint,normalizer_version,state) VALUES ($1,$2,'synthetic','synthetic','RUNNING') RETURNING id", [db.primaryStudyId, LEGACY_300_CHECKSUM]);
         if (kind === "page") await db.pool.query(`INSERT INTO github_run_page(run_id,study_id,pr_card_id,endpoint,page_ordinal,request_fingerprint,api_version,accept,state)
@@ -233,8 +238,15 @@ for (const kind of ["run", "page", "mapping", "promotion", "telemetry"]) {
         }
         if (kind === "telemetry") await db.pool.query("INSERT INTO github_api_telemetry_event(event_id,event_type,run_id,study_id,occurred_at) VALUES (gen_random_uuid(),'RESUME_STARTED',$1,$2,now())", [run.id, db.primaryStudyId]);
         const before = await state(db.pool);
-        await assert.rejects(cutoverCopilot369(db.options), /history/);
-        assert.deepEqual(await state(db.pool), before);
+        if (kind === "promotion") {
+            assert.equal((await cutoverCopilot369(db.options)).status, "CUTOVER_369");
+            const after = await state(db.pool);
+            for (const table of CUTOVER_TABLES.filter(table => !["study", "study_card", "pr_cards",
+                "study_card_reference", "study_source_membership"].includes(table))) assert.deepEqual(after[table], before[table], table);
+        } else {
+            await assert.rejects(cutoverCopilot369(db.options), /history/);
+            assert.deepEqual(await state(db.pool), before);
+        }
     });
 }
 

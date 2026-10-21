@@ -1,5 +1,9 @@
 # Copilot 369: tareas
 
+Las secciones 0–6 registran la implementación inicial, incluido su rechazo de todo historial. No prueban que la
+corrección autorizada el 21 de octubre de 2026 esté implementada. La sección 7 es el delta pendiente; mantiene el mismo
+estudio y muestra objetivo. La configuración y ejecución real en VPS conservan sus gates operativos separados.
+
 ## 0. Preparación autorizada
 
 - [x] 0.1 Antes de implementar, confirmar aprobación explícita y una rama feature basada en develop;
@@ -101,3 +105,31 @@
   confirmar que no hay llamadas GitHub.
 - [x] 6.7 Entrega: Mantener release HOLD hasta cambio dedicado aprobado; no tocar workflows/compose de release ni
   desplegar contra base real.
+
+## 7. Corrección del cutover con historial GitHub conservado
+
+- [x] 7.1 Reanudar mediante apply explícito de este cambio revisado y feature desde develop; preservar archivos ajenos
+  y registrar el delta frente a la implementación inicial sin reutilizar sus checks como prueba de la corrección.
+- [x] 7.2 Crear fixture PostgreSQL 17 desde el estado 013 con primaria 300 enriquecida, runs COMPLETED y FAILED con
+  páginas parciales, y validación 30 con decisiones/descartes; capturar valores, identidades, timestamps y xmin protegidos.
+- [x] 7.3 Añadir 016_preserve_study_card_history y sus contratos físicos/pins independientes sin editar 001–015:
+  anclas permanentes, membresía por fuente, constraints e inmutabilidad; validar FKs antes de retirar las dos antiguas.
+- [x] 7.4 Integrar la captura append-only de referencias durante inicialización/cutover y exigir pertenencia por fuente
+  en nuevas páginas/mappings; conservar triggers terminales y rechazar runs RUNNING, orfandad y dependencias desconocidas.
+- [x] 7.5 Corregir preflight y cutover para aceptar historial cerrado verificable, manteniendo cero decisiones/descartes,
+  checksums y membresías exactos, locks y revalidación transaccional; preservar study_id, participantes y credenciales.
+- [x] 7.6 Filtrar promociones/runs por la fuente activa en presentación, escritura de decisiones y exportación;
+  probar que el historial 300 no contamina 369 y que la salida y decisiones de 30 no cambian.
+- [x] 7.7 Actualizar productor, parsers, readiness, ledger y observador al contrato study-schema-4/copilot369-v1;
+  preservar forma v2, cuatro hashes del bundle, doce claves de recibos/journal y lectura exacta de evidencia antigua.
+- [ ] 7.8 Integrar 014/015 según origen físico real, checkpoint history_schema_verified tras 016 y continuación
+  explícita bajo mantenimiento; exigir autorización fresca y backup/restore del baseline correcto, sin verbos SSH nuevos.
+- [x] 7.9 Probar fallos y carreras antes/después de DDL y cutover, rollback íntegro, reconcile readonly, replay,
+  continuación del candidato exacto y repetición sin escrituras; demostrar rechazo de una imagen schema-3 tras 016.
+- [x] 7.10 Probar inicialización vacía autorizada y pareja schema-4 existente con decisiones; comparar preservación
+  completa de historia primaria y estado original de 30, incluyendo xmin, y exactamente 369/30 miembros activos.
+- [ ] 7.11 Corregir el checker documental aún fijado a 30/300, runbooks y pruebas de contrato sin modificar workflows,
+  Compose release, fingerprints ni CODEOWNERS; ejecutar lint, freeze, suites completas y validación OpenSpec estricta.
+- [ ] 7.12 Entregar la corrección para revisión con evidencia aislada y comandos de actualización del consumidor;
+  instalación root, adopción, backup/restore y mantenimiento reales requieren ejecución y autorizaciones verificadas,
+  y no se marcan completos por tests locales o por este plan.

@@ -73,9 +73,9 @@ for (const mode of ["runtime", "smoke", "rollback"]) {
             assert.equal(report.failureStage, mode === "smoke" ? "smoke" : "runtime");
             assert.notEqual(report.failedPhase, "completed");
             assert.equal(report.journal.status, mode === "smoke" ? "pending" : "verified");
-            assert.equal(report.journal.effectiveSchema, mode === "smoke" ? null : "study-schema-3");
+            assert.equal(report.journal.effectiveSchema, mode === "smoke" ? null : "study-schema-4");
             assert.equal(report.journal.effectiveDataBundle, mode === "smoke" ? null : "copilot369-v1");
-            assert.equal(report.fresh.schema, "study-schema-3");
+            assert.equal(report.fresh.schema, "study-schema-4");
             assert.equal(report.fresh.dataBundle, "copilot369-v1");
             assert.equal(report.phase, "abandoned");
             assert.equal(report.origin.readOnly.grantsVerified, true);

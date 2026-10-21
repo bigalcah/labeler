@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
-import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
+import {chmod, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import {spawn} from "node:child_process";
+import {execFile, spawn} from "node:child_process";
+import {promisify} from "node:util";
 import {test} from "node:test";
 import pg from "pg";
 import {parse} from "csv-parse/sync";
@@ -13,13 +14,20 @@ import {CUTOVER_TABLES} from "../util/copilot-369-schema-contract.js";
 import {COPILOT_369_SOURCE_CHECKSUM, readCopilot369Cards} from "../util/copilot-369-source.js";
 import {persistCopilot369Cards} from "../util/copilot-369-persistence.js";
 import {createStudyService} from "../util/study-service.js";
+import {loadStudyCard} from "../util/study-read-repository.js";
+import {loadStudyExportRows} from "../util/study-export-repository.js";
 import {closeCopilot369Database, fingerprintProtectedCopilot369State,
     seedHistoricalCopilot369Studies, startCopilot369Database} from "./support/copilot-369-fixture.js";
+import {stageNodeContainerInputs} from "./support/container-input-staging.js";
 
-const fixture = async (context, settings) => {
+const fixture = async (context, {enriched = false, implicitLoginUsernames = false, ...settings} = {}) => {
     const db = await startCopilot369Database(settings);
     context.after(() => closeCopilot369Database(db));
-    const ids = await seedHistoricalCopilot369Studies(db);
+    const ids = await seedHistoricalCopilot369Studies(db, {enriched});
+    if (implicitLoginUsernames) {
+        await db.pool.query("UPDATE study SET config=config-'loginUsernames' WHERE id=$1", [ids.primaryStudyId]);
+    }
+    await db.pool.query(await readFile(new URL("../schema/migrations/016_preserve_study_card_history.sql", import.meta.url), "utf8"));
     await db.pool.query(`INSERT INTO participant_account(study_id,reviewer_id,normalized_username,password_hash,credential_version)
         SELECT member.study_id,member.reviewer_id,member.participant_key || CASE WHEN study.expected_card_count=30 THEN '-30' ELSE '' END,
             'synthetic-only-' || member.study_id || '-' || member.participant_key,member.ordinal+1
@@ -57,6 +65,41 @@ const runCli = argumentsList => new Promise((resolve, reject) => {
     child.on("exit", code => resolve({code, stdout, stderr}));
 });
 
+test("automatic request reads exact historical membership and cutover preserves protected30", async context => {
+    const db = await fixture(context, {enriched: true, implicitLoginUsernames: true});
+    const before = await state(db.pool);
+    const protected30 = await fingerprintProtectedCopilot369State(db.pool, db.validationStudyId);
+    const directory = await mkdtemp(path.join(os.tmpdir(), "automatic-cutover-request-"));
+    context.after(() => rm(directory, {recursive: true, force: true}));
+    await chmod(directory, 0o755);
+    const password = path.join(directory, "password");
+    await writeFile(password, "isolated-test-only\n", {mode: 0o400});
+    const staged = await stageNodeContainerInputs({sourceDirectory: directory, destinationDirectory: directory,
+        inputMappings: [{source: "password", destination: "password"}], helperImage: "python:3.12-alpine"});
+    const root = path.resolve(".");
+    const {stdout} = await promisify(execFile)("docker", ["run", "--rm", "--network", "host", "--read-only",
+        "--cap-drop", "ALL", "--mount", `type=bind,src=${root}/util,dst=/labeling/util,readonly`,
+        "--mount", `type=bind,src=${root}/scripts,dst=/labeling/scripts,readonly`,
+        ...["copilot-369-cards.csv", "copilot-369-cards.manifest.json"].flatMap(file =>
+            ["--mount", `type=bind,src=${root}/plans/${file},dst=/labeling/data/${file},readonly`]),
+        "--mount", `type=bind,src=${root}/plans/merged_after_rework_cards_seed_20260510.csv,dst=/labeling/data/pr-cards.csv,readonly`,
+        "--mount", `type=bind,src=${staged}/password,dst=/fixture-password,readonly`,
+        "-e", "DATABASE_HOST=127.0.0.1", "-e", `DATABASE_PORT=${db.pool.options.port}`,
+        "-e", "DATABASE_NAME=labeler_test", "-e", "DATABASE_USER=labeler_test", "-e", "DATABASE_PASS_FILE=/fixture-password",
+        "--entrypoint", "node", process.env.LABELER_READINESS_TEST_IMAGE,
+        "scripts/create-copilot-cutover-request.js", password], {timeout: 30000});
+    const request = JSON.parse(stdout);
+    assert.deepEqual(request.expectedLegacyConfig, db.options.expectedLegacyConfig);
+    assert.deepEqual(request.expectedLegacyMemberships, db.options.expectedLegacyMemberships);
+    assert.deepEqual(await state(db.pool), before);
+    const {database: _database, ...options} = request;
+    const result = await cutoverCopilot369({...options, pool: db.pool,
+        legacyCsvPath: db.options.legacyCsvPath, targetCsvPath: db.options.targetCsvPath,
+        targetManifestPath: db.options.targetManifestPath});
+    assert.equal(result.status, "CUTOVER_369");
+    assert.deepEqual(await fingerprintProtectedCopilot369State(db.pool, db.validationStudyId), protected30);
+});
+
 test("cutover preserves every original card, snapshot, identity and protected30 when eligible", async context => {
     const db = await fixture(context);
     await categoryAndCard(db);
@@ -72,7 +115,70 @@ test("cutover preserves every original card, snapshot, identity and protected30 
     const {rows: retained} = await db.pool.query("SELECT to_jsonb(card) AS card FROM pr_cards card WHERE id = ANY($1::uuid[]) ORDER BY id", [oldCards.map(row => row.card.id)]);
     assert.deepEqual(retained, oldCards);
     const after = await state(db.pool);
-    for (const table of CUTOVER_TABLES.filter(table => !["pr_cards", "study", "study_card"].includes(table))) assert.equal(after[table], original[table], table);
+    for (const table of CUTOVER_TABLES.filter(table => !["pr_cards", "study", "study_card",
+        "study_card_reference", "study_source_membership"].includes(table))) assert.equal(after[table], original[table], table);
+    assert.equal((await db.pool.query("SELECT count(*)::integer AS count FROM study_card_reference")).rows[0].count, 699);
+    assert.equal((await db.pool.query("SELECT count(*)::integer AS count FROM study_source_membership")).rows[0].count, 699);
+});
+
+test("enriched primary cutover preserves terminal history and validation decisions including xmin", async context => {
+    const db = await fixture(context, {enriched: true});
+    const {rows: [validation]} = await db.pool.query(`SELECT card.pr_card_id,participant.reviewer_id
+        FROM study_card card JOIN study_participant participant USING(study_id)
+        WHERE card.study_id=$1 AND card.ordinal=0 AND participant.ordinal=0`, [db.validationStudyId]);
+    const validationCard = await loadStudyCard(db.pool, db.validationStudyId, validation.reviewer_id, validation.pr_card_id);
+    assert.ok(validationCard.enrichment_run_id);
+    const before = await state(db.pool);
+    const protected30 = await fingerprintProtectedCopilot369State(db.pool, db.validationStudyId);
+    assert.equal((await cutoverCopilot369(db.options)).status, "CUTOVER_369");
+    const after = await state(db.pool);
+    for (const table of CUTOVER_TABLES.filter(table => !["pr_cards", "study", "study_card",
+        "study_card_reference", "study_source_membership"].includes(table))) assert.equal(after[table], before[table], table);
+    assert.deepEqual(await fingerprintProtectedCopilot369State(db.pool, db.validationStudyId), protected30);
+    const replay = await state(db.pool);
+    assert.equal((await cutoverCopilot369(db.options)).status, "ALREADY_369");
+    assert.deepEqual(await state(db.pool), replay);
+    assert.deepEqual(await loadStudyCard(db.pool, db.validationStudyId, validation.reviewer_id, validation.pr_card_id), validationCard);
+    const {context: participant, service, category, card} = await categoryAndCard(db);
+    const active = await loadStudyCard(db.pool, db.primaryStudyId, participant.participantId, card.pr_card_id);
+    assert.equal(active.enrichment_run_id, null);
+    assert.equal(active.enrichment_snapshot_checksum, null);
+    assert.equal(active.enrichment_pages, null);
+    await service.classifyCard(participant, card.pr_card_id, {categoryId: category.id, expectedRevision: 0});
+    assert.equal((await db.pool.query("SELECT enrichment_run_id FROM pr_classification WHERE study_id=$1", [db.primaryStudyId])).rows[0].enrichment_run_id, null);
+    await db.pool.query(`INSERT INTO pr_discard(study_id,pr_card_id,participant_id,reason)
+        SELECT member.study_id,member.pr_card_id,participant.reviewer_id,'fixture terminal export'
+        FROM study_card member JOIN study_participant participant USING(study_id)
+        WHERE member.study_id=$1 AND NOT EXISTS (SELECT 1 FROM pr_classification decision
+            WHERE decision.study_id=member.study_id AND decision.pr_card_id=member.pr_card_id
+                AND decision.participant_id=participant.reviewer_id)`, [db.primaryStudyId]);
+    const {rows: participants} = await db.pool.query(
+        "SELECT reviewer_id AS participant_id,ordinal AS participant_ordinal FROM study_participant WHERE study_id=$1 ORDER BY ordinal", [db.primaryStudyId]);
+    const {rows: cards} = await db.pool.query(
+        "SELECT source_card_id,ordinal AS card_ordinal FROM study_card WHERE study_id=$1 ORDER BY ordinal", [db.primaryStudyId]);
+    const exported = await loadStudyExportRows(db.pool, db.primaryStudyId, participants, cards);
+    assert.equal(exported.length, 369 * 3);
+    assert.ok(exported.every(row => row.promoted_html_url === null));
+    assert.deepEqual(await fingerprintProtectedCopilot369State(db.pool, db.validationStudyId), protected30);
+});
+
+test("historical implicit login names remain raw-bound while enriched cutover preserves protected data", async context => {
+    const db = await fixture(context, {enriched: true, implicitLoginUsernames: true});
+    assert.equal(Object.hasOwn(db.options.expectedLegacyConfig, "loginUsernames"), false);
+    const before = await state(db.pool);
+    const protected30 = await fingerprintProtectedCopilot369State(db.pool, db.validationStudyId);
+    const explicit = {...db.options.expectedLegacyConfig, loginUsernames: {javier: "javier", diego: "diego", pablo: "pablo"}};
+    await assert.rejects(cutoverCopilot369({...db.options, expectedLegacyConfig: explicit}), /persisted configuration/);
+    assert.deepEqual(await state(db.pool), before);
+    assert.equal((await cutoverCopilot369(db.options)).status, "CUTOVER_369");
+    const after = await state(db.pool);
+    for (const table of CUTOVER_TABLES.filter(table => !["pr_cards", "study", "study_card",
+        "study_card_reference", "study_source_membership"].includes(table))) assert.equal(after[table], before[table], table);
+    assert.deepEqual(await fingerprintProtectedCopilot369State(db.pool, db.validationStudyId), protected30);
+    const {rows: [primary]} = await db.pool.query("SELECT config FROM study WHERE id=$1", [db.primaryStudyId]);
+    assert.deepEqual(primary.config, {...explicit, expectedCardCount: 369});
+    assert.equal((await cutoverCopilot369(db.options)).status, "ALREADY_369");
+    assert.deepEqual(await state(db.pool), after);
 });
 
 test("replay is genuinely readonly when primary decisions and enrichment history exist", async context => {

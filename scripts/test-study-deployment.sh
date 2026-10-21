@@ -1500,8 +1500,11 @@ const before = JSON.parse(readFileSync(beforePath, "utf8"));
 const after = JSON.parse(readFileSync(afterPath, "utf8"));
 assert.equal(before.probe.applied015, false);
 assert.equal(after.probe.applied015, false);
-assert.equal(before.probe.eligibility, "eligible");
-assert.equal(after.probe.eligibility, "eligible");
+for (const state of [before, after]) {
+    assert.equal(state.probe.eligibility, "ineligible");
+    assert.equal(state.probe.observation.schema, "study-schema-4");
+    assert.equal(state.historyProbe.applied016, true);
+}
 assert.equal(before.applicationRowsSha256, after.applicationRowsSha256);
 for (const key of ["schema", "dataBundle", "fingerprint", "schemaFingerprint", "databaseIdentity"]) {
     assert.deepEqual(after.probe.observation[key], before.probe.observation[key]);
@@ -1826,6 +1829,21 @@ printf 'STAGE_NORMALIZATION_CHECKPOINT_STOP_OK\n'
 
 printf 'STAGE_FRESH_POST_015_CONTINUATION_BEGIN\n'
 docker kill --signal SIGUSR2 "$HANDOFF_CONTAINER_NAME" >/dev/null
+node "$ROOT/test/support/wait-for-docker-log.js" \
+  "$HANDOFF_CONTAINER_NAME" HISTORY_HANDOFF_READY 30000 >/dev/null
+printf 'STAGE_HISTORY_SCHEMA_BEGIN\n'
+HISTORY_OUTPUT=$(compose_for_existing_clean_profiles "$EXISTING_PROJECT" "$EXISTING_DIR" \
+  run --rm --no-deps --entrypoint node labeling-study-prepare scripts/preserve-study-card-history.js)
+case "$HISTORY_OUTPUT" in
+  *'"applied016":true,"changed":true'*) ;;
+  *) printf 'history maintenance did not report a new 016 commit\n' >&2; exit 1 ;;
+esac
+node "$ROOT/test/support/normalization-harness-db.js" history \
+  "$EXISTING_DATABASE_HOST" "$EXISTING_DIR" "$EXISTING_PROJECT" "$EXISTING_DIR/host-control/history-post-probe.json"
+if [ -n "$EVIDENCE_DIR" ]; then
+  cp "$EXISTING_DIR/host-control/history-post-probe.json" "$EVIDENCE_DIR/history-post-probe.json"
+fi
+docker kill --signal SIGUSR1 "$HANDOFF_CONTAINER_NAME" >/dev/null
 POST_015_HANDOFF_ATTESTATION=$(node "$ROOT/test/support/wait-for-docker-log.js" \
   "$HANDOFF_CONTAINER_NAME" POST_015_HANDOFF_READY 30000)
 node --input-type=module - "$POST_015_HANDOFF_ATTESTATION" "$WORK_DIR/$EXISTING_PROJECT-post-015-handoff.json" <<'NODE'
@@ -1834,7 +1852,7 @@ import {writeFileSync} from "node:fs";
 const [encodedAttestation, outputPath] = process.argv.slice(2);
 const attestation = JSON.parse(encodedAttestation);
 assert.equal(attestation.lockHeld, true);
-assert.equal(attestation.observation.schema, "study-schema-3");
+assert.equal(attestation.observation.schema, "study-schema-4");
 assert.equal(attestation.observation.dataBundle, "empty");
 assert.equal(attestation.observation.readOnly.grantsVerified, true);
 assert.equal(attestation.observation.readOnly.writersStopped, true);
@@ -1865,7 +1883,8 @@ const expected = [
 assert.deepEqual(profiles, expected);
 const proof = JSON.parse(readFileSync(process.argv[3], "utf8"));
 assert.equal(proof.probe.applied015, true);
-assert.equal(proof.probe.observation.schema, "study-schema-3");
+assert.equal(proof.probe.observation.schema, "study-schema-4");
+assert.equal(proof.historyProbe.applied016, true);
 assert.equal(proof.probe.observation.dataBundle, "copilot369-v1");
 NODE
 lock_probe=$(docker exec "$HANDOFF_CONTAINER_NAME" python3 -B \
@@ -1891,7 +1910,9 @@ assert.equal(report.checkpoint.reservationConsumed, false);
 assert.equal(report.continuation.phase, "completed");
 assert.equal(report.continuation.freshAuthorization, true);
 assert.equal(report.continuation.action, "continue");
-assert.equal(report.continuation.backupBaselineSchema, "study-schema-3");
+assert.equal(report.continuation.backupBaselineSchema, "study-schema-4");
+assert.equal(report.historyCheckpoint.phase, "history_schema_verified");
+assert.equal(report.historyCheckpoint.stepBaseline.schema, "study-schema-4");
 assert.equal(report.continuation.backupBaselineDataBundle, "empty");
 assert.equal(report.continuation.backupRestoreProofs.at(-1).archiveScope, "full-database");
 assert.equal(report.continuation.backupRestoreProofs.at(-1).syntheticFixture, true);

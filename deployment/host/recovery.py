@@ -83,8 +83,9 @@ def reconcile(state, runtime) -> None:
     from contracts import Rejected
     try:
         normalization = state.normalization_intent(receipt)
-        probe = runtime.normalization_probe() if normalization else None
-        fresh = probe["observation"] if normalization else runtime.observe()
+        history = state.history_intent(receipt)
+        probe = runtime.history_probe() if history else runtime.normalization_probe() if normalization else None
+        fresh = probe["observation"] if probe is not None else runtime.observe()
         if state.has_normalization_checkpoint(receipt):
             require(runtime.normalization_probe()["applied015"] is True, "normalized operation lost its 015 lineage")
     except Rejected:
@@ -113,11 +114,22 @@ def reconcile(state, runtime) -> None:
     require(state.floor() == receipt["candidate"]["generation"]
             or (str(receipt["operationId"]).startswith("rollback-") and state.floor() > receipt["candidate"]["generation"]),
              "reservation floor conflict")
+    if history:
+        from history import checkpoint
+        if receipt["phase"] == "reserved" and same_state(fresh, state.baseline(receipt)):
+            state.advance(receipt, "abandoned", "pending")
+        elif probe["applied016"] and fresh["schema"] == TARGET["schema"] and fresh["dataBundle"] == receipt["origin"]["dataBundle"]:
+            checkpoint(state, receipt, probe)
+        elif same_state(fresh, state.baseline(receipt)) and receipt["phase"] != "history_schema_verified":
+            state.advance(receipt, "abandoned", "pending")
+        else:
+            state.advance(receipt, "unknown", "unknown")
+        return
     if normalization:
         from normalization import checkpoint
         if receipt["phase"] == "reserved" and same_state(fresh, receipt["origin"]):
             state.advance(receipt, "abandoned", "pending")
-        elif probe["applied015"] and fresh["schema"] == TARGET["schema"] and fresh["dataBundle"] == receipt["origin"]["dataBundle"]:
+        elif probe["applied015"] and fresh["schema"] == "study-schema-3" and fresh["dataBundle"] == receipt["origin"]["dataBundle"]:
             checkpoint(state, receipt, probe)
         elif same_state(fresh, receipt["origin"]) and receipt["phase"] != "normalization_verified":
             state.advance(receipt, "abandoned", "pending")

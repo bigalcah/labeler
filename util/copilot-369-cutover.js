@@ -1,5 +1,6 @@
 import {isDeepStrictEqual} from "node:util";
 import {persistCopilot369Cards} from "./copilot-369-persistence.js";
+import {appendStudySourceMembership} from "./study-source-history.js";
 import {CUTOVER_TABLES, assertCopilot369SchemaContract} from "./copilot-369-schema-contract.js";
 import {assertNoCopilot369History, fingerprintCopilot369PreservedState,
     inspectCopilot369Study, prepareCopilot369Cutover} from "./copilot-369-cutover-preflight.js";
@@ -28,9 +29,14 @@ const cutoverCopilot369 = async options => {
         const locked = await inspectCopilot369Study(client, input);
         if (locked.target) throw new Error("Cutover changed during preflight; rerun for read-only verification");
         const {rows: oldCards} = await client.query("SELECT id FROM public.pr_cards ORDER BY id");
-        const scope = {studyId: input.studyId, existingCardIds: oldCards.map(card => card.id)};
+        const historyRows = {};
+        for (const table of ["study_card_reference", "study_source_membership"]) {
+            historyRows[table] = (await client.query(`SELECT to_jsonb(record) AS row FROM public.${table} record`)).rows.map(item => item.row);
+        }
+        const scope = {studyId: input.studyId, existingCardIds: oldCards.map(card => card.id), historyRows};
         const before = await fingerprintCopilot369PreservedState(client, scope);
         const persisted = await persistCopilot369Cards(client, input.target.cards, input.target.sourceChecksum);
+        await appendStudySourceMembership(client, input.studyId, input.target.sourceChecksum, persisted);
         await client.query("DELETE FROM public.study_card WHERE study_id = $1", [input.studyId]);
         await client.query(
             `INSERT INTO public.study_card(study_id, pr_card_id, source_card_id, ordinal, source_checksum)

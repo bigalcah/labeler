@@ -3,20 +3,23 @@ from __future__ import annotations
 import authority
 import package
 import publication
-from contracts import Document, SCHEMA, TARGET, require, same_state
+from contracts import Document, require, same_state
+from typing import Final
+
+NORMALIZATION_SCHEMA: Final = "study-schema-3"
 
 
 def checkpoint(state, receipt: Document, probe: Document) -> Document:
     observed = probe["observation"]
     require(probe["applied015"] is True and probe["eligibility"] == "already-applied"
-            and observed["schema"] == SCHEMA and observed["dataBundle"] == receipt["origin"]["dataBundle"]
+            and observed["schema"] == NORMALIZATION_SCHEMA and observed["dataBundle"] == receipt["origin"]["dataBundle"]
             and observed["databaseIdentity"] == receipt["databaseIdentity"], "canonical schema and actual 015 commit required")
     require(receipt["phase"] in ("pending", "abandoned", "normalization_verified"), "normalization checkpoint requires pending intent")
     if receipt["phase"] == "normalization_verified":
         require(same_state(receipt["target"]["observation"], observed), "normalized checkpoint drift")
         receipt = state.advance(receipt, "abandoned", "verified")
     successor = {**receipt, "phase": "normalization_verified", "predecessorEvidence": state.load()[0]["evidenceRef"],
-                 "target": {"schema": SCHEMA, "dataBundle": observed["dataBundle"], "observation": observed}}
+                 "target": {"schema": NORMALIZATION_SCHEMA, "dataBundle": observed["dataBundle"], "observation": observed}}
     state.save(successor, "verified")
     return successor
 
@@ -38,6 +41,8 @@ def start(state, runtime, source) -> None:
     runtime.verify_normalization_source()
     probe = runtime.normalization_probe()
     origin = probe["observation"]
+    require(origin["schema"] in ("014_copilot_369_cardinality", NORMALIZATION_SCHEMA),
+            "normalization only accepts its exact schema-3 source")
     require(origin["databaseIdentity"] == journal["databaseIdentity"] and probe["eligibility"] in ("eligible", "already-applied"),
             "normalization requires complete known source")
     require(not retry or same_state(origin, previous["origin"]), "normalization retry origin changed")
@@ -65,28 +70,4 @@ def start(state, runtime, source) -> None:
 
 
 def continue_checkpoint(state, runtime, receipt: Document) -> None:
-    from baseline import historical_baseline
-    from lifecycle import execute_pending, finish, verified
-    probe = runtime.normalization_probe()
-    fresh = probe["observation"]
-    require(probe["applied015"] and same_state(fresh, receipt["target"]["observation"]), "normalized baseline changed")
-    authorization = authority.authorize(runtime, "continue", receipt["candidate"], fresh)
-    require(authorization["requestSha256"] != receipt["authorization"]["requestSha256"], "separate fresh continuation authorization required")
-    require(publication.snapshot(state.root) == receipt["publication"]["before"], "normalization publication baseline changed")
-    backup_ref = None
-    if fresh["dataBundle"] != TARGET["dataBundle"]:
-        require(authorization["writersStopped"] is True and fresh["readOnly"]["writersStopped"] is True, "continuation writers must remain stopped")
-        if fresh["dataBundle"] == "legacy300-v1":
-            historical_baseline(state, receipt)
-        runtime.writers_stopped()
-        backup_ref = authority.backup(runtime, fresh)
-    require(same_state(runtime.observe(), fresh), "normalized baseline drift before continuation")
-    runtime.unchanged_mounts()
-    successor = {**receipt, "phase": "pending", "authorization": authorization,
-                 "backupRef": backup_ref, "target": {**TARGET, "observation": None},
-                 "predecessorEvidence": state.load()[0]["evidenceRef"]}
-    state.save(successor, "pending")
-    if fresh["dataBundle"] == TARGET["dataBundle"]:
-        finish(state, runtime, verified(state, successor, runtime.observe()))
-        return
-    execute_pending(state, runtime, successor, "maintenance" if fresh["dataBundle"] == "legacy300-v1" else "deploy")
+    require(False, "normalization is schema-3 only; explicit maintenance history is required before continuation")

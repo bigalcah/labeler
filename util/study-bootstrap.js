@@ -7,6 +7,7 @@ import {withTransaction} from "./transaction.js";
 import {provisionParticipantAccounts} from "./credential-accounts.js";
 import {validateCredentialManifest} from "./credential-manifest.js";
 import {verifyExistingStudy} from "./study-existing-validation.js";
+import {appendStudySourceMembership} from "./study-source-history.js";
 
 class StudyBootstrapConflictError extends Error {
     constructor(message) {
@@ -184,6 +185,9 @@ const bootstrapStudy = async options => {
             persistedCards,
             allowCreate: study.created,
         });
+        if ((await readStudyLedger(client)).applied016) {
+            await appendStudySourceMembership(client, study.id, sourceChecksum, persistedCards);
+        }
         await provisionParticipantAccounts({
             client,
             studyId: study.id,

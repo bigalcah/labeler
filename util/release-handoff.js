@@ -15,14 +15,21 @@ const verifyReleaseHandoff = async (observation, purpose = "prepare") => {
     assertHandoffReceipt(context.receipt);
     assertHandoffObservation(context.observation);
     const normalization = purpose === "maintenance-normalize";
+    const history = purpose === "maintenance-history";
+    const maintenance = normalization || history;
     const authorization = context.receipt.authorization;
-    if (!["prepare", "maintenance-normalize"].includes(purpose)
-        || (normalization ? authorization.action !== "maintenance-normalize"
+    const delegated = authorization.automation?.backupRequired === false;
+    const normalizedHistory = history && context.receipt.origin.schema === "014_copilot_369_cardinality"
+        && context.observation.schema === "study-schema-3";
+    const originKeys = normalizedHistory ? ["dataBundle", "databaseIdentity"]
+        : ["schema", "dataBundle", "fingerprint", "schemaFingerprint", "databaseIdentity"];
+    if (!["prepare", "maintenance-normalize", "maintenance-history"].includes(purpose)
+        || (maintenance ? authorization.action !== purpose
             : !["deploy", "continue"].includes(authorization.action))
         || !(Date.parse(authorization.issuedAt) <= Date.now() && Date.now() < Date.parse(authorization.expiresAt))
-        || (normalization && (authorization.writersStopped !== true || context.receipt.backupRef === null
+        || (maintenance && (authorization.writersStopped !== true || (!delegated && context.receipt.backupRef === null)
             || context.observation.readOnly.writersStopped !== true
-            || ["schema", "dataBundle", "fingerprint", "schemaFingerprint", "databaseIdentity"]
+            || originKeys
                 .some(key => !isDeepStrictEqual(context.observation[key], context.receipt.origin[key]))))) {
         throw new StudyReadinessError("Release handoff action does not authorize this step.");
     }
@@ -35,8 +42,8 @@ const verifyReleaseHandoff = async (observation, purpose = "prepare") => {
         || context.receipt.phase !== "pending" || context.receipt.kind !== "labeler-host-operation"
         || context.receipt.version !== 1 || !isDeepStrictEqual(context.candidate, context.receipt.candidate)
         || !context.candidate || !/^(0|[1-9][0-9]*)-[1-9][0-9]*-[a-f0-9]{40}$/.test(context.candidate.releaseId)
-        || context.receipt.target.schema !== "study-schema-3" || context.receipt.target.dataBundle !==
-            (normalization ? context.receipt.origin.dataBundle : "copilot369-v1")
+        || context.receipt.target.schema !== (normalization ? "study-schema-3" : "study-schema-4") || context.receipt.target.dataBundle !==
+            (maintenance ? context.receipt.origin.dataBundle : "copilot369-v1")
         || !isDeepStrictEqual(context.databaseIdentity, context.receipt.databaseIdentity)
         || !isDeepStrictEqual(context.databaseIdentity, context.observation.databaseIdentity)
         || createHash("sha256").update(JSON.stringify(context.receipt)).digest("hex") !== context.receiptSha256

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
-import {readFile, stat} from "node:fs/promises";
+import {mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import path from "node:path";
 import test from "node:test";
 import "./support/deployment-harness-readiness.test-helper.js";
 import "./support/deployment-container-inputs-contract.test-helper.js";
@@ -14,6 +16,44 @@ const normalizationHelper = await readFile(new URL("./support/locked-normalizati
 const normalizationRuntime = await readFile(new URL("./support/normalization_harness_runtime.py", import.meta.url), "utf8");
 const normalizationDbHelper = await readFile(new URL("./support/normalization-harness-db.js", import.meta.url), "utf8");
 const hostContracts = await readFile(new URL("../deployment/host/contracts.py", import.meta.url), "utf8");
+
+test("successive prepare accepts schema4 unchanged and rejects normalization, history or persistent drift", async () => {
+    const harness = await readFile(harnessUrl, "utf8");
+    const command = "node --input-type=module - \"$CLEAN_014_BEFORE_RERUN\" \"$CLEAN_014_AFTER_RERUN\" <<'NODE'\n";
+    const start = harness.indexOf(command);
+    assert.ok(start >= 0);
+    const assertion = harness.slice(start + command.length).split("\nNODE\n", 1)[0];
+    const directory = await mkdtemp(path.join(tmpdir(), "labeler-successive-prepare-"));
+    const beforePath = path.join(directory, "before.json");
+    const afterPath = path.join(directory, "after.json");
+    const baseline = {probe: {applied015: false, eligibility: "ineligible", observation: {
+        schema: "study-schema-4", dataBundle: "copilot369-v1", fingerprint: "data",
+        schemaFingerprint: "catalog", databaseIdentity: {systemIdentifier: "isolated-fixture"},
+    }}, historyProbe: {applied016: true}, applicationRowsSha256: "unchanged-rows"};
+    try {
+        await writeFile(beforePath, JSON.stringify(baseline));
+        await writeFile(afterPath, JSON.stringify(baseline));
+        const run = () => spawnSync(process.execPath, ["--input-type=module", "-", beforePath, afterPath],
+            {input: assertion, encoding: "utf8"});
+        const unchanged = run();
+        assert.equal(unchanged.status, 0, unchanged.stderr);
+        for (const mutate of [
+            state => { state.probe.applied015 = true; },
+            state => { state.probe.eligibility = "eligible"; },
+            state => { state.probe.observation.schema = "study-schema-3"; },
+            state => { state.historyProbe.applied016 = false; },
+            state => { state.applicationRowsSha256 = "changed-rows"; },
+            state => { state.probe.observation.fingerprint = "changed-data"; },
+        ]) {
+            const changed = structuredClone(baseline);
+            mutate(changed);
+            await writeFile(afterPath, JSON.stringify(changed));
+            assert.notEqual(run().status, 0, "successive prepare must reject drift");
+        }
+    } finally {
+        await rm(directory, {recursive: true, force: true});
+    }
+});
 
 test("deployment harness fails with an actionable prerequisite when Docker is unavailable", () => {
     const result = spawnSync("/bin/sh", [harnessUrl.pathname], {

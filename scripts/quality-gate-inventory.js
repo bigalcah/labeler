@@ -9,6 +9,7 @@ const integrationStages = Object.freeze({
         "test/copilot-369-persistence.integration.js",
         "test/copilot-369-cutover-concurrency.integration.js",
         "test/copilot-369-cutover.integration.js",
+        "test/copilot-369-history.integration.js",
         "test/copilot-369-schema.integration.js",
         "test/study-readiness.integration.js",
         "test/study-state-fingerprint.integration.js",

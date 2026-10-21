@@ -1,3 +1,5 @@
+# Diseño de fuente y cutover Copilot 369
+
 ## Context
 
 La propuesta define el cambio de la fuente primaria de 300 a 369 PR de Copilot, con una única muestra primaria activa.
@@ -20,10 +22,14 @@ tarjetas y su manifest constituyen una fuente de validación protegida. El archi
 `plans/merged_after_rework_cards_seed_20260510.csv` conserva la procedencia de validación de la muestra anterior de
 300 y no se sustituirá.
 
-La canalización de publicación está congelada: los siete workflows de `.github/workflows/` y
-`deployment/docker-compose.release.yml` deben permanecer idénticos a la línea base `b409233`. La validación compartida y
-el workflow de release aún esperan 300 tarjetas y usan el CSV anterior. Por ello, añadir la fuente correcta y un perfil
-de 369 no basta para publicar con seguridad.
+El pipeline v2 se integró en develop en 6bf1feb. Esta corrección conserva los fingerprints actuales aprobados de los
+siete workflows, Compose release y CODEOWNERS; no vuelve a escribir la excepción ni los hashes históricos. El nuevo
+alcance fue autorizado por el usuario después de confirmar que el cutover inicial no admite la primaria enriquecida.
+La observación real mostró primaria 300 READY con cero decisiones y tres runs GitHub, y validación 30 con 50
+clasificaciones y 12 descartes. Son datos de inventario, no prueba de elegibilidad completa, backup o migración.
+El grafo del 29 de septiembre no cubre el cutover actual: la revisión usó fuentes actuales de SQL 004, cutover,
+persistencia, lectores, readiness y consumidor. Los CSV históricos y objetivo tienen cero source_card_id coincidentes;
+la compatibilidad de cada fila real debe comprobarse de nuevo en preflight.
 
 ## Goals / Non-Goals
 
@@ -121,50 +127,85 @@ SHA o `event_key`.
 El cutover se implementa como una operación one-shot dedicada, no como una excepción global al bootstrap ordinario.
 Requiere confirmación explícita del operador, checksum antiguo y nuevo exactos, clave e ID de estudio esperados,
 configuración antigua exacta, membresía ordenada actual de 300 y membresía objetivo de 369. El preflight valida el CSV
-completo, identidad/orden de las tarjetas, esquema y dependencias. Confirma cero clasificaciones, cero descartes y cero
-filas primarias en `github_enrichment_run`, `github_run_page`, `github_enrichment_run_card`,
-`study_enrichment_promotion` y cualquier otra referencia histórica dependiente del estudio. Si una tabla, referencia o
-versión de esquema es desconocida, o existe cualquier referencia histórica, la transición se bloquea antes de mutar
-datos y requiere una decisión explícita fuera de este cambio. No se separan promociones ni se actualiza, elimina o
-mueve ningún run, mapping, página, promoción o snapshot.
+completo, identidad/orden de las tarjetas, esquema y dependencias. Confirma cero clasificaciones y descartes primarios.
+Puede reconocer historial GitHub cerrado, íntegro y enlazado a la fuente histórica exacta; runs RUNNING, referencias
+huérfanas, fuentes desconocidas, decisiones, dependencias no inventariadas o drift bloquean sin escrituras.
 
 La aplicación, la preparación y los escritores de enriquecimiento se detienen y quedan en mantenimiento antes de
 comenzar. En una única transacción se toman locks advisory, de fila de estudio y de membresía/tabla suficientes para
 cubrir todas las rutas de escritura; se vuelven a comprobar las precondiciones bajo esos locks. El lock advisory del
 bootstrap ordinario no garantiza por sí solo que los escritores queden serializados. Solo después de confirmar la
-configuración y membresía antigua exactas, cero clasificaciones/descartes y ausencia de toda referencia histórica
-primaria se actualizan fuente/configuración/conteo y se reemplazan las filas `study_card` de la primaria por las 369
+configuración y membresía antigua exactas, cero clasificaciones/descartes e integridad del historial preservado, se
+actualizan fuente/configuración/conteo y se reemplazan solo las filas activas `study_card` de la primaria por las 369
 membresías ordenadas. Una carrera, una dependencia no reconocida o una discrepancia aborta toda la transacción.
 
-No se usa `TRUNCATE`, `DROP CASCADE`, borrado global, movimiento de referencias, desactivación de triggers
+No se usa `TRUNCATE`, `DROP CASCADE`, borrado global, reasignación de valores históricos, desactivación de triggers
 ni `down -v`. No se actualiza, elimina ni reasigna ninguna cuenta, membresía de participante, clasificación, descarte, fila
 `pr_card` preexistente, run, mapping, página, promoción o snapshot. Una `pr_card` preexistente solo puede reutilizarse
 si es compatible sin actualizarla ni rellenar/backfillear su checksum; cualquier discrepancia, checksum nulo que exija
-backfill o dependencia histórica bloquea el cutover. Los snapshots compartidos que dependan solo de `pr_card` pueden
+backfill bloquea el cutover. Los snapshots compartidos que dependan solo de `pr_card` pueden
 permanecer intactos. Se verifica el estado persistido completo antes del commit.
 
-La migración `004_github_pr_api_enrichment.sql` vincula `github_run_page` y `github_enrichment_run_card` a
-`study_card`; protege los hijos terminales y prohíbe actualizar/eliminar promociones y eliminar runs. Por tanto no hay
-una estrategia de detach/archive en este cambio. El preflight exige que la primaria no tenga filas en ninguna de esas
-tablas ni otra referencia histórica dependiente. Si existen, el cutover se bloquea íntegramente y queda fuera de
-alcance cualquier resolución que requiera alterar o mover esas referencias. No se toca ninguna fila ni promoción del
-estudio de 30.
+La migración 004 vincula páginas y mappings a `study_card`. Quitar solo la guarda de historial no basta y no está
+autorizado. La nueva `016_preserve_study_card_history` conserva 001–015 byte por byte y añade:
 
-Una nueva migración posterior a `013` hará únicamente el cambio estructural de cardinalidad necesario, sin alterar
-claves foráneas históricas. Puede admitir 30, 300 y 369 para que las filas legacy de primaria de 300 puedan
+- `study_card_reference`, con clave `(study_id, pr_card_id)` y FKs a estudio y tarjeta: ancla permanente de identidad.
+- `study_source_membership`, con identidad de estudio, checksum del CSV, ordinal, tarjeta, source_card_id y checksum
+  de contenido. Sus claves únicas son `(study_id, source_checksum, ordinal)` y `(study_id, source_checksum, pr_card_id)`;
+  cada fila referencia el ancla. Conserva la membresía ordenada histórica y permite añadir la nueva sin sobrescribirla.
+
+016 captura las membresías existentes verificadas, también las de validación como metadatos nuevos, sin UPDATE/DELETE
+de sus filas originales. Reorienta exclusivamente las dos FKs de páginas/mappings que apuntaban a membresía activa
+hacia el ancla permanente: crea y valida el reemplazo antes de retirar la restricción anterior, dentro de una
+transacción y con escritores detenidos. Las demás FKs de decisiones y participantes permanecen sobre membresía activa.
+No elimina restricciones de integridad ni deja restricciones NOT VALID al terminar. El catálogo posterior se fija y
+verifica como un contrato distinto; no se acepta un catálogo arbitrario por contener las tablas nuevas.
+
+Las filas históricas, sus valores, IDs, timestamps y xmin no se reescriben. Las tablas nuevas rechazan UPDATE/DELETE;
+la incorporación de miembros durante inicialización/cutover es append-only y transaccional. La validación de nuevas
+páginas/mappings exige que la tarjeta pertenezca a la muestra histórica vinculada por el checksum del run, no solo que
+exista su ancla. Se conservan los triggers de inmutabilidad terminal y de snapshots/promociones. Un run fallido puede
+conservar páginas parciales válidas; no se fabrica su finalización, no se exige un mapping final inexistente, y todo
+run RUNNING bloquea el mantenimiento. No se actualiza ni elimina ninguna promoción del estudio de 30.
+
+La migración 014 existente conserva su único cambio de cardinalidad. Puede admitir 30, 300 y 369 para que la
+primaria de 300 pueda
 transicionarse; eso no autoriza crear un nuevo producto primario de 300. En una base nueva, solo se crean perfiles 369 y
 30. En una base existente, la primaria de 300 se convierte únicamente por el cutover protegido. La migración global no
 debe escribir filas de estudio ni mutar datos del estudio 30.
 
-Se descarta crear otro estudio y reprovisionar cuentas porque rompería la continuidad de identidades solicitada.
-También se descarta relajar el bootstrap o archivar/borrar historial para forzar la transición: ante dependencias
-inesperadas se conserva el estado y se exige otra decisión explícita.
+Se descarta crear otro estudio, reprovisionar cuentas, versionar todas las decisiones o mantener dos muestras activas.
+También se descarta copiar el historial fuera de la base y borrarlo, relajar FKs/triggers o modificar 004 retroactivamente.
+El ancla permanente evita reescribir los hijos inmutables y limita el cambio a la separación de referencia y muestra.
+
+### Procedencia activa y contrato de compatibilidad
+
+Las consultas que seleccionan promoción, snapshot o enrichment_run_id para presentación y nuevas decisiones deben
+vincular la promoción y el run al checksum de la fuente activa. La promoción histórica de 300 se conserva, pero no
+se usa en la primaria 369 ni se anuncia como captura de ese CSV. La validación de 30 mantiene su promoción y salida
+existentes. No se crea una promoción nueva para 369: el enriquecimiento de release sigue deshabilitado y la tarjeta
+usa su CSV. Las rutas de mantenimiento/enriquecimiento rechazan una petición que intente reemplazar la promoción vieja.
+
+El manifiesto sigue siendo v2 con los mismos diez campos raíz, tres archivos y cuatro hashes de datos. El esquema
+destino pasa a `study-schema-4`; el bundle continúa `copilot369-v1` porque sus fuentes y su orden no cambian. Productor,
+parser, runtime, firmas físicas, ledger, observador, autorización y recuperación deben acordar ese par antes de aceptar
+un candidato. Los estados schema-3 existentes solo se reconocen con su contrato exacto para inventario/upgrade, nunca
+como si ya fueran schema-4. El consumidor debe leer recibos/journal históricos sin reescribirlos; mantiene sus doce
+claves y los verbos SSH deploy/rollback, añadiendo solo el checkpoint local `history_schema_verified` cuando corresponda.
+
+El mantenimiento verifica primero el origen 013 o 014 exacto; ejecuta 014 bajo handoff autorizado si falta. 015 conserva
+su pin y sus condiciones físicas reales: no se inventa un retiro 002 ni se usa para aceptar drift. El origen canónico
+verificado recibe 016 bajo autorización explícita y backup full/restore del baseline correspondiente. Tras DDL se
+reobservan schema-4 y la muestra histórica sin cambiarla y se registra `history_schema_verified`. La continuación
+requiere autorización fresca y backup/restore del nuevo baseline antes del cutover. Un crash se reconcilia readonly;
+no se infiere commit por el ledger, por tablas presentes o por punteros. El initializer de una base vacía elegible
+incorpora 016 solo bajo su handoff de inicialización; prepare ordinario sobre una pareja existente permanece readonly.
 
 ### Identidades, estado privado y cardinalidades dependientes
 
 Se conserva `study_id`, las cuentas y el manifest vigente, sin regenerar/provisionar cuentas ni modificar usernames,
 roles, hashes, `credential_version`, identidades o membresías de participantes. No se agregan sufijos de username. Las
-clasificaciones, descartes y referencias históricas existentes bloquean el cutover; nunca se borran o reasignan para
+clasificaciones, descartes y referencias históricas desconocidas bloquean el cutover; nunca se borran o reasignan para
 acomodar la nueva membresía.
 
 La ruta que encuentra la validación existente de 30 es estrictamente de lectura: puede verificar su identidad y
@@ -179,11 +220,10 @@ offline. La validación de 30 conserva su cardinalidad y todos sus datos.
 
 ### Bloqueo de publicación
 
-El empaquetado de la fuente no cambia los workflows congelados. Como `shared-validation.yml` exige actualmente 300
-tarjetas y `release.yml` calcula el checksum de `plans/merged_after_rework_cards_seed_20260510.csv`, el gate de
-publicación/producción para 369 queda bloqueado hasta que un cambio dedicado, aprobado, resuelva el contrato de forma
-veraz y compatible con la congelación. Un descriptor externo separado no corrige por sí solo el manifiesto de release
-que identifica el CSV antiguo.
+El pipeline v2 ya valida 369/30. Esta corrección no cambia workflows, Compose release, fingerprints ni CODEOWNERS.
+La publicación permanece bloqueada hasta demostrar compatibilidad del consumidor corregido, contrato físico nuevo,
+backup/restore real, adopción, autorización de mantenimiento y preservación. El freeze test sigue exigiendo los hashes
+aprobados existentes; cambiar el token de esquema ocurre en productor/consumidor, no mediante otra excepción de YAML.
 
 No se falsea el manifest, no se aceptan arbitrariamente 300 tarjetas para hacer pasar CI y no se despliega por una vía
 alternativa. El bloqueo y su prerequisito se registran como gate conocido, no como una decisión pendiente dentro de este
@@ -202,23 +242,23 @@ manejo de secretos ni despliegue público de 369.
   cutover, pero es preferible a alterar evidencia o datos compartidos de la validación de 30.
 - El ledger global de migraciones puede cambiar aunque los datos de 30 no cambien. Se requiere comparar fingerprints
   del estado persistente de 30 antes y después; no se presentará el cambio como aislamiento de esquema por estudio.
-- El contrato de release congelado sigue referenciando la fuente de 300. Esto bloquea la publicación de 369 hasta
-  contar con un cambio autorizado y una validación de contrato; cualquier afirmación de release aprobado sería
-  engañosa.
+- El catálogo nuevo es incompatible con lectores que solo conocen schema-3. Se actualizan primero contratos,
+  pruebas y consumidor instalado; una imagen anterior no sirve de fallback sobre schema-4.
+- Una promoción histórica sin filtro de checksum podría contaminar la evidencia activa. Se verifican lecturas,
+  provenance de decisiones y exportación, tanto con historial primario como con promoción de validación existente.
 - El mapeo limitado al contenido visible actual omite datos de la fuente completa que no tengan un campo o sección
   semánticamente equivalente. Esto conserva una interfaz fiel y evita inflar la tarjeta con métricas o actividad no
   solicitadas.
 
 ## Migration Plan
 
-1. Preparar una base descartable aislada de toda base real. No operar ni presentar como inspeccionada una base de datos
-   real. En la base aislada, capturar fingerprints de cuentas y del estado persistente de validación de 30, incluidos
+1. Preparar una base descartable aislada de toda base real y sin credenciales productivas. La observación readonly
+   previa no equivale a una prueba de migración. Capturar fingerprints de cuentas y del estado de validación, incluidos
    datos, memberships, decisiones, descartes, categorías, enriquecimiento, checksums del CSV/fixture/manifest y
    cualquier timestamp persistente de estudio. La actividad transitoria de sesión se excluye, pero identidades, roles,
    hashes y versiones de credenciales se comparan.
-2. Validar primero los CSV, checksum, perfil y manifest antes de migraciones o escrituras. Añadir después de `013` solo
-   el cambio estructural de cardinalidad necesario; dejar intactas las migraciones `001` a `013` y no alterar claves
-   foráneas históricas.
+2. Validar los CSV, checksum, perfiles y manifests; conservar 001–015 y preparar 016 con fixtures desde 013 y desde
+   014/015 admitidos. Capturar contrato físico y guards nuevos, sin usar una migración antigua reescrita.
 3. Incorporar la fuente operativa separada `plans/copilot-369-cards.csv` y su sidecar determinista. Confirmar los hashes
    exactos y que el CSV/fixture/manifest de 30 y el CSV anterior de 300 permanezcan byte por byte iguales.
 4. Validar en aislamiento parser, checksum, 369 filas, unicidad, orden Copilot, mapeo campo a campo, validación del
@@ -228,9 +268,9 @@ manejo de secretos ni despliegue público de 369.
 5. Probar por separado una base nueva (crear solo perfiles 369 y 30) y una transición de primaria existente (300 a
    369). Antes de mutar, exigir intención, checksum/ID/config/membresía antigua exacta y objetivo validado, escritores
    de aplicación/preparación/enriquecimiento detenidos, locks, revalidación transaccional, cero decisiones/descartes y
-   ausencia total de referencias históricas de enriquecimiento. Cada incumplimiento o dependencia desconocida debe
+   historial GitHub íntegro y cerrado. Cada incumplimiento o dependencia desconocida debe
    abortar sin cambios. No llamar al bootstrap ordinario ni provisionar cuentas en el cutover.
-6. Verificar la transición solo si el preflight histórico está vacío: mismo `study_id`, cuentas y memberships de
+6. Verificar la transición con historial cerrado o sin historial: mismo `study_id`, cuentas y memberships de
    participantes; 369 tarjetas en orden; ninguna fila `pr_card` preexistente actualizada, rellenada o con checksum
    backfilleado; fingerprints persistentes idénticos de 30, incluyendo sus timestamps. Verificar gates privados de
    comparación/exportación. Probar repetición con fuente 369 como lectura sin escrituras, incluido ningún cambio de
@@ -238,6 +278,8 @@ manejo de secretos ni despliegue público de 369.
 7. Antes del commit, todo error provoca rollback transaccional completo. Tras un cutover confirmado, recuperación
    requiere detener la aplicación y restaurar un backup verificado en un destino separado aprobado; no se hace
    downgrade destructivo, reset de credenciales ni restauración sobre el volumen con datos de 30.
-8. Mantener bloqueados merge de release y despliegue público de la primaria 369 mientras la canalización congelada
-   espere CSV/conteo de 300. Solo un cambio dedicado aprobado puede resolver ese gate; este diseño no modifica ni
-   suplanta la canalización.
+8. Probar normalización/016/cutover como checkpoints autorizados, fallo y reconcile/continue, rollback transaccional,
+   repetición readonly y rechazo de app schema-3 tras 016. Comparar valores y xmin de todas las filas protegidas.
+9. Instalar consumidor compatible con schema-4, verificar su fingerprint, adopción y configuración externa con
+   intervención sudo del operador. Realizar backup full y restore aislado para cada baseline mutante y conservar HOLD
+   hasta candidato, mantenimiento y prueba pública autorizados. Esta revisión no ejecuta esos pasos ni hace commit/push.

@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from host_fixture import FakeRuntime, adopted, auth, candidate, observed
-from host_normalization_fixture import loaded, normalization_fixture, normalize
+from host_normalization_fixture import loaded, normalization_fixture, normalize, preserve_history
 import contracts
 import durable
 import lifecycle
@@ -74,7 +74,7 @@ class NormalizationRecovery(unittest.TestCase):
 
     def test_already015_normalization_is_readonly_but_still_stops_and_keeps_reserve(self):
         with tempfile.TemporaryDirectory() as temporary:
-            fixture = normalization_fixture(Path(temporary), "copilot369-v1", contracts.SCHEMA)
+            fixture = normalization_fixture(Path(temporary), "copilot369-v1", "study-schema-3")
             (fixture.root / "applied015").touch()
             result = normalize(fixture)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -86,7 +86,7 @@ class NormalizationRecovery(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             state = State(root)
-            origin = observed("copilot369-v1", contracts.SCHEMA)
+            origin = observed("copilot369-v1", "study-schema-3")
             adopted(state, origin)
             directory, _, _ = candidate(root)
             runtime = FakeRuntime(root, origin)
@@ -110,10 +110,13 @@ class NormalizationRecovery(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = normalization_fixture(Path(temporary), "legacy300-v1")
             self.assertEqual(normalize(fixture).returncode, 0)
+            history_result = preserve_history(fixture)
+            self.assertEqual(history_result.returncode, 0, history_result.stderr)
             state = State(fixture.deploy_root)
             _, checkpoint = state.load()
             runtime = FakeRuntime(fixture.deploy_root, checkpoint["target"]["observation"])
             runtime.applied015 = True
+            runtime.applied016 = True
             authorization = {**auth("continue"), "requestSha256": "e" * 64}
             baseline = checkpoint["target"]["observation"]
             with patch("authority.authorize", return_value=authorization), patch("authority.backup", return_value={"path": "/external/post015", "sha256": "f" * 64}) as backup:
