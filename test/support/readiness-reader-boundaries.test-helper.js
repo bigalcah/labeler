@@ -45,8 +45,19 @@ test("readiness readers stage foreign private inputs after rewrites and refresh 
     const priorMask = process.umask(0o077);
     const fixture = await createReadinessProfiles();
     const foreign = await mkdtemp(path.join(tmpdir(), "readiness-foreign-readers-"));
+    const copiedDirectories = ["config", "accountManifest", "csv"];
+    let copiedDirectoriesForeignOwned = false;
     try {
+        const originalRoot = await metadata(fixture.root);
+        const originalManifest = await metadata(fixture.profiles[0].accountManifest);
+        assert.deepEqual(originalRoot, {uid: process.getuid(), gid: process.getgid(), mode: 0o700});
+        assert.deepEqual(originalManifest, {uid: process.getuid(), gid: process.getgid(), mode: 0o400});
+        for (const kind of copiedDirectories) assert.equal((await metadata(path.join(fixture.root, kind))).mode, 0o700);
         await cp(fixture.root, foreign, {recursive: true});
+        for (const kind of copiedDirectories) await chmod(path.join(foreign, kind), 0o711);
+        assert.deepEqual(await Promise.all(copiedDirectories.map(async kind => ({kind, ...await metadata(path.join(foreign, kind))}))),
+            copiedDirectories.map(kind => ({kind, uid: process.getuid(), gid: process.getgid(), mode: 0o711})));
+        assert.deepEqual(await metadata(foreign), {uid: process.getuid(), gid: process.getgid(), mode: 0o700});
         const descriptor = path.join(foreign, "mounted-profiles.json");
         const password = path.join(foreign, "database-password");
         await writeFile(descriptor, JSON.stringify({profiles: fixture.profiles.map((profile, index) => ({
@@ -58,11 +69,26 @@ test("readiness readers stage foreign private inputs after rewrites and refresh 
             "accountManifest/0.json", "accountManifest/1.json", "csv/copilot-369-cards.csv", "csv/copilot-369-cards.manifest.json",
             "csv/validation-30-cards.csv", "csv/validation-30-cards.manifest.json"];
         for (const file of originals) await chmod(path.join(foreign, file), 0o400);
-        await setSyntheticInputOwner({fixtureDirectory: foreign, relativePaths: originals, uid: 21001, gid: 21001, helperImage});
+        const redFiles = await setSyntheticInputOwner({fixtureDirectory: foreign, relativePaths: originals, uid: 21001, gid: 21001, helperImage});
+        assert.deepEqual(redFiles, originals.map(file => ({path: file, uid: 21001, gid: 21001, mode: 0o400})));
+        copiedDirectoriesForeignOwned = true;
+        const redDirectories = await setSyntheticInputOwner({fixtureDirectory: foreign, relativePaths: copiedDirectories,
+            uid: 21001, gid: 21001, helperImage});
+        assert.deepEqual(redDirectories, copiedDirectories.map(directory => ({path: directory, uid: 21001, gid: 21001, mode: 0o711})));
         const red = await probeProfiles({config: path.join(foreign, "config"), accountManifest: path.join(foreign, "accountManifest"),
             csv: path.join(foreign, "csv"), descriptor, password});
+        assert.equal(red.uid, 1000);
+        assert.equal(red.gid, 1000);
         assert.equal(red.profiles, 0);
+        assert.equal(red.profileError, "StudyProfilesInputError");
+        assert.equal(red.password, false);
         assert.equal(red.passwordError, "SECRET_FILE_INVALID");
+        assert.deepEqual(red.files, Array.from({length: 5}, () => ({uid: 21001, gid: 21001, mode: 0o400})));
+        const restoredDirectories = await setSyntheticInputOwner({fixtureDirectory: foreign, relativePaths: copiedDirectories,
+            uid: process.getuid(), gid: process.getgid(), helperImage});
+        assert.deepEqual(restoredDirectories, copiedDirectories.map(directory => ({path: directory,
+            uid: process.getuid(), gid: process.getgid(), mode: 0o711})));
+        copiedDirectoriesForeignOwned = false;
         const staged = await stageReadinessContainerInputs({fixtureRoot: foreign, descriptor, password});
         const green = await probeProfiles(staged);
         assert.equal(green.profiles, 2);
@@ -81,13 +107,25 @@ test("readiness readers stage foreign private inputs after rewrites and refresh 
         await chmod(password, 0o400);
         const refreshed = await probeProfiles(await stageReadinessContainerInputs({fixtureRoot: foreign, descriptor, password}));
         assert.equal(refreshed.refreshed, true);
-        await record({kind: "readiness", umask: "0077", red, green, refreshed,
+        await record({kind: "readiness", umask: "0077", red, redFiles, redDirectories, restoredDirectories, green, refreshed,
             controlledOwnerRead: JSON.parse(ownerRead.stdout), hostOriginalReadable: true,
-            originalManifest: await metadata(fixture.profiles[0].accountManifest)});
+            originalRoot, originalManifest});
     } finally {
-        process.umask(priorMask);
-        await rm(foreign, {recursive: true, force: true});
-        await rm(fixture.root, {recursive: true, force: true});
+        try {
+            if (copiedDirectoriesForeignOwned) {
+                const restoredDirectories = await setSyntheticInputOwner({fixtureDirectory: foreign, relativePaths: copiedDirectories,
+                    uid: process.getuid(), gid: process.getgid(), helperImage});
+                assert.deepEqual(restoredDirectories, copiedDirectories.map(directory => ({path: directory,
+                    uid: process.getuid(), gid: process.getgid(), mode: 0o711})));
+            }
+        } finally {
+            process.umask(priorMask);
+            try {
+                await rm(foreign, {recursive: true, force: true});
+            } finally {
+                await rm(fixture.root, {recursive: true, force: true});
+            }
+        }
     }
 });
 

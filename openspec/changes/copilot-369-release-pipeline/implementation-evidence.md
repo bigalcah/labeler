@@ -1025,3 +1025,52 @@ cero bloqueos despues de inspeccionar los trece archivos, los recibos completos
 y la evidencia focal. No requirio cambios de codigo. Se procede solo a la
 publicacion autorizada de la feature y la comprobacion de CI del nuevo head;
 la aprobacion tecnica por agente no sustituye revision humana ni autoriza merge.
+
+### CI de 517495a y ultima frontera del probe negativo
+
+Los seis commits se publicaron con head
+`517495a6012a91105b16524ee9bf1bef28ecac63`. El run
+<https://github.com/bigalcah/labeler/actions/runs/39569555450> comprobo el merge
+`95cb9f9845dc0df2e5ace8311b171913a3325d1b`, padres 1773164 y ese head, con
+arbol identico. Pasaron 594 unitarios, OpenSpec 25/25, lint y build. Integracion
+alcanzo **105/106** en los 14 archivos, cero omisiones. El unico fallo fue el
+probe de lectura negativa: `stat /run/config/studies/0.json` devolvio EACCES
+antes de emitir JSON. La limpieza remota fue confirmada; no se marco CI verde.
+El log conservado tiene SHA-256
+`45f6b331e5c578cb7fef556412827e98d6d96644c73508a87faed8905f8609f2`.
+
+La reproduccion controlada asigno los tres directorios copiados a UID/GID
+21001, modo `0700`, y sus archivos privados a `21001/0400`. Node `1000:1000`
+reprodujo el mismo EACCES sin JSON. La correccion fija solo esos directorios
+del experimento en `0711`, manteniendo la raiz y los originales del host en
+`0700/0400`. Los desafia como dueno ajeno durante el probe y restaura el dueno
+real antes del readdir del staging del host, tambien en finally. No se captura
+ni ignora el error de stat: se exige que las cinco entradas emitan metadata,
+mientras perfiles/password siguen rechazados por sus tipos especificos.
+
+Pruebas antes/despues y metadata numerica estan en
+`/tmp/opencode/readiness-reader-boundaries-NCOq1I/`. Ambos casos de lectores
+pasaron bajo umasks externos `077` y `022`. El padre leyo el unico archivo de
+codigo cambiado, verifico una copia byte-identica y repitio ambos escenarios
+2/2, lint y comprobaciones complementarias en
+`/tmp/opencode/pr10-readiness-stat-kBUCLVYd/`. El LSP del archivo principal
+agoto su espera; la copia exacta aislada devolvio diagnosticos limpios.
+
+El padre ejecuto de nuevo unidad completa **594/594** y despues el harness
+completo: integracion **106/106**, 14 archivos, E2E **1/1**, harness **1/1**,
+cero fallos, skips, cancelaciones o TODOs. La misma imagen de producto sin
+cambios fue utilizada; los recibos confirman preservacion y limpieza completa.
+Los logs y metadata `statfix-unit` / `statfix-deployment` estan junto al recorder
+privado de salida directa; SHA-256 respectivos
+`0c5bcb7c62946b960d8a5f0b16b663501cb638231f847de6d67c805537a4e67f` y
+`0b0a18520b036d29fb5fbebf1cc14efb97e83a850b9411cd86664e0d13e032a6`.
+Recibos en `final-gate-evidence/` de la nueva evidencia. No hay cambios de
+produccion, validadores, pipeline, dependencias ni parametros de timeout/retry.
+La revision y el nuevo CI quedan separados; 8.5, HOLD y gates humanos siguen
+abiertos. El UID real del runner sigue sin observarse y no se inventa.
+
+La revision unica final de esta correccion devolvio APPROVE con confianza alta,
+sin bloqueos, tras verificar el diff, identidad del archivo, pruebas focales,
+gates completos y hashes de evidencia. No requirio cambios de codigo ni aprobo
+el CI anterior. Se procede solo al commit/push autorizado de la feature y al
+CI del nuevo head, sin merge ni cambios administrativos o productivos.
