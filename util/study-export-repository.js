@@ -31,7 +31,7 @@ const assertContext = context => {
 const assertStudyScope = (studyRows, context) => {
     if (studyRows.length !== 1 || studyRows[0].id !== context.studyId) throw ELIGIBILITY_ERROR();
     const study = studyRows[0];
-    if (study.bootstrap_state !== "READY" || ![30, 300].includes(study.expected_card_count)) throw DATA_ERROR();
+    if (study.bootstrap_state !== "READY" || ![30, 300, 369].includes(study.expected_card_count)) throw DATA_ERROR();
     return study;
 };
 

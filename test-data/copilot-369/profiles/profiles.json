@@ -1,0 +1,16 @@
+{
+  "profiles": [
+    {
+      "config": "/run/config/studies/current.json",
+      "csv": "/labeling/data/copilot-369-cards.csv",
+      "accountManifest": "/run/secrets/studies/current.json",
+      "enrichmentEnabled": false
+    },
+    {
+      "config": "/run/config/studies/validation-30.json",
+      "csv": "/labeling/data/validation-30-cards.csv",
+      "accountManifest": "/run/secrets/studies/validation-30.json",
+      "enrichmentEnabled": false
+    }
+  ]
+}

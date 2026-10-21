@@ -1,4 +1,5 @@
 const AVAILABILITY = Object.freeze({PRESENT: "PRESENT", EMPTY: "EMPTY", UNAVAILABLE: "UNAVAILABLE", TRUNCATED: "TRUNCATED", INCOMPLETE: "INCOMPLETE"});
+const COPILOT_369_SOURCE_CHECKSUM = "fad0881b9e40b1b68a577e84ad60c90d48fcebe79db8d55d05613fc1746794fb";
 const OVERLAPPING_FIELDS = Object.freeze({title: "title", body: "body", author: "author", state: "state", merged: "merged", html_url: "html_url"});
 const DATE_FIELDS = Object.freeze({created_at: "created_at", closed_at: "closed_at", merged_at: "merged_at"});
 const SNAPSHOT_ENDPOINTS = Object.freeze(["metadata", "commits", "files", "reviews", "issueComments", "reviewComments", "timeline"]);
@@ -53,6 +54,14 @@ const values = endpoint => endpoint?.pages.flatMap(page => Array.isArray(page.pa
 const latestObject = endpoint => endpoint?.pages.map(page => page.payload).filter(payload => payload && typeof payload === "object" && !Array.isArray(payload)).at(-1) || null;
 const statusFor = (endpoint, hasSnapshot = false) => endpoint?.status || (hasSnapshot ? AVAILABILITY.INCOMPLETE : AVAILABILITY.UNAVAILABLE);
 const field = (value, availability, provenance) => ({value, availability, provenance});
+const isCopilot369Source = card => card.source_type === "CSV" && card.source_checksum === COPILOT_369_SOURCE_CHECKSUM;
+
+const projectCsvConversation = (items, section, sourceField) => {
+    const payload = items.map(item => ({...item, user: {login: item.author ?? item.user}, event: item.event_type, html_url: item.source_url}));
+    const status = items.length === 0 ? AVAILABILITY.EMPTY : AVAILABILITY.PRESENT;
+    const endpoint = {status, pages: [{payload}], captured_count: items.length};
+    return {...projectEvidenceItems(endpoint, section, null, null, false), provenance: csvProvenance(`/${sourceField}`)};
+};
 
 const projectEvidenceItems = (endpoint, endpointName, runId, checksum, hasSnapshot) => {
     const status = statusFor(endpoint, hasSnapshot);
@@ -131,7 +140,24 @@ const projectCardV2 = (card, enrichmentInput = null) => {
         timeline: projectEvidenceItems(pages.timeline, "timeline", runId, snapshotChecksum, hasSnapshot),
         supplementary_activity: projectEvidenceItems(pages.commits, "commits", runId, snapshotChecksum, hasSnapshot),
     };
-    return {version: 2, identity: {source_card_id: card.source_card_id ?? card.id ?? null, repository: card.repository ?? null, pr_number: card.pr_number ?? null, ordinal: card.ordinal ?? null}, fields, dates, dataset_language: field(card.language ?? null, card.language == null ? AVAILABILITY.EMPTY : AVAILABILITY.PRESENT, csvProvenance("/language")), metrics, csv_evidence: card.evidence ? {body: card.body ?? null, summary: card.summary ?? null, selected: card.evidence.selected ?? null, all_text: card.evidence.all_text ?? null} : {}, github_evidence: evidence, availability: Object.fromEntries(SNAPSHOT_ENDPOINTS.map(name => [name, statusFor(pages[name], hasSnapshot)])), snapshot: {run_id: runId, snapshot_checksum: snapshotChecksum, captured_at: enrichment?.captured_at ?? null}, provenance};
+    const availability = Object.fromEntries(SNAPSHOT_ENDPOINTS.map(name => [name, statusFor(pages[name], hasSnapshot)]));
+    if (isCopilot369Source(card)) {
+        for (const [endpoint, section, evidenceField, sourceField] of [
+            ["reviews", "reviews", "reviews", "reviews_json"],
+            ["issueComments", "issue_comments", "comments", "pr_comments_json"],
+            ["reviewComments", "review_comments", "review_comments", "inline_comments_json"],
+        ]) {
+            const items = card.evidence?.[evidenceField];
+            if (items === undefined) {
+                delete evidence[section];
+                availability[endpoint] = AVAILABILITY.UNAVAILABLE;
+                continue;
+            }
+            evidence[section] = projectCsvConversation(items, section, sourceField);
+            availability[endpoint] = evidence[section].availability;
+        }
+    }
+    return {version: 2, identity: {source_card_id: card.source_card_id ?? card.id ?? null, repository: card.repository ?? null, pr_number: card.pr_number ?? null, ordinal: card.ordinal ?? null}, fields, dates, dataset_language: field(card.language ?? null, card.language == null ? AVAILABILITY.EMPTY : AVAILABILITY.PRESENT, csvProvenance("/language")), metrics, csv_evidence: card.evidence ? {body: card.body ?? null, summary: card.summary ?? null, selected: card.evidence.selected ?? null, all_text: card.evidence.all_text ?? null} : {}, github_evidence: evidence, availability, snapshot: {run_id: runId, snapshot_checksum: snapshotChecksum, captured_at: enrichment?.captured_at ?? null}, provenance};
 };
 
 const projectEnrichedCard = (card, enrichmentInput = null) => {

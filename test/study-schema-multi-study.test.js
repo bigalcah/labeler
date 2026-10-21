@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
 import {randomBytes, randomUUID} from "node:crypto";
 import {readFile} from "node:fs/promises";
+import {fileURLToPath} from "node:url";
 import {after, before, test} from "node:test";
 import pg from "pg";
 import {createPasswordHash} from "../util/credential-policy.js";
-import {StudyBootstrapConflictError, bootstrapStudy} from "../util/study-bootstrap.js";
-import {DEFAULT_STUDY_CONFIG, StudyConfigError, parseStudyConfig} from "../util/study-config.js";
+import {bootstrapStudy} from "../util/study-bootstrap.js";
+import {StudyExistingValidationError} from "../util/study-existing-validation.js";
+import {DEFAULT_STUDY_CONFIG, StudyConfigError, assertNormalStudyConfig, parseStudyConfig} from "../util/study-config.js";
 import {managedMigrations, runStudyMigrations} from "../util/study-schema.js";
+import {readCopilot369Cards} from "../util/copilot-369-source.js";
 
 const {Pool} = pg;
 const containerName = `labeler-study-schema-${randomUUID()}`;
@@ -166,8 +169,9 @@ after(async () => {
 test("Given migration 011 When migration 012 is inspected Then it preflights before global username uniqueness", async () => {
     const migration = await readFile(new URL("../schema/migrations/011_multi_study_cardinality.sql", import.meta.url), "utf8");
     const usernameMigration = await readFile(new URL("../schema/migrations/012_global_normalized_username.sql", import.meta.url), "utf8");
-    assert.deepEqual(managedMigrations.slice(-3).map(item => item.id), [
+    assert.deepEqual(managedMigrations.slice(-4).map(item => item.id), [
         "011_multi_study_cardinality", "012_global_normalized_username", "013_category_definition_color",
+        "014_copilot_369_cardinality",
     ]);
     assert.match(migration, /^BEGIN;/);
     assert.match(migration, /DROP INDEX IF EXISTS "study_ready_uidx"/);
@@ -187,9 +191,14 @@ test("Given migration 011 When migration 012 is inspected Then it preflights bef
     assert.match(usernameMigration, /COMMIT;\s*$/);
 });
 
-test("Given study configuration When cardinality is parsed Then only 30 and 300 are accepted", () => {
+test("Given study configuration When cardinality is parsed Then legacy 300 parses but only approved profiles are normal", () => {
     assert.equal(parseStudyConfig({...DEFAULT_STUDY_CONFIG, expectedCardCount: 30}).expectedCardCount, 30);
-    assert.equal(parseStudyConfig(DEFAULT_STUDY_CONFIG).expectedCardCount, 300);
+    assert.equal(parseStudyConfig({...DEFAULT_STUDY_CONFIG, expectedCardCount: 300}).expectedCardCount, 300);
+    assert.equal(parseStudyConfig(DEFAULT_STUDY_CONFIG).expectedCardCount, 369);
+    assert.throws(
+        () => assertNormalStudyConfig(parseStudyConfig({...DEFAULT_STUDY_CONFIG, expectedCardCount: 300})),
+        StudyConfigError,
+    );
     for (const expectedCardCount of [10, 301]) {
         assert.throws(
             () => parseStudyConfig({...DEFAULT_STUDY_CONFIG, expectedCardCount}),
@@ -307,16 +316,21 @@ test("Given duplicate cross-study usernames When migration 012 runs Then it fail
             passwordHash,
         })),
     };
+    const canonicalSource = await readCopilot369Cards(
+        fileURLToPath(new URL("../plans/copilot-369-cards.csv", import.meta.url)),
+    );
     await assert.rejects(
         () => bootstrapStudy({
             pool,
             config: DEFAULT_STUDY_CONFIG,
-            cards: Array.from({length: 300}, (_, index) => ({source_card_id: `card-${index}`})),
-            sourceChecksum: "changed-source-checksum",
+            cards: canonicalSource.cards,
+            sourceChecksum: canonicalSource.sourceChecksum,
             credentialManifest,
         }),
-        error => error instanceof StudyBootstrapConflictError && /Source checksum drift/.test(error.message),
+        error => error instanceof StudyExistingValidationError
+            && /Existing 300-card primary requires the dedicated cutover/.test(error.message),
     );
+    assert.deepEqual(await fingerprintCurrentStudy(), originalFingerprint);
     await assertRejectedCountRollsBack(10);
     await assertRejectedCountRollsBack(301);
     await assert.rejects(

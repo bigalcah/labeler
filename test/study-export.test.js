@@ -167,8 +167,8 @@ const assertExportError = (operation, status) => assert.rejects(operation, error
     return true;
 });
 
-test("comparison export covers 30/300 cards and two/three complete participants", async t => {
-    for (const expectedCardCount of [30, 300]) {
+test("comparison export covers 30/300/369 cards and two/three complete participants", async t => {
+    for (const expectedCardCount of [30, 300, 369]) {
         for (const includedOrdinals of [[0, 2], [0, 1, 2]]) {
             await t.test(`${expectedCardCount} cards, ${includedOrdinals.length} included`, async () => {
                 const fixture = makeFixture({expectedCardCount, completeOrdinals: includedOrdinals});
@@ -185,6 +185,7 @@ test("comparison export covers 30/300 cards and two/three complete participants"
                 const records = parseCsv(buffer);
                 assert.equal(records.length, expectedCardCount + 1);
                 assert.deepEqual(records[0], ["pr_id", "pr_url", ...blockHeaders(includedOrdinals)]);
+                assert.equal(records[0].length, 2 + includedOrdinals.length * 3);
                 assert.equal(records.every(record => record.length === records[0].length), true);
                 assert.equal(records[1][0], "PR-0");
                 assert.equal(records[1][1], "https://github.example/pr/0");
@@ -220,33 +221,47 @@ test("availability hides other participants while requester is incomplete", asyn
     );
 });
 
-test("availability waits when only the requester is complete and another study cannot satisfy the gate", async () => {
-    const fixture = makeFixture({completeOrdinals: [0]});
-    fixture.otherStudyCompleteParticipantIds = [90, 91];
-    const pool = makePool(fixture);
+test("availability waits when only the requester is complete and another study cannot satisfy the gate", async t => {
+    for (const expectedCardCount of [30, 369]) {
+        await t.test(`${expectedCardCount} cards`, async () => {
+            const fixture = makeFixture({expectedCardCount, completeOrdinals: [0]});
+            fixture.otherStudyCompleteParticipantIds = [90, 91];
+            const pool = makePool(fixture);
 
-    assert.deepEqual(await getStudyExportAvailability({pool, context: makeContext(fixture)}), {state: "waiting"});
-    await assertExportError(
-        () => createStudyComparisonExport({pool, context: makeContext(fixture)}),
-        403,
-    );
+            assert.deepEqual(await getStudyExportAvailability({pool, context: makeContext(fixture)}), {state: "waiting"});
+            await assertExportError(
+                () => createStudyComparisonExport({pool, context: makeContext(fixture)}),
+                403,
+            );
+        });
+    }
 });
 
-test("one missing terminal decision stays incomplete even when rounded progress would be 100 percent", async () => {
-    const fixture = makeFixture({expectedCardCount: 300, completeOrdinals: [0, 1]});
-    fixture.decisions.set("1:299", {
-        decision: "PENDING",
-        categoryValid: true,
-        categoryName: null,
-        categoryDefinition: null,
-        classificationRemarks: null,
-        sourceHtmlUrl: "https://csv.example/pr/299",
-        promotedHtmlUrl: null,
-    });
-    const pool = makePool(fixture);
+test("one missing terminal decision stays incomplete even when rounded progress would be 100 percent", async t => {
+    for (const expectedCardCount of [300, 369]) {
+        await t.test(`${expectedCardCount} cards`, async () => {
+            const fixture = makeFixture({expectedCardCount, completeOrdinals: [0, 1]});
+            const lastCardOrdinal = expectedCardCount - 1;
+            fixture.decisions.set(`1:${lastCardOrdinal}`, {
+                decision: "PENDING",
+                categoryValid: true,
+                categoryName: null,
+                categoryDefinition: null,
+                classificationRemarks: null,
+                sourceHtmlUrl: `https://csv.example/pr/${lastCardOrdinal}`,
+                promotedHtmlUrl: null,
+            });
+            const pool = makePool(fixture);
 
-    assert.deepEqual(await getStudyExportAvailability({pool, context: makeContext(fixture)}), {state: "incomplete"});
-    await assertExportError(() => createStudyComparisonExport({pool, context: makeContext(fixture)}), 403);
+            assert.equal(
+                [...fixture.decisions.entries()].filter(([key, decision]) => key.startsWith("1:") && decision.decision !== "PENDING").length,
+                expectedCardCount - 1,
+            );
+            assert.deepEqual(await getStudyExportAvailability({pool, context: makeContext(fixture)}), {state: "incomplete"});
+            await assertExportError(() => createStudyComparisonExport({pool, context: makeContext(fixture)}), 403);
+            assert.equal(pool.clients[0].queries.some(query => query.sql.includes("study-export:comparison-rows")), false);
+        });
+    }
 });
 
 test("a missing or non-ready study is rejected without trusting client-selected scope", async () => {

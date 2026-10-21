@@ -241,6 +241,7 @@ const launchBrowser = async chrome => {
     const profile = await mkdtemp(path.join(tmpdir(), "labeler-study-export-chrome-"));
     const downloads = await mkdtemp(path.join(tmpdir(), "labeler-study-export-downloads-"));
     const child = spawn(chrome, [
+        "--password-store=basic",
         "--headless=new", "--disable-background-networking", "--disable-default-apps", "--disable-extensions",
         "--hide-scrollbars", "--no-first-run", "--remote-allow-origins=*", "--remote-debugging-port=0",
         `--user-data-dir=${profile}`, "about:blank",

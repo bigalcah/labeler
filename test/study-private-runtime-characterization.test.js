@@ -6,7 +6,8 @@ import {createApp} from "../app.js";
 const studyId = "study-1";
 const csrfToken = "t".repeat(43);
 const cardId = ordinal => `550e8400-e29b-41d4-a716-${ordinal.toString(16).padStart(12, "0")}`;
-const cards = Array.from({length: 300}, (_value, ordinal) => ({id: cardId(ordinal), ordinal}));
+const makeCards = cardCount => Array.from({length: cardCount}, (_value, ordinal) => ({id: cardId(ordinal), ordinal}));
+const cards = makeCards(300);
 const contexts = Object.freeze({
     "study-session=participant-a": Object.freeze({accountId: "account-a", studyId, participantId: 11, participantKey: "participant-a"}),
     "study-session=participant-b": Object.freeze({accountId: "account-b", studyId, participantId: 22, participantKey: "participant-b"}),
@@ -19,7 +20,8 @@ const categories = Object.freeze([
 ]);
 
 class PrivateStudyPool {
-    constructor() {
+    constructor(cardCount = 300) {
+        this.cards = makeCards(cardCount);
         this.categories = new Map(categories.map(category => [category.id, {...category, studyId}]));
         this.classifications = new Map();
         this.discards = new Map();
@@ -32,7 +34,7 @@ class PrivateStudyPool {
     }
 
     async connect() {
-        const staged = {classifications: new Map(), discards: new Map()};
+        const staged = {categories: new Map(), classifications: new Map(), discards: new Map()};
         return {
             query: (sql, parameters = []) => this.query(sql, parameters, staged),
             release: () => { this.releaseCount += 1; },
@@ -48,7 +50,7 @@ class PrivateStudyPool {
     }
 
     nextPending(participantId, ordinal, staged) {
-        const ordered = [...cards.filter(card => card.ordinal > ordinal), ...cards.filter(card => card.ordinal <= ordinal)];
+        const ordered = [...this.cards.filter(card => card.ordinal > ordinal), ...this.cards.filter(card => card.ordinal <= ordinal)];
         return ordered.find(card => {
             const decision = this.decision(participantId, card.id, staged);
             return !decision.classification && !decision.discard;
@@ -58,12 +60,12 @@ class PrivateStudyPool {
     progress(participantId) {
         const classifications = [...this.classifications.values()].filter(classification => classification.participantId === participantId).length;
         const discards = [...this.discards.values()].filter(discard => discard.participantId === participantId).length;
-        return {total: cards.length, classified: classifications, discarded: discards, pending: cards.length - classifications - discards};
+        return {total: this.cards.length, classified: classifications, discarded: discards, pending: this.cards.length - classifications - discards};
     }
 
     cardRows(participantId, requestedStudyId, {limit, offset}, staged) {
         if (requestedStudyId !== studyId) return [];
-        return cards
+        return this.cards
             .filter(card => card.ordinal >= offset && card.ordinal < offset + limit)
             .map(card => {
                 const decision = this.decision(participantId, card.id, staged);
@@ -90,7 +92,7 @@ class PrivateStudyPool {
     categoryGroups(participantId, requestedStudyId) {
         if (requestedStudyId !== studyId) return [];
         const classifiedByCategory = new Map();
-        for (const card of cards) {
+        for (const card of this.cards) {
             const classification = this.classifications.get(`${participantId}:${card.id}`);
             if (!classification) continue;
             const grouped = classifiedByCategory.get(classification.categoryId) || [];
@@ -119,6 +121,7 @@ class PrivateStudyPool {
             return {rows: []};
         }
         if (sql === "COMMIT") {
+            staged.categories.forEach((category, id) => this.categories.set(id, category));
             staged.classifications.forEach((classification, key) => this.classifications.set(key, classification));
             staged.discards.forEach((discard, key) => this.discards.set(key, discard));
             this.transactionEvents.push("COMMIT");
@@ -130,14 +133,38 @@ class PrivateStudyPool {
         }
         if (sql.includes("FOR UPDATE OF study_card")) {
             const [requestedStudyId, requestedCardId] = parameters;
-            const card = requestedStudyId === studyId ? cards.find(candidate => candidate.id === requestedCardId) : null;
+            const card = requestedStudyId === studyId ? this.cards.find(candidate => candidate.id === requestedCardId) : null;
             return {rows: card ? [{pr_card_id: card.id, ordinal: card.ordinal, promotion_run_id: null}] : []};
         }
         if (sql.includes("FROM participant_category") && sql.includes("WHERE id = $1")) {
             const [categoryId, requestedStudyId, participantId] = parameters;
-            this.categoryParameters.push(parameters);
-            const category = this.categories.get(categoryId);
-            return {rows: category?.studyId === requestedStudyId && category.participantId === participantId ? [{id: category.id}] : []};
+            if (sql.startsWith("SELECT id FROM participant_category")) this.categoryParameters.push(parameters);
+            const category = staged?.categories.get(categoryId) || this.categories.get(categoryId);
+            const ownsCategory = category?.studyId === requestedStudyId && category.participantId === participantId;
+            if (!ownsCategory) return {rows: []};
+            return {rows: [sql.includes("FOR UPDATE")
+                ? {id: category.id, definition: category.definition, updated_at: category.updatedAt}
+                : {id: category.id}]};
+        }
+        if (sql.startsWith("UPDATE participant_category")) {
+            const [categoryId, requestedStudyId, participantId, rawName, normalizedName, _expectedUpdatedAt, definition] = parameters;
+            const category = staged?.categories.get(categoryId) || this.categories.get(categoryId);
+            if (category?.studyId !== requestedStudyId || category.participantId !== participantId) return {rows: []};
+            const updated = {
+                ...category,
+                rawName,
+                normalizedName,
+                definition,
+                updatedAt: "2026-01-02T00:00:00.000Z",
+            };
+            staged.categories.set(categoryId, updated);
+            return {rows: [{
+                id: updated.id,
+                raw_name: updated.rawName,
+                definition: updated.definition,
+                color_slot: updated.colorSlot,
+                updated_at: updated.updatedAt,
+            }]};
         }
         if (sql.includes("classification.id AS classification_id")) {
             const [requestedStudyId, participantId, requestedCardId] = parameters;
@@ -150,14 +177,30 @@ class PrivateStudyPool {
             }]};
         }
         if (sql.startsWith("INSERT INTO pr_classification")) {
-            const [currentCardId, participantId, categoryId, _remarks, requestedStudyId] = parameters;
+            const [currentCardId, participantId, categoryId, remarks, requestedStudyId] = parameters;
             staged.classifications.set(`${participantId}:${currentCardId}`, {
                 id: `classification-${participantId}-${currentCardId}`,
                 cardId: currentCardId,
                 participantId,
                 categoryId,
+                remarks,
                 studyId: requestedStudyId,
                 revision: 1,
+            });
+            return {rows: [], rowCount: 1};
+        }
+        if (sql.startsWith("UPDATE pr_classification")) {
+            const [currentCardId, participantId, categoryId, remarks, expectedRevision, requestedStudyId] = parameters;
+            const key = `${participantId}:${currentCardId}`;
+            const classification = staged.classifications.get(key) || this.classifications.get(key);
+            if (!classification || classification.studyId !== requestedStudyId || classification.revision !== expectedRevision) {
+                return {rows: [], rowCount: 0};
+            }
+            staged.classifications.set(key, {
+                ...classification,
+                categoryId,
+                remarks,
+                revision: classification.revision + 1,
             });
             return {rows: [], rowCount: 1};
         }
@@ -178,7 +221,7 @@ class PrivateStudyPool {
         }
         if (sql.includes("COUNT(*)::INTEGER AS total")) {
             const [requestedStudyId] = parameters;
-            return {rows: [{total: requestedStudyId === studyId ? cards.length : 0}]};
+            return {rows: [{total: requestedStudyId === studyId ? this.cards.length : 0}]};
         }
         if (sql.includes("LIMIT $3 OFFSET $4")) {
             const [requestedStudyId, participantId, limit, offset] = parameters;
@@ -223,78 +266,142 @@ const mutation = (baseUrl, session, path, body) => request(baseUrl, session, pat
     body: JSON.stringify(body),
 });
 
-test("private study mutations keep three session participants isolated across 300 cards", async () => {
-    const pool = new PrivateStudyPool();
-    const server = await start(pool);
-    const baseUrl = `http://127.0.0.1:${server.address().port}`;
-    const originalFetch = globalThis.fetch;
-    const githubRequests = [];
-    globalThis.fetch = async (input, init) => {
-        const url = new URL(typeof input === "string" ? input : input.url);
-        if (url.hostname === "api.github.com" || url.hostname.endsWith(".github.com")) {
-            githubRequests.push(url.toString());
-            throw new Error("Interactive classification must not call GitHub");
-        }
-        return originalFetch(input, init);
-    };
-    try {
-        const classified = await mutation(baseUrl, "study-session=participant-a", `/queue/${cards[299].id}/classify`, {
-            category_id: categories[0].id,
-            expected_revision: 0,
-            participant_id: 22,
-            study_id: "other-study",
-        });
-        const discarded = await mutation(baseUrl, "study-session=participant-b", `/queue/${cards[0].id}/discard`, {
-            reason: "not applicable",
-            expected_revision: 0,
-            participant_id: 11,
-            study_id: "other-study",
-        });
-        const thirdClassification = await mutation(baseUrl, "study-session=participant-c", `/queue/${cards[0].id}/classify`, {
-            category_id: categories[2].id,
-            expected_revision: 0,
-        });
+test("private study mutations keep three session participants isolated across 30/300/369 cards", async t => {
+    for (const cardCount of [30, 300, 369]) {
+        await t.test(`${cardCount} assigned cards without reserves`, async () => {
+            const pool = new PrivateStudyPool(cardCount);
+            const studyCards = pool.cards;
+            const firstCard = studyCards[0];
+            const lastCard = studyCards.at(-1);
+            const server = await start(pool);
+            const baseUrl = `http://127.0.0.1:${server.address().port}`;
+            const originalFetch = globalThis.fetch;
+            const githubRequests = [];
+            globalThis.fetch = async (input, init) => {
+                const url = new URL(typeof input === "string" ? input : input.url);
+                if (url.hostname === "api.github.com" || url.hostname.endsWith(".github.com")) {
+                    githubRequests.push(url.toString());
+                    throw new Error("Interactive classification must not call GitHub");
+                }
+                return originalFetch(input, init);
+            };
+            try {
+                const classified = await mutation(baseUrl, "study-session=participant-a", `/queue/${lastCard.id}/classify`, {
+                    category_id: categories[0].id,
+                    expected_revision: 0,
+                    participant_id: 22,
+                    study_id: "other-study",
+                });
+                const discarded = await mutation(baseUrl, "study-session=participant-b", `/queue/${firstCard.id}/discard`, {
+                    reason: "not applicable",
+                    expected_revision: 0,
+                    participant_id: 11,
+                    study_id: "other-study",
+                });
+                const thirdClassification = await mutation(baseUrl, "study-session=participant-c", `/queue/${firstCard.id}/classify`, {
+                    category_id: categories[2].id,
+                    expected_revision: 0,
+                });
+                const editedClassification = await mutation(baseUrl, "study-session=participant-a", `/queue/${lastCard.id}/classify`, {
+                    category_id: categories[0].id,
+                    expected_revision: 1,
+                    remarks: "updated private note",
+                });
 
-        assert.equal(classified.status, 303);
-        assert.equal(classified.headers.get("location"), `/queue/${cards[0].id}`);
-        assert.equal(discarded.status, 303);
-        assert.equal(discarded.headers.get("location"), `/queue/${cards[1].id}`);
-        assert.equal(thirdClassification.status, 303);
-        assert.equal(thirdClassification.headers.get("location"), `/queue/${cards[1].id}`);
-        assert.equal(pool.classifications.size, 2);
-        assert.deepEqual([...pool.classifications.values()].map(({participantId, categoryId, studyId: storedStudyId}) => ({participantId, categoryId, studyId: storedStudyId})), [
-            {participantId: 11, categoryId: categories[0].id, studyId},
-            {participantId: 33, categoryId: categories[2].id, studyId},
-        ]);
-        assert.deepEqual([...pool.discards.values()], [{cardId: cards[0].id, participantId: 22, reason: "not applicable", studyId}]);
-        assert.deepEqual(pool.categoryParameters, [
-            [categories[0].id, studyId, 11],
-            [categories[2].id, studyId, 33],
-        ]);
-        assert.deepEqual(pool.transactionEvents, ["BEGIN", "COMMIT", "BEGIN", "COMMIT", "BEGIN", "COMMIT"]);
-        assert.equal(pool.releaseCount, 3);
+                assert.equal(studyCards.length, cardCount);
+                assert.equal(lastCard.ordinal, cardCount - 1);
+                assert.equal(classified.status, 303);
+                assert.equal(classified.headers.get("location"), `/queue/${firstCard.id}`);
+                assert.equal(discarded.status, 303);
+                assert.equal(discarded.headers.get("location"), `/queue/${studyCards[1].id}`);
+                assert.equal(thirdClassification.status, 303);
+                assert.equal(thirdClassification.headers.get("location"), `/queue/${studyCards[1].id}`);
+                assert.equal(editedClassification.status, 303);
+                assert.equal(editedClassification.headers.get("location"), `/queue/${firstCard.id}`);
+                assert.equal(pool.classifications.size, 2);
+                assert.deepEqual([...pool.classifications.values()].map(({participantId, categoryId, remarks, revision, studyId: storedStudyId}) => ({
+                    participantId,
+                    categoryId,
+                    remarks,
+                    revision,
+                    studyId: storedStudyId,
+                })), [
+                    {participantId: 11, categoryId: categories[0].id, remarks: "updated private note", revision: 2, studyId},
+                    {participantId: 33, categoryId: categories[2].id, remarks: null, revision: 1, studyId},
+                ]);
+                assert.deepEqual([...pool.discards.values()], [{cardId: firstCard.id, participantId: 22, reason: "not applicable", studyId}]);
+                assert.deepEqual(pool.categoryParameters, [
+                    [categories[0].id, studyId, 11],
+                    [categories[2].id, studyId, 33],
+                    [categories[0].id, studyId, 11],
+                ]);
 
-        for (const [session, participantId, expectedProgress, expectedCategoryId] of [
-            ["study-session=participant-a", 11, {total: 300, classified: 1, discarded: 0, pending: 299}, categories[0].id],
-            ["study-session=participant-b", 22, {total: 300, classified: 0, discarded: 1, pending: 299}, categories[1].id],
-            ["study-session=participant-c", 33, {total: 300, classified: 1, discarded: 0, pending: 299}, categories[2].id],
-        ]) {
-            const response = await request(baseUrl, session, "/progress?participant_id=999&study_id=other-study");
-            assert.equal(response.status, 200);
-            assert.deepEqual(pool.progress(participantId), expectedProgress);
-            const body = await response.text();
-            assert.match(body, new RegExp(contexts[session].participantKey), "progress must render only the session participant");
-            assert.match(body, new RegExp(expectedCategoryId), "progress must render the session participant's own category summary");
-        }
-        assert.deepEqual(pool.progressParameters, [[studyId, 11], [studyId, 22], [studyId, 33]]);
-        assert.deepEqual(pool.pageParameters, [[studyId, 11, 20, 0], [studyId, 22, 20, 0], [studyId, 33, 20, 0]]);
-        assert.deepEqual(pool.categorySummaryParameters, [[studyId, 11], [studyId, 22], [studyId, 33]]);
-        assert.equal(pool.classifications.size, 2, "progress reads must not create classifications");
-        assert.equal(pool.discards.size, 1, "progress reads must not create discards");
-        assert.deepEqual(githubRequests, []);
-    } finally {
-        globalThis.fetch = originalFetch;
-        await close(server);
+                const editedCategoryResponse = await request(baseUrl, "study-session=participant-a", `/categories/${categories[0].id}`, {
+                    method: "PATCH",
+                    headers: {"content-type": "application/json"},
+                    body: JSON.stringify({name: "Renamed A category", definition: "Private A definition edited"}),
+                });
+                assert.equal(editedCategoryResponse.status, 200);
+                assert.deepEqual(
+                    (({raw_name, definition}) => ({raw_name, definition}))(await editedCategoryResponse.json()),
+                    {raw_name: "Renamed A category", definition: "Private A definition edited"},
+                );
+                const crossParticipantEdit = await request(baseUrl, "study-session=participant-b", `/categories/${categories[0].id}`, {
+                    method: "PATCH",
+                    headers: {"content-type": "application/json"},
+                    body: JSON.stringify({name: "B cannot rename A", definition: "B cannot change A's definition"}),
+                });
+                assert.equal(crossParticipantEdit.status, 404);
+                assert.equal(await crossParticipantEdit.text(), "");
+
+                for (const [session, participantId, expectedProgress, expectedCategoryId, ownDefinition, otherDefinitions] of [
+                    ["study-session=participant-a", 11, {total: cardCount, classified: 1, discarded: 0, pending: cardCount - 1}, categories[0].id, "Private A definition edited", ["Participant B definition", "Participant C definition"]],
+                    ["study-session=participant-b", 22, {total: cardCount, classified: 0, discarded: 1, pending: cardCount - 1}, categories[1].id, null, ["Private A definition edited", "Participant C definition"]],
+                    ["study-session=participant-c", 33, {total: cardCount, classified: 1, discarded: 0, pending: cardCount - 1}, categories[2].id, "Participant C definition", ["Private A definition edited", "Participant B definition"]],
+                ]) {
+                    const response = await request(baseUrl, session, "/progress?participant_id=999&study_id=other-study");
+                    assert.equal(response.status, 200);
+                    assert.deepEqual(pool.progress(participantId), expectedProgress);
+                    const body = await response.text();
+                    assert.match(body, new RegExp(contexts[session].participantKey));
+                    assert.match(body, new RegExp(expectedCategoryId));
+                    assert.match(body, new RegExp(`${expectedProgress.classified + expectedProgress.discarded} of ${cardCount} cards completed`));
+                    if (ownDefinition) assert.match(body, new RegExp(ownDefinition));
+                    for (const otherDefinition of otherDefinitions) assert.doesNotMatch(body, new RegExp(otherDefinition));
+                    assert.equal(body.includes("Discarded: not applicable"), participantId === 22);
+
+                    const lastPage = Math.ceil(cardCount / 20);
+                    const lastPageResponse = await request(baseUrl, session, `/progress?page=${lastPage}&limit=20`);
+                    const lastPageBody = await lastPageResponse.text();
+                    for (const card of studyCards.slice(Math.floor((cardCount - 1) / 20) * 20)) {
+                        assert.match(lastPageBody, new RegExp(`data-card-id=${card.id}`));
+                    }
+                    assert.match(lastPageBody, new RegExp(`data-progress-total=true>${cardCount} assigned cards`));
+                }
+
+                assert.deepEqual(pool.progressParameters, [
+                    [studyId, 11], [studyId, 11], [studyId, 22], [studyId, 22], [studyId, 33], [studyId, 33],
+                ]);
+                assert.equal(pool.pageParameters.length, 6);
+                assert.deepEqual(pool.pageParameters.map(parameters => parameters.slice(0, 2)), [
+                    [studyId, 11], [studyId, 11], [studyId, 22], [studyId, 22], [studyId, 33], [studyId, 33],
+                ]);
+                assert.deepEqual(pool.categorySummaryParameters, [
+                    [studyId, 11], [studyId, 11], [studyId, 22], [studyId, 22], [studyId, 33], [studyId, 33],
+                ]);
+                assert.equal(pool.classifications.size, 2);
+                assert.equal(pool.discards.size, 1);
+                assert.deepEqual(pool.transactionEvents, [
+                    "BEGIN", "COMMIT", "BEGIN", "COMMIT", "BEGIN", "COMMIT", "BEGIN", "COMMIT",
+                    "BEGIN", "COMMIT", "BEGIN", "ROLLBACK",
+                ]);
+                assert.equal(pool.releaseCount, 6);
+                assert.deepEqual(githubRequests, []);
+            } finally {
+                globalThis.fetch = originalFetch;
+                await close(server);
+            }
+        });
     }
 });
 

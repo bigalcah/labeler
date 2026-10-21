@@ -1,0 +1,9 @@
+{
+  "source_checksum": "1607cfe84cb687a2cc7b4c56d3e0abf106b1a1044810d7390663ef1d691b63ab",
+  "source_card_id": "3082820826-A",
+  "baseline": {
+    "projection_sha256": "7790ca4160066868ec7434fd869da1b5aec3810e112424cd306532abc386c67e",
+    "render_sha256": "32b9b65312274735a338ea8c17f70d5aca0037b8457deb14c709d305601be5bc",
+    "render_bytes": 6252
+  }
+}

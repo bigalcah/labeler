@@ -6,12 +6,23 @@ import test from "node:test";
 import {parse} from "csv-parse/sync";
 import pg from "pg";
 import {createStudyComparisonExport} from "../util/study-export.js";
+import {fingerprintPersistentStudy} from "./support/study-state-fingerprint.js";
+import {categoryName} from "./support/private-category-name.js";
 
 const {Pool} = pg;
 const root = path.resolve(new URL("..", import.meta.url).pathname);
 const currentStudyKey = "pr-card-sorting-local";
 const validationStudyKey = "pr-card-sorting-validation-30";
 const usernames = Object.freeze(["javier", "diego", "pablo", "javier-30", "diego-30", "pablo-30"]);
+const participantKeys = Object.freeze(["javier", "diego", "pablo"]);
+const canonicalSourceIds = new Map([
+    [currentStudyKey, JSON.parse(readFileSync(path.join(root, "plans/copilot-369-cards.manifest.json"), "utf8")).ordered_pr_ids],
+    [validationStudyKey, JSON.parse(readFileSync(path.join(root, "plans/validation-30-cards.manifest.json"), "utf8")).orderedCardIds],
+]);
+const sourceArtifacts = new Map([
+    [currentStudyKey, ["plans/copilot-369-cards.csv", "plans/copilot-369-cards.manifest.json"]],
+    [validationStudyKey, ["plans/validation-30-cards.csv", "plans/validation-30-cards.manifest.json"]],
+]);
 
 const prerequisite = message => {
     throw new Error(`MULTI_STUDY_HOSTILE_E2E_PREREQUISITE: ${message}`);
@@ -141,6 +152,11 @@ const login = async client => {
     });
     assert.equal(response.status, 302, `${client.username} did not authenticate`);
     assert.equal(response.headers.location, "/queue");
+    const sessionCookie = response.headers["set-cookie"]?.find(value => value.startsWith("__Host-session="));
+    assert.ok(sessionCookie, `${client.username} did not receive a session cookie`);
+    assert.match(sessionCookie, /;\s*Secure\b/i);
+    assert.match(sessionCookie, /;\s*HttpOnly\b/i);
+    assert.match(sessionCookie, /;\s*SameSite=Lax\b/i);
     assert.match(client.cookieHeader(), /__Host-session=/, `${client.username} did not receive a session cookie`);
 };
 
@@ -155,29 +171,38 @@ const privateState = async pool => (await pool.query(
     )::text AS snapshot`,
 )).rows[0].snapshot;
 
-const currentFingerprint = async pool => (await pool.query(
-    `SELECT jsonb_build_object('study', jsonb_build_object('key', study_key, 'config', config, 'count', expected_card_count, 'state', bootstrap_state, 'checksum', source_checksum),
-        'cards', (SELECT jsonb_agg(jsonb_build_object('source', membership.source_card_id, 'ordinal', membership.ordinal, 'checksum', membership.source_checksum, 'content', card.content_checksum) ORDER BY membership.ordinal) FROM study_card membership JOIN pr_cards card ON card.id = membership.pr_card_id WHERE membership.study_id = study.id),
-        'members', (SELECT jsonb_agg(jsonb_build_object('key', participant_key, 'ordinal', ordinal) ORDER BY ordinal) FROM study_participant WHERE study_id = study.id),
-        'accounts', (SELECT jsonb_agg(jsonb_build_object('username', normalized_username, 'version', credential_version, 'enabled', enabled) ORDER BY normalized_username) FROM participant_account WHERE study_id = study.id),
-        'categories', (SELECT jsonb_agg(jsonb_build_object('participant', participant_id, 'name', raw_name) ORDER BY participant_id, raw_name) FROM participant_category WHERE study_id = study.id),
-        'classifications', (SELECT jsonb_agg(jsonb_build_object('participant', participant_id, 'card', pr_card_id, 'category', category_id, 'remarks', remarks, 'revision', revision) ORDER BY participant_id, pr_card_id) FROM pr_classification WHERE study_id = study.id),
-        'discards', (SELECT jsonb_agg(jsonb_build_object('participant', participant_id, 'card', pr_card_id, 'reason', reason) ORDER BY participant_id, pr_card_id) FROM pr_discard WHERE study_id = study.id),
-        'promotion', (SELECT jsonb_agg(jsonb_build_object('run', run_id, 'checksum', source_checksum, 'promoted_at', promoted_at) ORDER BY run_id) FROM study_enrichment_promotion WHERE study_id = study.id))::text AS fingerprint
-     FROM study WHERE study_key = $1`, [currentStudyKey],
-)).rows[0]?.fingerprint;
+const persistentFingerprint = (pool, studyKey) => fingerprintPersistentStudy({
+    pool,
+    studyKey,
+    artifactPaths: sourceArtifacts.get(studyKey).map(file => path.join(root, file)),
+});
 
-const completeValidationQueue = async (client, categoryId, sharedCard, oppositeDecision) => {
-    for (let ordinal = 0; ordinal < 30; ordinal += 1) {
+const completeValidationQueue = async (client, categoryId, {leaveLastPending = false} = {}) => {
+    const completionCount = leaveLastPending ? 29 : 30;
+    for (let ordinal = 0; ordinal < completionCount; ordinal += 1) {
         const {id} = await queueCard(client);
-        const classify = id === sharedCard ? oppositeDecision === "CLASSIFIED" : ordinal % 2 === 0;
+        const classify = ordinal % 2 === 0;
         const response = await mutation(client, `/queue/${id}/${classify ? "classify" : "discard"}`, classify
-            ? {category_id: categoryId, expected_revision: "0", remarks: `validated-${client.username}-${ordinal}`}
+            ? {category_id: categoryId, expected_revision: "0", ...(ordinal === 0 ? {} : {remarks: `validated-${client.username}-${ordinal}`})}
             : {expected_revision: "0", reason: `discarded-${client.username}-${ordinal}`});
         assert.equal(response.status, 303, `${client.username} could not complete card ${ordinal}`);
     }
-    assert.equal((await client.request("/queue")).status, 200, `${client.username} queue should be complete`);
+    assert.equal((await client.request("/queue")).status, leaveLastPending ? 303 : 200,
+        `${client.username} queue completion should match its reserved pending-card count`);
 };
+
+const completeStudyForExport = async (pool, {studyId, participantId, categoryId, pendingCardId}) => pool.query(
+    `INSERT INTO pr_classification(pr_card_id, participant_id, category_id, remarks, study_id)
+     SELECT card.pr_card_id, $2, $3, 'synthetic export completion', $1
+     FROM study_card card
+     WHERE card.study_id = $1
+       AND ($4::uuid IS NULL OR card.pr_card_id <> $4)
+       AND NOT EXISTS (SELECT FROM pr_classification classification
+                       WHERE classification.study_id = $1 AND classification.participant_id = $2 AND classification.pr_card_id = card.pr_card_id)
+       AND NOT EXISTS (SELECT FROM pr_discard discard
+                       WHERE discard.study_id = $1 AND discard.participant_id = $2 AND discard.pr_card_id = card.pr_card_id)`,
+    [studyId, participantId, categoryId, pendingCardId],
+);
 
 const createSnapshotBarrier = pool => {
     let announceSnapshot;
@@ -214,7 +239,7 @@ const createSnapshotBarrier = pool => {
     };
 };
 
-const parseComparisonCsv = (csv, participantCount) => {
+const parseComparisonCsv = (csv, cardCount, participantCount) => {
     const records = parse(csv, {record_delimiter: "\r\n"});
     const expectedColumns = 2 + participantCount * 3;
     const expectedHeader = ["pr_id", "pr_url"];
@@ -226,23 +251,58 @@ const parseComparisonCsv = (csv, participantCount) => {
         );
     }
 
-    assert.equal(records.length, 31, "the 30-card sample should produce 30 CSV data rows");
+    assert.equal(records.length, cardCount + 1, `the ${cardCount}-card sample should produce exactly one CSV row per card`);
     assert.deepEqual(records[0], expectedHeader, "the export should contain only included participant blocks");
     assert.ok(records.every(record => record.length === expectedColumns), "all rows should retain the expected CSV column count");
     return records;
 };
 
-test("isolated hostile E2E keeps two READY studies, six authenticated contexts, and all private decisions isolated", async () => {
+test("isolated hostile E2E binds six sessions, private decisions, exports, and progress to the exact 369/30 study memberships", async () => {
     const pool = new Pool(config.database);
     let complete = false;
     try {
-        const {rows: studies} = await pool.query("SELECT study_key, expected_card_count, bootstrap_state FROM study WHERE study_key = ANY($1) ORDER BY expected_card_count DESC", [[currentStudyKey, validationStudyKey]]);
+        const {rows: studies} = await pool.query(
+            "SELECT study_key, expected_card_count, bootstrap_state FROM study WHERE study_key = ANY($1) ORDER BY expected_card_count DESC",
+            [[currentStudyKey, validationStudyKey]],
+        );
         assert.deepEqual(studies, [
-            {study_key: currentStudyKey, expected_card_count: 300, bootstrap_state: "READY"},
+            {study_key: currentStudyKey, expected_card_count: 369, bootstrap_state: "READY"},
             {study_key: validationStudyKey, expected_card_count: 30, bootstrap_state: "READY"},
         ]);
         const {rows: [ready]} = await pool.query("SELECT COUNT(*)::integer AS studies FROM study WHERE bootstrap_state = 'READY'");
         assert.deepEqual(ready, {studies: 2});
+        const [primaryMembership, validationMembership] = await Promise.all([
+            pool.query(
+                "SELECT source_card_id, pr_card_id FROM study_card WHERE study_id = (SELECT id FROM study WHERE study_key = $1) ORDER BY ordinal",
+                [currentStudyKey],
+            ),
+            pool.query(
+                "SELECT source_card_id, pr_card_id FROM study_card WHERE study_id = (SELECT id FROM study WHERE study_key = $1) ORDER BY ordinal",
+                [validationStudyKey],
+            ),
+        ]);
+        const primaryCards = primaryMembership.rows;
+        const validationCards = validationMembership.rows;
+        assert.equal(primaryCards.length, 369);
+        assert.equal(validationCards.length, 30);
+        const {rows: membershipRows} = await pool.query(
+            `SELECT study.study_key, participant.participant_key, card.source_card_id, card.ordinal
+             FROM study JOIN study_participant participant ON participant.study_id = study.id
+             JOIN study_card card ON card.study_id = study.id
+             WHERE study.study_key = ANY($1)
+             ORDER BY study.expected_card_count DESC, participant.ordinal, card.ordinal`,
+            [[currentStudyKey, validationStudyKey]],
+        );
+        for (const [studyKey, expectedIds] of canonicalSourceIds) {
+            for (const participantKey of participantKeys) {
+                assert.deepEqual(
+                    membershipRows.filter(row => row.study_key === studyKey && row.participant_key === participantKey)
+                        .map(row => row.source_card_id),
+                    expectedIds,
+                    `${studyKey}/${participantKey} must receive the complete canonical order`,
+                );
+            }
+        }
         const {rows: validationQueues} = await pool.query(
             `SELECT participant.participant_key, COUNT(card.pr_card_id)::integer AS cards
              FROM study validation JOIN study_participant participant ON participant.study_id = validation.id
@@ -255,100 +315,214 @@ test("isolated hostile E2E keeps two READY studies, six authenticated contexts, 
             {participant_key: "javier", cards: 30},
             {participant_key: "pablo", cards: 30},
         ]);
-        const {rows: [sharedMembership]} = await pool.query(
-            `SELECT COUNT(*)::integer AS cards FROM study_card current_card JOIN study_card validation_card ON validation_card.source_card_id = current_card.source_card_id
-             WHERE current_card.study_id = (SELECT id FROM study WHERE study_key = $1)
+        const {rows: [crossStudyCards]} = await pool.query(
+            `SELECT COUNT(*)::integer AS count
+             FROM study_card primary_card JOIN study_card validation_card ON validation_card.source_card_id = primary_card.source_card_id
+             WHERE primary_card.study_id = (SELECT id FROM study WHERE study_key = $1)
                AND validation_card.study_id = (SELECT id FROM study WHERE study_key = $2)`,
             [currentStudyKey, validationStudyKey],
         );
-        assert.deepEqual(sharedMembership, {cards: 30});
-        const fingerprintBefore = await currentFingerprint(pool);
-        assert.ok(fingerprintBefore, "the current 300-card study must exist before hostile validation");
-        const {rows: [shared]} = await pool.query(
-            `SELECT current_card.source_card_id, current_card.pr_card_id AS current_card_id, validation_card.pr_card_id AS validation_card_id,
-                    current_category.id AS current_category_id, current_category.raw_name AS current_category_name
-             FROM study current_study JOIN study_participant current_participant ON current_participant.study_id = current_study.id AND current_participant.participant_key = 'javier'
-             JOIN pr_classification current_classification ON current_classification.study_id = current_study.id AND current_classification.participant_id = current_participant.reviewer_id
-             JOIN participant_category current_category ON current_category.id = current_classification.category_id
-             JOIN study_card current_card ON current_card.study_id = current_study.id AND current_card.pr_card_id = current_classification.pr_card_id
-             JOIN study validation_study ON validation_study.study_key = $2 JOIN study_participant validation_participant ON validation_participant.study_id = validation_study.id AND validation_participant.participant_key = 'javier'
-             JOIN study_card validation_card ON validation_card.study_id = validation_study.id AND validation_card.source_card_id = current_card.source_card_id
-             LEFT JOIN pr_classification validation_classification ON validation_classification.study_id = validation_study.id AND validation_classification.participant_id = validation_participant.reviewer_id AND validation_classification.pr_card_id = validation_card.pr_card_id
-             LEFT JOIN pr_discard validation_discard ON validation_discard.study_id = validation_study.id AND validation_discard.participant_id = validation_participant.reviewer_id AND validation_discard.pr_card_id = validation_card.pr_card_id
-             WHERE current_study.study_key = $1 AND validation_classification.id IS NULL AND validation_discard.pr_card_id IS NULL LIMIT 1`,
-            [currentStudyKey, validationStudyKey],
-        );
-        assert.ok(shared, "isolated runtime must preseed one current-study javier classification whose source card is pending in validation");
-        const {rows: [foreignCurrentCard]} = await pool.query(
-            `SELECT current_card.pr_card_id AS card_id
-             FROM study current_study
-             JOIN study_card current_card ON current_card.study_id = current_study.id
-             LEFT JOIN study validation_study ON validation_study.study_key = $2
-             LEFT JOIN study_card validation_card ON validation_card.study_id = validation_study.id AND validation_card.source_card_id = current_card.source_card_id
-             WHERE current_study.study_key = $1 AND validation_card.pr_card_id IS NULL
-             LIMIT 1`,
-            [currentStudyKey, validationStudyKey],
-        );
-        assert.ok(foreignCurrentCard, "current study must include a card outside the validation membership");
+        assert.deepEqual(crossStudyCards, {count: 0});
 
         const clients = new Map(usernames.map(username => [username, new CookieClient(username, config.credentials[username])]));
         await Promise.all([...clients.values()].map(login));
-        assert.equal(new Set([...clients.values()].map(client => client.cookieHeader())).size, 6, "six logins must create independent cookie jars");
         const initialCards = await Promise.all([...clients.values()].map(queueCard));
+        assert.deepEqual(initialCards.slice(0, 3).map(card => card.id), Array(3).fill(primaryCards[0].pr_card_id));
+        assert.deepEqual(initialCards.slice(3).map(card => card.id), Array(3).fill(validationCards[0].pr_card_id));
+        const cookieValues = [...clients.values()].map(client => client.cookieHeader());
+        assert.equal(new Set(cookieValues).size, 6, "six logins must create independent Secure session cookies");
+        assert.equal(new Set([...clients.values()].map(client => client.csrfToken)).size, 6,
+            "six logins must create independent synchronizer tokens");
+        const sessionIds = [...clients.values()].map(client => client.cookies.get("__Host-session").split(".", 1)[0]);
+        const {rows: sessionBindings} = await pool.query(
+            `SELECT account.normalized_username, study.study_key,
+                    session.study_id = account.study_id AS study_bound,
+                    session.reviewer_id = account.reviewer_id AS participant_bound
+             FROM app_session session JOIN participant_account account ON account.id = session.account_id
+             JOIN study ON study.id = account.study_id
+             WHERE session.session_id = ANY($1::text[]) ORDER BY account.normalized_username`,
+            [sessionIds],
+        );
+        assert.deepEqual(sessionBindings.map(row => [row.normalized_username, row.study_key, row.study_bound, row.participant_bound]), [
+            ["diego", currentStudyKey, true, true],
+            ["diego-30", validationStudyKey, true, true],
+            ["javier", currentStudyKey, true, true],
+            ["javier-30", validationStudyKey, true, true],
+            ["pablo", currentStudyKey, true, true],
+            ["pablo-30", validationStudyKey, true, true],
+        ]);
+        assert.equal(new Set(sessionIds).size, 6, "six authenticated accounts must own six server-side sessions");
         const membership = await pool.query(
-            "SELECT study.expected_card_count, card.pr_card_id FROM unnest($1::uuid[]) requested(pr_card_id) JOIN study_card card ON card.pr_card_id = requested.pr_card_id JOIN study ON study.id = card.study_id",
+            `SELECT study.expected_card_count, card.pr_card_id
+             FROM unnest($1::uuid[]) requested(pr_card_id)
+             JOIN study_card card ON card.pr_card_id = requested.pr_card_id
+             JOIN study ON study.id = card.study_id`,
             [initialCards.map(card => card.id)],
         );
-        assert.deepEqual([...new Set(membership.rows.map(row => row.expected_card_count))].sort(), [30, 300]);
+        assert.deepEqual([...new Set(membership.rows.map(row => row.expected_card_count))].sort(), [30, 369]);
 
-        const validationClients = ["javier-30", "diego-30", "pablo-30"].map(username => clients.get(username));
         const categories = new Map();
-        for (const client of validationClients) {
-            const name = `private-${client.username}`;
-            const response = await mutation(client, "/categories", {name});
+        for (const username of usernames) {
+            const client = clients.get(username);
+            const response = await mutation(client, "/categories", {
+                name: categoryName(username),
+                ...(username === "javier" ? {definition: "Private primary definition"} : {}),
+                ...(username === "javier-30" ? {definition: "Private validation definition"} : {}),
+            });
             assert.equal(response.status, 201);
-            categories.set(client.username, JSON.parse(response.body).id);
+            categories.set(username, JSON.parse(response.body).id);
         }
+        const categorizedCards = await Promise.all([...clients.values()].map(queueCard));
+        for (const [index, username] of usernames.entries()) {
+            assert.match(categorizedCards[index].html, new RegExp(escaped(categoryName(username))));
+            for (const other of usernames.filter(name => name !== username)) {
+                assert.doesNotMatch(categorizedCards[index].html, new RegExp(escaped(categoryName(other))));
+            }
+        }
+
+        const currentCategoryId = categories.get("javier");
+        const foreignCurrentCard = {id: primaryCards[0].pr_card_id};
         const javierValidation = clients.get("javier-30");
-        const javierCard = await queueCard(javierValidation);
-        assert.match(javierCard.html, /private-javier-30/);
-        assert.doesNotMatch(javierCard.html, /private-diego-30|private-pablo-30/);
-        assert.doesNotMatch(javierCard.html, new RegExp(escaped(shared.current_category_name), "i"));
         const stateBeforeAttacks = await privateState(pool);
         const hostile = await Promise.all([
-            javierValidation.request(`/queue/${foreignCurrentCard.card_id}`),
+            javierValidation.request(`/queue/${foreignCurrentCard.id}`),
             javierValidation.request(`/queue?study_id=${encodeURIComponent(currentStudyKey)}&participant_id=foreign`),
-            mutation(javierValidation, `/queue/${shared.validation_card_id}/classify`, {category_id: shared.current_category_id, expected_revision: "0", study_id: currentStudyKey, participant_id: "foreign"}),
+            mutation(javierValidation, `/queue/${validationCards[0].pr_card_id}/classify`, {
+                category_id: currentCategoryId, expected_revision: "0", study_id: currentStudyKey, participant_id: "foreign",
+            }),
             mutation(javierValidation, "/categories", {name: "cookie-attack"}, {cookie: clients.get("javier").cookieHeader()}),
             mutation(javierValidation, "/categories", {name: "csrf-attack"}, {"x-csrf-token": clients.get("javier").csrfToken}),
+            mutation(javierValidation, "/categories", {name: "origin-attack"}, {origin: "https://attacker.invalid"}),
             javierValidation.request("/export?study_id=pr-card-sorting-local&participant_id=foreign"),
         ]);
-        assert.deepEqual(hostile.map(response => response.status), [404, 303, 404, 403, 403, 200]);
-        assert.equal(hostile[1].headers.location, `/queue/${javierCard.id}`);
-        assert.doesNotMatch(`${hostile[0].body}${hostile[2].body}`, new RegExp(shared.current_category_name, "i"));
-        assert.doesNotMatch(hostile[5].body, /private-(?:javier|diego|pablo)-30/);
-        assert.equal(await privateState(pool), stateBeforeAttacks, "hostile URL, query, form, cookie, and CSRF requests must not mutate either study");
+        assert.deepEqual(hostile.map(response => response.status), [404, 303, 404, 403, 403, 403, 200]);
+        assert.equal(hostile[1].headers.location, `/queue/${validationCards[0].pr_card_id}`);
+        assert.doesNotMatch(`${hostile[0].body}${hostile[2].body}`, /Private primary definition/);
+        for (const username of usernames) assert.doesNotMatch(hostile[6].body, new RegExp(escaped(categoryName(username))));
+        assert.equal(await privateState(pool), stateBeforeAttacks,
+            "hostile URL, query, form, cookie, and CSRF requests must not mutate either study");
         const loginPage = await clients.get("javier").request("/login");
         assert.doesNotMatch(loginPage.body, /<select|\b(?:study_id|participant_id)\b/i);
 
-        await Promise.all(validationClients.slice(0, 2).map(client => completeValidationQueue(
-            client,
-            categories.get(client.username),
-            client.username === "javier-30" ? shared.validation_card_id : null,
-            "DISCARDED",
-        )));
+        const validationBeforePrimary = await persistentFingerprint(pool, validationStudyKey);
+        const javier = clients.get("javier");
+        const diego = clients.get("diego");
+        const pablo = clients.get("pablo");
+        const firstPrimaryCard = primaryCards[0].pr_card_id;
+        const secondPrimaryCard = primaryCards[1].pr_card_id;
+        const thirdPrimaryCard = primaryCards[2].pr_card_id;
+        const classified = await mutation(javier, `/queue/${firstPrimaryCard}/classify`, {
+            category_id: categories.get("javier"), expected_revision: "0", remarks: "Initial private note",
+        });
+        assert.equal(classified.status, 303);
+        assert.equal(classified.headers.location, `/queue/${secondPrimaryCard}`);
+        const edited = await mutation(javier, `/queue/${firstPrimaryCard}/classify`, {
+            category_id: categories.get("javier"), expected_revision: "1", remarks: "Edited private note",
+        });
+        assert.equal(edited.status, 303);
+        const withoutNote = await mutation(javier, `/queue/${secondPrimaryCard}/classify`, {
+            category_id: categories.get("javier"), expected_revision: "0",
+        });
+        assert.equal(withoutNote.status, 303);
+        assert.equal(withoutNote.headers.location, `/queue/${thirdPrimaryCard}`);
+        const discarded = await mutation(javier, `/queue/${thirdPrimaryCard}/discard`, {
+            expected_revision: "0", reason: "outside scope",
+        });
+        assert.equal(discarded.status, 303);
+        const {rows: [nextPrimaryCard]} = await pool.query(
+            `SELECT card.pr_card_id
+             FROM study JOIN study_participant participant ON participant.study_id = study.id
+             JOIN study_card card ON card.study_id = study.id
+             LEFT JOIN pr_classification classification ON classification.study_id = study.id
+                 AND classification.participant_id = participant.reviewer_id AND classification.pr_card_id = card.pr_card_id
+             LEFT JOIN pr_discard discard ON discard.study_id = study.id
+                 AND discard.participant_id = participant.reviewer_id AND discard.pr_card_id = card.pr_card_id
+             WHERE study.study_key = $1 AND participant.participant_key = 'javier'
+               AND classification.id IS NULL AND discard.pr_card_id IS NULL
+             ORDER BY card.ordinal LIMIT 1`,
+            [currentStudyKey],
+        );
+        assert.equal(discarded.headers.location, `/queue/${nextPrimaryCard.pr_card_id}`);
+        const diegoDecision = await mutation(diego, `/queue/${firstPrimaryCard}/classify`, {
+            category_id: categories.get("diego"), expected_revision: "0",
+        });
+        assert.equal(diegoDecision.status, 303);
+        const pabloDecision = await mutation(pablo, `/queue/${firstPrimaryCard}/discard`, {
+            expected_revision: "0", reason: "outside scope",
+        });
+        assert.equal(pabloDecision.status, 303);
+        const {rows: primaryDecisions} = await pool.query(
+            `SELECT participant.participant_key,
+                    classification.id IS NOT NULL AS classified,
+                    discard.pr_card_id IS NOT NULL AS discarded
+             FROM study JOIN study_participant participant ON participant.study_id = study.id
+             JOIN study_card card ON card.study_id = study.id AND card.source_card_id = $2
+             LEFT JOIN pr_classification classification ON classification.study_id = study.id
+                 AND classification.participant_id = participant.reviewer_id AND classification.pr_card_id = card.pr_card_id
+             LEFT JOIN pr_discard discard ON discard.study_id = study.id
+                 AND discard.participant_id = participant.reviewer_id AND discard.pr_card_id = card.pr_card_id
+             WHERE study.study_key = $1 ORDER BY participant.ordinal`,
+            [currentStudyKey, primaryCards[0].source_card_id],
+        );
+        assert.deepEqual(primaryDecisions, [
+            {participant_key: "javier", classified: true, discarded: false},
+            {participant_key: "diego", classified: true, discarded: false},
+            {participant_key: "pablo", classified: false, discarded: true},
+        ]);
+        const javierCard = await javier.request(`/queue/${firstPrimaryCard}`);
+        assert.match(javierCard.body, /Edited private note/);
+        for (const client of [diego, pablo]) {
+            const detail = await client.request(`/queue/${firstPrimaryCard}`);
+            assert.doesNotMatch(detail.body, /Edited private note|Private primary definition/);
+        }
+        for (const [username, client] of [["javier", javier], ["diego", diego], ["pablo", pablo]]) {
+            const progress = await client.request("/progress?study_id=foreign&participant_id=foreign");
+            assert.equal(progress.status, 200);
+            assert.match(progress.body, /369 assigned cards/);
+            assert.match(progress.body, new RegExp(`${username === "javier" ? 6 : 1} of 369 cards completed`));
+        }
+        const primaryBeforeValidation = await persistentFingerprint(pool, currentStudyKey);
+        assert.equal(await persistentFingerprint(pool, validationStudyKey), validationBeforePrimary,
+            "primary decisions must not alter persistent validation 30 state");
 
-        const {rows: [exportScope]} = await pool.query(
+        const validationClients = ["javier-30", "diego-30", "pablo-30"].map(username => clients.get(username));
+        await completeValidationQueue(validationClients[0], categories.get("javier-30"), {leaveLastPending: true});
+        await completeValidationQueue(validationClients[1], categories.get("diego-30"));
+        const pendingValidationCard = await queueCard(validationClients[0]);
+        assert.equal(pendingValidationCard.id, validationCards.at(-1).pr_card_id);
+        const validationEdit = await mutation(validationClients[0], `/queue/${validationCards[0].pr_card_id}/classify`, {
+            category_id: categories.get("javier-30"), expected_revision: "1", remarks: "Edited private validation note",
+        });
+        assert.equal(validationEdit.status, 303);
+        const validationPartnerCard = await validationClients[1].request(`/queue/${validationCards[0].pr_card_id}`);
+        assert.equal(validationPartnerCard.status, 200);
+        assert.doesNotMatch(validationPartnerCard.body, /Edited private validation note|Private validation definition/);
+        const incompleteValidationExport = await mutation(validationClients[0], "/export/download", {});
+        assert.equal(incompleteValidationExport.status, 403);
+        assert.match(incompleteValidationExport.headers["content-type"], /^text\/plain/);
+        assert.doesNotMatch(incompleteValidationExport.body, /^pr_id,pr_url/m);
+        const completedValidationCard = await mutation(validationClients[0], `/queue/${pendingValidationCard.id}/classify`, {
+            category_id: categories.get("javier-30"), expected_revision: "0",
+        });
+        assert.equal(completedValidationCard.status, 303);
+        const validationTwoParticipantExport = await mutation(validationClients[0], "/export/download", {});
+        assert.equal(validationTwoParticipantExport.status, 200);
+        assert.match(validationTwoParticipantExport.headers["content-type"], /^text\/csv;\s*charset=utf-8$/i);
+        const validationTwoParticipantRecords = parseComparisonCsv(validationTwoParticipantExport.body, 30, 2);
+        assert.equal(validationTwoParticipantRecords[0].length, 8);
+        assert.equal(validationTwoParticipantRecords[1][4], "Edited private validation note");
+
+        const {rows: [validationScope]} = await pool.query(
             `SELECT study.id AS study_id, participant.reviewer_id AS participant_id
              FROM study JOIN study_participant participant ON participant.study_id = study.id
              WHERE study.study_key = $1 AND participant.participant_key = 'javier'`,
             [validationStudyKey],
         );
-        assert.ok(exportScope, "authenticated export participant must belong to the validation study");
+        assert.ok(validationScope, "authenticated export participant must belong to the validation study");
         const snapshotBarrier = createSnapshotBarrier(pool);
         const snapshotExport = createStudyComparisonExport({
             pool: snapshotBarrier.pool,
-            context: {studyId: exportScope.study_id, participantId: exportScope.participant_id},
+            context: {studyId: validationScope.study_id, participantId: validationScope.participant_id},
         });
         try {
             const reachedSnapshot = await Promise.race([
@@ -356,17 +530,10 @@ test("isolated hostile E2E keeps two READY studies, six authenticated contexts, 
                 snapshotExport.then(() => false),
             ]);
             assert.equal(reachedSnapshot, true, "export should pause immediately after its first study SELECT establishes the snapshot");
-
-            await completeValidationQueue(
-                clients.get("pablo-30"),
-                categories.get("pablo-30"),
-                null,
-                "DISCARDED",
-            );
+            await completeValidationQueue(validationClients[2], categories.get("pablo-30"));
             snapshotBarrier.release();
-
-            const snapshotRecords = parseComparisonCsv(await snapshotExport, 2);
-            assert.equal(snapshotRecords.some(record => record.includes("private-pablo-30")
+            const snapshotRecords = parseComparisonCsv(await snapshotExport, 30, 2);
+            assert.equal(snapshotRecords.some(record => record.includes(categoryName("pablo-30"))
                 || record.some(value => value.startsWith("validated-pablo-30-"))), false,
             "a participant completing after the snapshot must be entirely excluded");
             process.stdout.write("snapshot_export_receipt cards=30 participants=2 columns=8\n");
@@ -375,59 +542,136 @@ test("isolated hostile E2E keeps two READY studies, six authenticated contexts, 
             await snapshotExport;
         }
 
-        const download = await mutation(clients.get("javier-30"), "/export/download", {});
-        assert.equal(download.status, 200, "the authenticated HTTP download should succeed after the third participant completes");
-        assert.match(download.headers["content-type"], /^text\/csv;\s*charset=utf-8$/i);
-        assert.match(download.headers["content-disposition"], /^attachment;\s*filename="pr-classifications\.csv"$/i);
-        assert.equal(download.headers["cache-control"], "private, no-store");
-        assert.equal(download.headers["x-content-type-options"], "nosniff");
-        const downloadedRecords = parseComparisonCsv(download.body, 3);
-        assert.equal(downloadedRecords.some(record => record.includes("private-pablo-30")
-            || record.some(value => value.startsWith("validated-pablo-30-"))), true,
-        "a participant completing before the next download should be included");
-        process.stdout.write("followup_export_receipt cards=30 participants=3 columns=11\n");
+        const validationThreeParticipantExport = await mutation(validationClients[0], "/export/download", {});
+        assert.equal(validationThreeParticipantExport.status, 200);
+        const validationThreeParticipantRecords = parseComparisonCsv(validationThreeParticipantExport.body, 30, 3);
+        assert.equal(validationThreeParticipantRecords[0].length, 11);
+        assert.equal(validationThreeParticipantRecords.some(record => record.includes(categoryName("pablo-30"))
+            || record.some(value => value.startsWith("validated-pablo-30-"))), true);
+        for (const client of validationClients) {
+            const progress = await client.request("/progress?study_id=foreign&participant_id=foreign");
+            assert.equal(progress.status, 200);
+            assert.match(progress.body, /30 assigned cards/);
+            assert.match(progress.body, /30 of 30 cards completed/);
+            for (const other of validationClients.filter(otherClient => otherClient !== client)) {
+                assert.doesNotMatch(progress.body, new RegExp(escaped(categoryName(other.username))));
+            }
+        }
+        process.stdout.write("export30_receipt pending=29/30 rejected=true complete=30 rows=30 columns=8,11\n");
+        assert.equal(await persistentFingerprint(pool, currentStudyKey), primaryBeforeValidation,
+            "validation decisions must not alter persistent primary 369 state");
 
-        const {rows: [completion]} = await pool.query(
-            `SELECT COUNT(*) FILTER (WHERE classification.id IS NOT NULL)::integer AS classified,
-                    COUNT(*) FILTER (WHERE discard.pr_card_id IS NOT NULL)::integer AS discarded,
-                    COUNT(*) FILTER (WHERE classification.id IS NOT NULL OR discard.pr_card_id IS NOT NULL)::integer AS terminal
-             FROM study validation JOIN study_participant participant ON participant.study_id = validation.id JOIN study_card card ON card.study_id = validation.id
-             LEFT JOIN pr_classification classification ON classification.study_id = validation.id AND classification.participant_id = participant.reviewer_id AND classification.pr_card_id = card.pr_card_id
-             LEFT JOIN pr_discard discard ON discard.study_id = validation.id AND discard.participant_id = participant.reviewer_id AND discard.pr_card_id = card.pr_card_id
-             WHERE validation.study_key = $1`, [validationStudyKey],
+        const {rows: [primaryScope]} = await pool.query(
+            `SELECT study.id AS study_id, participant.reviewer_id AS participant_id
+             FROM study JOIN study_participant participant ON participant.study_id = study.id
+             WHERE study.study_key = $1 AND participant.participant_key = 'javier'`,
+            [currentStudyKey],
         );
-        assert.equal(completion.terminal, 90);
-        assert.ok(completion.classified > 0 && completion.discarded > 0);
+        assert.ok(primaryScope);
+        const {rows: [diegoScope]} = await pool.query(
+            `SELECT study.id AS study_id, participant.reviewer_id AS participant_id
+             FROM study JOIN study_participant participant ON participant.study_id = study.id
+             WHERE study.study_key = $1 AND participant.participant_key = 'diego'`,
+            [currentStudyKey],
+        );
+        const {rows: [pabloScope]} = await pool.query(
+            `SELECT study.id AS study_id, participant.reviewer_id AS participant_id
+             FROM study JOIN study_participant participant ON participant.study_id = study.id
+             WHERE study.study_key = $1 AND participant.participant_key = 'pablo'`,
+            [currentStudyKey],
+        );
+        await completeStudyForExport(pool, {
+            studyId: primaryScope.study_id, participantId: primaryScope.participant_id,
+            categoryId: categories.get("javier"), pendingCardId: primaryCards.at(-1).pr_card_id,
+        });
+        await completeStudyForExport(pool, {
+            studyId: diegoScope.study_id, participantId: diegoScope.participant_id,
+            categoryId: categories.get("diego"), pendingCardId: null,
+        });
+        const {rows: exportProgress} = await pool.query(
+            `SELECT participant.participant_key,
+                    COUNT(*) FILTER (WHERE classification.id IS NOT NULL OR discard.pr_card_id IS NOT NULL)::integer AS terminal
+             FROM study JOIN study_participant participant ON participant.study_id = study.id
+             JOIN study_card card ON card.study_id = study.id
+             LEFT JOIN pr_classification classification ON classification.study_id = study.id
+                 AND classification.participant_id = participant.reviewer_id AND classification.pr_card_id = card.pr_card_id
+             LEFT JOIN pr_discard discard ON discard.study_id = study.id
+                 AND discard.participant_id = participant.reviewer_id AND discard.pr_card_id = card.pr_card_id
+             WHERE study.study_key = $1 GROUP BY participant.participant_key ORDER BY participant.participant_key`,
+            [currentStudyKey],
+        );
+        assert.deepEqual(exportProgress, [
+            {participant_key: "diego", terminal: 369},
+            {participant_key: "javier", terminal: 368},
+            {participant_key: "pablo", terminal: 1},
+        ]);
+        const incompletePrimaryExport = await mutation(javier, "/export/download", {});
+        assert.equal(incompletePrimaryExport.status, 403);
+        assert.match(incompletePrimaryExport.headers["content-type"], /^text\/plain/);
+        assert.doesNotMatch(incompletePrimaryExport.body, /^pr_id,pr_url/m);
+        const pendingPrimaryCard = await queueCard(javier);
+        assert.equal(pendingPrimaryCard.id, primaryCards.at(-1).pr_card_id);
+        const completedPrimaryCard = await mutation(javier, `/queue/${pendingPrimaryCard.id}/classify`, {
+            category_id: categories.get("javier"), expected_revision: "0",
+        });
+        assert.equal(completedPrimaryCard.status, 303);
+        const primaryTwoParticipantExport = await mutation(javier, "/export/download", {});
+        assert.equal(primaryTwoParticipantExport.status, 200);
+        const primaryTwoParticipantRecords = parseComparisonCsv(primaryTwoParticipantExport.body, 369, 2);
+        assert.equal(primaryTwoParticipantRecords[0].length, 8);
+        assert.equal(primaryTwoParticipantRecords.some(record => record.includes(categoryName("pablo"))), false);
+        process.stdout.write("export369_receipt pending=368/369 rejected=true complete=369 rows=369 columns=8\n");
+
+        await completeStudyForExport(pool, {
+            studyId: pabloScope.study_id, participantId: pabloScope.participant_id,
+            categoryId: categories.get("pablo"), pendingCardId: primaryCards.at(-1).pr_card_id,
+        });
+        const pendingPabloCard = await queueCard(pablo);
+        assert.equal(pendingPabloCard.id, primaryCards.at(-1).pr_card_id);
+        const completedPabloCard = await mutation(pablo, `/queue/${pendingPabloCard.id}/classify`, {
+            category_id: categories.get("pablo"), expected_revision: "0",
+        });
+        assert.equal(completedPabloCard.status, 303);
+        const primaryThreeParticipantExport = await mutation(javier, "/export/download", {});
+        assert.equal(primaryThreeParticipantExport.status, 200);
+        const primaryThreeParticipantRecords = parseComparisonCsv(primaryThreeParticipantExport.body, 369, 3);
+        assert.equal(primaryThreeParticipantRecords[0].length, 11);
+        assert.ok(primaryThreeParticipantRecords.some(record => record.includes(categoryName("pablo"))));
+        process.stdout.write("export369_three_participant_receipt rows=369 columns=11\n");
+
+        const {rows: [validationCompletion]} = await pool.query(
+            `SELECT COUNT(*) FILTER (WHERE classification.id IS NOT NULL OR discard.pr_card_id IS NOT NULL)::integer AS terminal
+             FROM study validation JOIN study_participant participant ON participant.study_id = validation.id
+             JOIN study_card card ON card.study_id = validation.id
+             LEFT JOIN pr_classification classification ON classification.study_id = validation.id
+                 AND classification.participant_id = participant.reviewer_id AND classification.pr_card_id = card.pr_card_id
+             LEFT JOIN pr_discard discard ON discard.study_id = validation.id
+                 AND discard.participant_id = participant.reviewer_id AND discard.pr_card_id = card.pr_card_id
+             WHERE validation.study_key = $1`,
+            [validationStudyKey],
+        );
+        assert.equal(validationCompletion.terminal, 90);
         const {rows: [privacy]} = await pool.query(
             `SELECT COUNT(*) FILTER (WHERE classification.id IS NOT NULL AND category.id IS NULL)::integer AS unowned_classifications,
                     COUNT(*) FILTER (WHERE classification.id IS NOT NULL AND discard.pr_card_id IS NOT NULL)::integer AS contradictory_terminal_states
              FROM pr_classification classification
-             LEFT JOIN participant_category category ON category.id = classification.category_id AND category.study_id = classification.study_id AND category.participant_id = classification.participant_id
-             FULL JOIN pr_discard discard ON discard.study_id = classification.study_id AND discard.participant_id = classification.participant_id AND discard.pr_card_id = classification.pr_card_id
+             LEFT JOIN participant_category category ON category.id = classification.category_id
+                 AND category.study_id = classification.study_id AND category.participant_id = classification.participant_id
+             FULL JOIN pr_discard discard ON discard.study_id = classification.study_id
+                 AND discard.participant_id = classification.participant_id AND discard.pr_card_id = classification.pr_card_id
              WHERE COALESCE(classification.study_id, discard.study_id) = (SELECT id FROM study WHERE study_key = $1)`,
             [validationStudyKey],
         );
         assert.deepEqual(privacy, {unowned_classifications: 0, contradictory_terminal_states: 0});
-        const {rows: [differentDecisions]} = await pool.query(
-            `SELECT current_classification.id IS NOT NULL AS current_classified, validation_discard.pr_card_id IS NOT NULL AS validation_discarded
-             FROM study current_study JOIN study_participant current_participant ON current_participant.study_id = current_study.id AND current_participant.participant_key = 'javier'
-             JOIN study_card current_card ON current_card.study_id = current_study.id AND current_card.source_card_id = $1
-             JOIN pr_classification current_classification ON current_classification.study_id = current_study.id AND current_classification.participant_id = current_participant.reviewer_id AND current_classification.pr_card_id = current_card.pr_card_id
-             JOIN study validation_study ON validation_study.study_key = $3 JOIN study_participant validation_participant ON validation_participant.study_id = validation_study.id AND validation_participant.participant_key = 'javier'
-             JOIN study_card validation_card ON validation_card.study_id = validation_study.id AND validation_card.source_card_id = current_card.source_card_id
-             LEFT JOIN pr_discard validation_discard ON validation_discard.study_id = validation_study.id AND validation_discard.participant_id = validation_participant.reviewer_id AND validation_discard.pr_card_id = validation_card.pr_card_id
-             WHERE current_study.study_key = $2`, [shared.source_card_id, currentStudyKey, validationStudyKey],
-        );
-        assert.deepEqual(differentDecisions, {current_classified: true, validation_discarded: true});
-        assert.equal(await currentFingerprint(pool), fingerprintBefore, "validation work must not change the current 300-study fingerprint");
-
-        const logout = await mutation(clients.get("pablo-30"), "/logout", {});
-        assert.equal(logout.status, 302);
-        assert.equal(logout.headers.location, "/login");
-        assert.equal((await clients.get("pablo-30").request("/queue")).status, 401);
+        for (const client of clients.values()) {
+            const logout = await mutation(client, "/logout", {});
+            assert.equal(logout.status, 302);
+            assert.equal(logout.headers.location, "/login");
+            assert.equal((await client.request("/queue")).status, 401);
+        }
         complete = true;
     } finally {
         await pool.end();
     }
-    if (complete) process.stdout.write("MULTI_STUDY_HOSTILE_E2E_OK\n");
+    if (complete) process.stdout.write("STAGE_MULTI_STUDY_HOSTILE_E2E_OK\nMULTI_STUDY_HOSTILE_E2E_OK\n");
 });
