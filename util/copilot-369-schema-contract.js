@@ -102,13 +102,14 @@ const assertCopilot369SchemaContract = async client => {
     if (temporary.length || replication.session_replication_role !== "origin") {
         throw new Error("Unknown cutover schema execution context: temporary objects or bypassed triggers");
     }
+    const ledger = await readStudyLedger(client, {requireComplete: true});
     const actual = await readCopilot369SchemaContract(client, {normalizeDependencies: true});
     if (!isDeepStrictEqual(actual.migrations, pinned.migrations)
         || digest(JSON.stringify(actual.signatures)) !== pinned.fingerprint) {
         const changed = Object.keys(actual.signatures).filter(key => !isDeepStrictEqual(actual.signatures[key], pinned.signatures[key]));
         throw new Error(`Unknown cutover schema contract: ${changed.join(", ") || "migration source drift"}`);
     }
-    if (!(await readStudyLedger(client, {requireComplete: true})).applied016) {
+    if (!ledger.applied016) {
         throw new Error("Cutover requires the verified schema-4 history migration");
     }
 };

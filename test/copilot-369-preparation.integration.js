@@ -237,7 +237,19 @@ test("Given ordinary shell preparation When both approved routes execute Then ne
         await writeFile(npm, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SHELL_LOG\"\n");
         await chmod(npm, 0o755);
         const node = path.join(bin, "node");
-        await writeFile(node, "#!/bin/sh\n[ \"$1\" = scripts/study-readiness.js ] && [ \"$2\" = --prepare ] || exit 2\nprintf 'readiness\\n' >> \"$SHELL_LOG\"\n[ \"$SHELL_READINESS\" = EMPTY ] || exit 1\nprintf 'EMPTY\\n'\n");
+        await writeFile(node, [
+            "#!/bin/sh",
+            "case \"$*\" in",
+            "'scripts/study-readiness.js --prepare')",
+            "  printf 'readiness\\n' >> \"$SHELL_LOG\"",
+            "  [ \"$SHELL_READINESS\" = EMPTY ] || exit 1",
+            "  printf 'EMPTY\\n' ;;",
+            "scripts/initialize-study-schema.js)",
+            "  printf 'node %s\\n' \"$*\" >> \"$SHELL_LOG\" ;;",
+            "*) exit 2 ;;",
+            "esac",
+            "",
+        ].join("\n"));
         await chmod(node, 0o755);
         for (const [index, profileInput] of [
             {STUDY_PROFILES_INPUT: "/profiles/input.json"},
@@ -252,7 +264,7 @@ test("Given ordinary shell preparation When both approved routes execute Then ne
             assert.equal(result.status, 0, result.stderr);
             const commands = (await readFile(log, "utf8")).trim().split("\n");
             assert.equal(commands[1], "readiness");
-            assert.deepEqual(commands.slice(2, 4), ["run retire:legacy:clean-check", "run migrate:study"]);
+            assert.deepEqual(commands.slice(2, 4), ["run retire:legacy:clean-check", "node scripts/initialize-study-schema.js"]);
             assert.match(commands[4], index === 0 ? /^run prepare:study-profiles$/ : /^run bootstrap:study /);
             assert.doesNotMatch(commands.join("\n"), /enrich:study/);
 
